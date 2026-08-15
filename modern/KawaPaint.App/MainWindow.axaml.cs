@@ -140,6 +140,14 @@ public partial class MainWindow : Window
         StatusText.Text = "Applied: " + fx.Name + " (to " + layer.Name + ")";
     }
 
+    private async void OnBrightnessContrastDialog(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (Canvas.ActiveLayer is null) return;
+        var dlg = new BrightnessContrastDialog(Canvas);
+        await dlg.ShowDialog(this);
+        StatusText.Text = "Brightness / Contrast";
+    }
+
     private void OnUndo(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.Undo();
     private void OnRedo(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.Redo();
     private void OnExit(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Close();

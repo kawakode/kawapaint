@@ -31,6 +31,13 @@ public sealed class LayerSurfaceMemento : HistoryMemento
         _saved = saved;
     }
 
+    /// <summary>
+    /// Builds a memento from an already-captured pre-edit snapshot (ownership transfers to the
+    /// memento). Use when the edit was previewed live and the "before" state was saved earlier.
+    /// </summary>
+    public static LayerSurfaceMemento FromSnapshot(Layer layer, Surface preEditSnapshot, string name)
+        => new(layer, preEditSnapshot, name);
+
     public override HistoryMemento Undo()
     {
         if (_saved is null) throw new ObjectDisposedException(nameof(LayerSurfaceMemento));

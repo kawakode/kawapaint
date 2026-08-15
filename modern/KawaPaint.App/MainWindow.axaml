@@ -22,9 +22,9 @@
                 <MenuItem Header="_Black &amp; White" Tag="gray" Click="OnEffect" />
                 <MenuItem Header="_Sepia" Tag="sepia" Click="OnEffect" />
                 <Separator />
+                <MenuItem Header="Brightness / Contrast…" Click="OnBrightnessContrastDialog" />
                 <MenuItem Header="Brighten" Tag="brighten" Click="OnEffect" />
                 <MenuItem Header="Darken" Tag="darken" Click="OnEffect" />
-                <MenuItem Header="Increase Contrast" Tag="contrast" Click="OnEffect" />
                 <Separator />
                 <MenuItem Header="_Blur" Tag="blur" Click="OnEffect" />
                 <MenuItem Header="Sharpe_n" Tag="sharpen" Click="OnEffect" />

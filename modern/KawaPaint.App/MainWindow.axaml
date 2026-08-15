@@ -17,6 +17,18 @@
                 <MenuItem Header="_Undo" Click="OnUndo" InputGesture="Ctrl+Z" />
                 <MenuItem Header="_Redo" Click="OnRedo" InputGesture="Ctrl+Y" />
             </MenuItem>
+            <MenuItem Header="Effe_cts">
+                <MenuItem Header="_Invert Colors" Tag="invert" Click="OnEffect" />
+                <MenuItem Header="_Black &amp; White" Tag="gray" Click="OnEffect" />
+                <MenuItem Header="_Sepia" Tag="sepia" Click="OnEffect" />
+                <Separator />
+                <MenuItem Header="Brighten" Tag="brighten" Click="OnEffect" />
+                <MenuItem Header="Darken" Tag="darken" Click="OnEffect" />
+                <MenuItem Header="Increase Contrast" Tag="contrast" Click="OnEffect" />
+                <Separator />
+                <MenuItem Header="_Blur" Tag="blur" Click="OnEffect" />
+                <MenuItem Header="Sharpe_n" Tag="sharpen" Click="OnEffect" />
+            </MenuItem>
         </Menu>
         <Border DockPanel.Dock="Top" Background="#282828" Padding="8,5">
             <StackPanel Orientation="Horizontal" Spacing="6">

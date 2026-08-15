@@ -114,6 +114,32 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnEffect(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is not MenuItem mi || mi.Tag is not string tag) return;
+        var layer = Canvas.ActiveLayer;
+        if (layer is null) return;
+
+        KawaPaint.Engine.IEffect fx = tag switch
+        {
+            "invert" => new InvertEffect(),
+            "gray" => new GrayscaleEffect(),
+            "sepia" => new SepiaEffect(),
+            "brighten" => new BrightnessContrastEffect(25, 1.0),
+            "darken" => new BrightnessContrastEffect(-25, 1.0),
+            "contrast" => new BrightnessContrastEffect(0, 1.3),
+            "blur" => new BoxBlurEffect(6),
+            "sharpen" => new SharpenEffect(),
+            _ => new InvertEffect()
+        };
+
+        Canvas.History.Push(new LayerSurfaceMemento(layer, fx.Name));
+        fx.Apply(layer.Surface);
+        Canvas.RenderComposite();
+        Canvas.InvalidateVisual();
+        StatusText.Text = "Applied: " + fx.Name + " (to " + layer.Name + ")";
+    }
+
     private void OnUndo(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.Undo();
     private void OnRedo(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.Redo();
     private void OnExit(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Close();

@@ -1,29 +1,51 @@
 using KawaPaint.Engine;
 
-// Headless test of the tool engine ops: shapes, flood fill, eraser.
+// Headless test of effects: apply each to a copy of a colorful source and tile into a montage.
 
-using var s = new Surface(400, 300);
-s.Clear(ColorBgra.White);
+int tw = 200, th = 150;
+using var source = new Surface(tw, th);
+unsafe
+{
+    for (int y = 0; y < th; y++)
+    {
+        ColorBgra* row = (ColorBgra*)source.GetRowPointer(y);
+        for (int x = 0; x < tw; x++)
+            row[x] = ColorBgra.FromBgr((byte)(x * 255 / tw), (byte)(y * 255 / th),
+                                       (byte)((x + y) * 255 / (tw + th)));
+    }
+}
+// a couple of shapes so blur/sharpen are visible
+ShapeOps.DrawEllipse(source, 60, 40, 140, 110, 3, ColorBgra.White);
+BrushOps.DrawLine(source, 10, 130, 190, 20, 4, ColorBgra.Black);
 
-var blue = ColorBgra.FromBgr(220, 60, 20);
-var red = ColorBgra.FromBgr(20, 20, 220);
-var green = ColorBgr(40, 170, 40);
-var yellow = ColorBgra.FromBgr(40, 210, 240);
+var effects = new IEffect[]
+{
+    new InvertEffect(), new GrayscaleEffect(), new SepiaEffect(),
+    new BrightnessContrastEffect(40, 1.0), new BrightnessContrastEffect(0, 1.6),
+    new BoxBlurEffect(6), new SharpenEffect()
+};
 
-// Rectangle outline, then flood-fill its interior yellow.
-ShapeOps.DrawRectangle(s, 30, 30, 180, 140, 2, blue);
-FloodFill.Fill(s, 100, 85, yellow, 0);
+int cols = 4, rows = 2;
+using var montage = new Surface(tw * cols, th * rows);
+montage.Clear(ColorBgra.FromBgr(30, 30, 30));
 
-// Ellipse outline + a line.
-ShapeOps.DrawEllipse(s, 220, 30, 370, 150, 3, red);
-BrushOps.DrawLine(s, 30, 200, 370, 260, 4, green);
+// Cell 0 = original, then each effect.
+void Blit(Surface src, int cx, int cy)
+{
+    for (int y = 0; y < th; y++)
+        for (int x = 0; x < tw; x++)
+            montage[cx * tw + x, cy * th + y] = src[x, y];
+}
+Blit(source, 0, 0);
+for (int i = 0; i < effects.Length; i++)
+{
+    using var copy = source.Clone();
+    effects[i].Apply(copy);
+    int idx = i + 1;
+    Blit(copy, idx % cols, idx / cols);
+    Console.WriteLine($"applied {effects[i].Name}");
+}
 
-// Eraser: punch a transparent hole out of the filled rectangle.
-BrushOps.FillDisc(s, 105, 90, 22, ColorBgra.Transparent, StampMode.Set);
-
-string outPath = Path.Combine(AppContext.BaseDirectory, "tools_test.png");
-s.Save(outPath);
+string outPath = Path.Combine(AppContext.BaseDirectory, "effects_test.png");
+montage.Save(outPath);
 Console.WriteLine($"saved {outPath}");
-Console.WriteLine($"fill(60,60)={s[60, 60]} erased(105,90)={s[105, 90]}");
-
-static ColorBgra ColorBgr(byte b, byte g, byte r) => ColorBgra.FromBgr(b, g, r);

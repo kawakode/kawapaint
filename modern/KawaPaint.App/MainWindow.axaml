@@ -1,0 +1,21 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:app="clr-namespace:KawaPaint.App"
+        x:Class="KawaPaint.App.MainWindow"
+        Width="1000" Height="700"
+        Title="KawaPaint">
+    <DockPanel>
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="_File">
+                <MenuItem Header="_Open…" Click="OnOpen" />
+                <MenuItem Header="Save _As…" Click="OnSaveAs" />
+                <Separator />
+                <MenuItem Header="E_xit" Click="OnExit" />
+            </MenuItem>
+        </Menu>
+        <Border DockPanel.Dock="Bottom" Background="#202020" Padding="8,3">
+            <TextBlock x:Name="StatusText" Foreground="#C0C0C0" Text="Ready" />
+        </Border>
+        <app:SurfaceView x:Name="Canvas" />
+    </DockPanel>
+</Window>

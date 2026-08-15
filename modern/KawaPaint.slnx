@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="KawaPaint.App/KawaPaint.App.csproj" />
+  <Project Path="KawaPaint.Engine/KawaPaint.Engine.csproj" />
+  <Project Path="KawaPaint.Sandbox/KawaPaint.Sandbox.csproj" />
+</Solution>

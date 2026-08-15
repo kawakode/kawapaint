@@ -13,6 +13,29 @@ public abstract class HistoryMemento : IDisposable
     public virtual void Dispose() { }
 }
 
+/// <summary>
+/// A memento defined by an undo action and a redo action. Undo() runs the undo action and
+/// returns its mirror (redo becomes undo), so it works for both directions. Good for discrete
+/// structural edits (add/delete/reorder/toggle a layer).
+/// </summary>
+public sealed class DelegateMemento : HistoryMemento
+{
+    private readonly Action _undo;
+    private readonly Action _redo;
+
+    public DelegateMemento(string name, Action undo, Action redo) : base(name)
+    {
+        _undo = undo;
+        _redo = redo;
+    }
+
+    public override HistoryMemento Undo()
+    {
+        _undo();
+        return new DelegateMemento(Name, _redo, _undo);
+    }
+}
+
 /// <summary>Snapshots a layer's entire surface. Simple and correct; dirty-rects can come later.</summary>
 public sealed class LayerSurfaceMemento : HistoryMemento
 {

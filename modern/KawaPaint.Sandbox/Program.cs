@@ -1,16 +1,30 @@
 using KawaPaint.Engine;
 
-// Text + move ops.
-using var s = new Surface(360, 160);
-s.Clear(ColorBgra.White);
-TextOps.DrawText(s, "KawaPaint\nAvalonia + Skia", 20, 20, 44, ColorBgra.FromBgr(40, 40, 220));
-BrushOps.FillDisc(s, 300, 110, 30, ColorBgra.FromBgr(220, 120, 20));
-s.Save(Path.Combine(AppContext.BaseDirectory, "text_test.png"));
-Console.WriteLine("saved text_test.png");
+// Structural layer undo/redo via DelegateMemento.
+using var doc = new Document(32, 32);
+var a = doc.AddLayer("A");
+var history = new HistoryStack();
 
-// Move: shift a disc surface by (40,20) and verify the pixel followed.
-using var a = new Surface(100, 100);
-BrushOps.FillDisc(a, 30, 30, 10, ColorBgra.Black);
-using var b = new Surface(100, 100);
-SurfaceOps.ShiftInto(b, a, 40, 20);
-Console.WriteLine($"moved: src(30,30)={a[30, 30]} -> dst(70,50)={b[70, 50]} (should match); dst(30,30)={b[30, 30]} (should be transparent)");
+string Order() => string.Join(",", doc.Layers.Select(l => l.Name));
+
+// Add B
+var b = doc.AddLayer("B");
+history.Push(new DelegateMemento("Add B", () => doc.RemoveLayer(b), () => doc.AddLayer(b)));
+Console.WriteLine($"after add:    {Order()}");
+
+// Reorder: move B (index 1) to bottom (index 0)
+doc.MoveLayer(1, 0);
+history.Push(new DelegateMemento("Reorder", () => doc.MoveLayer(0, 1), () => doc.MoveLayer(1, 0)));
+Console.WriteLine($"after move:   {Order()}");
+
+history.Undo();
+Console.WriteLine($"undo move:    {Order()}   (expect A,B)");
+history.Undo();
+Console.WriteLine($"undo add:     {Order()}   (expect A)");
+history.Redo();
+Console.WriteLine($"redo add:     {Order()}   (expect A,B)");
+history.Redo();
+Console.WriteLine($"redo move:    {Order()}   (expect B,A)");
+
+bool ok = Order() == "B,A" && doc.LayerCount == 2;
+Console.WriteLine($"structural undo/redo intact = {ok}");

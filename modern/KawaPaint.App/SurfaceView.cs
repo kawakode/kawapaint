@@ -152,15 +152,24 @@ public sealed class SurfaceView : Control
     public void Undo()
     {
         History.Undo();
-        RenderComposite();
-        InvalidateVisual();
+        AfterHistoryChange();
     }
 
     public void Redo()
     {
         History.Redo();
+        AfterHistoryChange();
+    }
+
+    private void AfterHistoryChange()
+    {
+        // A structural memento may have added/removed/reordered layers, so re-sync the
+        // active layer and the panel in addition to recompositing.
+        if (_document is not null && (ActiveLayer is null || _document.IndexOf(ActiveLayer) < 0))
+            ActiveLayer = _document.LayerCount > 0 ? _document.Layers[^1] : null;
         RenderComposite();
         InvalidateVisual();
+        DocumentChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void FitToView()

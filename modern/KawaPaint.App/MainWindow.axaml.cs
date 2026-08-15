@@ -329,9 +329,15 @@ public partial class MainWindow : Window
             var layer = doc.Layers[i];
 
             var check = new CheckBox { IsChecked = layer.Visible, VerticalAlignment = VerticalAlignment.Center };
+            var capturedLayer = layer;
             check.IsCheckedChanged += (_, _) =>
             {
-                layer.Visible = check.IsChecked ?? true;
+                if (_suppress) return;
+                bool now = check.IsChecked ?? true;
+                capturedLayer.Visible = now;
+                Canvas.History.Push(new DelegateMemento("Toggle Visibility",
+                    undo: () => capturedLayer.Visible = !now,
+                    redo: () => capturedLayer.Visible = now));
                 Canvas.RenderComposite();
                 Canvas.InvalidateVisual();
             };
@@ -364,15 +370,25 @@ public partial class MainWindow : Window
             Canvas.SetActiveLayer(layer);
     }
 
+    private void RefreshDocument()
+    {
+        Canvas.RenderComposite();
+        Canvas.InvalidateVisual();
+        RebuildLayerPanel();
+    }
+
     private void OnAddLayer(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         var doc = Canvas.Document;
         if (doc is null) return;
         var layer = doc.AddLayer();
-        Canvas.SetActiveLayer(layer);   // fires DocumentChanged -> rebuild
-        Canvas.RenderComposite();
-        Canvas.InvalidateVisual();
-        RebuildLayerPanel();
+        Canvas.SetActiveLayer(layer);
+
+        Canvas.History.Push(new DelegateMemento("Add Layer",
+            undo: () => { doc.RemoveLayer(layer); Canvas.SetActiveLayer(doc.Layers[^1]); },
+            redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); }));
+
+        RefreshDocument();
     }
 
     private void OnDeleteLayer(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -382,13 +398,14 @@ public partial class MainWindow : Window
         if (doc is null || active is null || doc.LayerCount <= 1) return;
 
         int idx = doc.IndexOf(active);
-        doc.RemoveLayer(active);
-        active.Dispose();
-        var next = doc.Layers[Math.Clamp(idx, 0, doc.LayerCount - 1)];
-        Canvas.SetActiveLayer(next);
-        Canvas.RenderComposite();
-        Canvas.InvalidateVisual();
-        RebuildLayerPanel();
+        doc.RemoveLayer(active);   // not disposed: undo may restore it
+        Canvas.SetActiveLayer(doc.Layers[Math.Clamp(idx, 0, doc.LayerCount - 1)]);
+
+        Canvas.History.Push(new DelegateMemento("Delete Layer",
+            undo: () => { doc.InsertLayer(idx, active); Canvas.SetActiveLayer(active); },
+            redo: () => { doc.RemoveLayer(active); Canvas.SetActiveLayer(doc.Layers[Math.Clamp(idx, 0, doc.LayerCount - 1)]); }));
+
+        RefreshDocument();
     }
 
     private void MoveActive(int delta)
@@ -400,9 +417,12 @@ public partial class MainWindow : Window
         int to = from + delta;
         if (to < 0 || to >= doc.LayerCount) return;
         doc.MoveLayer(from, to);
-        Canvas.RenderComposite();
-        Canvas.InvalidateVisual();
-        RebuildLayerPanel();
+
+        Canvas.History.Push(new DelegateMemento("Reorder Layer",
+            undo: () => doc.MoveLayer(to, from),
+            redo: () => doc.MoveLayer(from, to)));
+
+        RefreshDocument();
     }
 
     private void OnLayerUp(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => MoveActive(+1);

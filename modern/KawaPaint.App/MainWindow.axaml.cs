@@ -19,6 +19,7 @@ public partial class MainWindow : Window
         BlendCombo.ItemsSource = Enum.GetValues<BlendMode>();
         Canvas.DocumentChanged += (_, _) => RebuildLayerPanel();
         Canvas.PrimaryColorPicked += OnColorPicked;
+        Canvas.TextRequested += OnTextRequested;
 
         LoadDemoDocument();
     }
@@ -270,6 +271,8 @@ public partial class MainWindow : Window
             "Rect" => new RectangleTool(),
             "Ellipse" => new EllipseTool(),
             "Gradient" => new GradientTool(),
+            "Text" => new TextTool(),
+            "Move" => new MoveTool(),
             "RectSel" => new RectSelectTool(),
             "EllipseSel" => new EllipseSelectTool(),
             "Lasso" => new LassoSelectTool(),
@@ -277,6 +280,24 @@ public partial class MainWindow : Window
         };
         Canvas.CurrentTool = tool;
         StatusText.Text = "Tool: " + tool.Name;
+    }
+
+    private async void OnTextRequested(int x, int y)
+    {
+        var layer = Canvas.ActiveLayer;
+        if (layer is null) return;
+
+        var dlg = new TextDialog();
+        bool ok = await dlg.ShowDialog<bool>(this);
+        if (!ok || string.IsNullOrEmpty(dlg.ResultText)) return;
+
+        var snapshot = layer.Surface.Clone();
+        TextOps.DrawText(layer.Surface, dlg.ResultText, x, y, dlg.ResultSize, Canvas.BrushColor);
+        if (Canvas.Selection is { IsActive: true }) Canvas.Selection.Clip(layer.Surface, snapshot);
+        Canvas.History.Push(LayerSurfaceMemento.FromSnapshot(layer, snapshot, "Text"));
+        Canvas.RenderComposite();
+        Canvas.InvalidateVisual();
+        StatusText.Text = "Added text";
     }
 
     private void OnColorPicked(ColorBgra c)

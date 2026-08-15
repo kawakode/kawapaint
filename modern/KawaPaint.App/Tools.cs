@@ -28,6 +28,7 @@ public sealed class ToolContext
 
     public required Selection Selection { get; init; }
     public required Action SelectionChanged { get; init; }
+    public required Action<int, int> RequestText { get; init; }
 }
 
 public interface ITool
@@ -155,6 +156,34 @@ public sealed class GradientTool : ShapeToolBase
     public override string Name => "Gradient";
     protected override void Draw(ToolContext c, double x0, double y0, double x1, double y1)
         => GradientOps.LinearGradient(c.Layer.Surface, x0, y0, x1, y1, c.PrimaryColor, c.SecondaryColor);
+}
+
+/// <summary>Text tool: a click asks the host to prompt for text and render it at that point.</summary>
+public sealed class TextTool : ITool
+{
+    public string Name => "Text";
+    public void PointerDown(ToolContext c) => c.RequestText(c.IX, c.IY);
+    public void PointerMove(ToolContext c) { }
+    public void PointerUp(ToolContext c) { }
+}
+
+/// <summary>Move tool: drags the whole active layer's content.</summary>
+public sealed class MoveTool : ITool
+{
+    private double _sx, _sy;
+    public string Name => "Move";
+
+    public void PointerDown(ToolContext c) { c.PushHistory(); _sx = c.X; _sy = c.Y; }
+
+    public void PointerMove(ToolContext c)
+    {
+        int dx = (int)Math.Round(c.X - _sx);
+        int dy = (int)Math.Round(c.Y - _sy);
+        SurfaceOps.ShiftInto(c.Layer.Surface, c.PreStroke, dx, dy);
+        c.Composite();
+    }
+
+    public void PointerUp(ToolContext c) { }
 }
 
 public sealed class EllipseTool : ShapeToolBase

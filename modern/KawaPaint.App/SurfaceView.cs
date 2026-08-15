@@ -38,6 +38,9 @@ public sealed class SurfaceView : Control
     /// <summary>Raised by the color-picker tool with the sampled color.</summary>
     public event Action<ColorBgra>? PrimaryColorPicked;
 
+    /// <summary>Raised by the text tool at the clicked image point (x,y).</summary>
+    public event Action<int, int>? TextRequested;
+
     private Surface? _preStroke;
     private ToolContext? _toolCtx;
 
@@ -265,7 +268,8 @@ public sealed class SurfaceView : Control
                         ? _composite[x, y] : ColorBgra.Transparent,
                 SetPrimaryColor = c => { BrushColor = c; PrimaryColorPicked?.Invoke(c); },
                 Selection = Selection!,
-                SelectionChanged = NotifySelectionChanged
+                SelectionChanged = NotifySelectionChanged,
+                RequestText = (x, y) => TextRequested?.Invoke(x, y)
             };
 
             CurrentTool.PointerDown(_toolCtx);

@@ -45,6 +45,8 @@
                 <Button Content="Rect" Tag="Rect" Click="OnTool" />
                 <Button Content="Ellipse" Tag="Ellipse" Click="OnTool" />
                 <Button Content="Gradient" Tag="Gradient" Click="OnTool" />
+                <Button Content="Text" Tag="Text" Click="OnTool" />
+                <Button Content="Move" Tag="Move" Click="OnTool" />
                 <Border Width="1" Background="#505050" Margin="6,2" />
                 <Button Content="▭ Sel" Tag="RectSel" Click="OnTool" />
                 <Button Content="◯ Sel" Tag="EllipseSel" Click="OnTool" />

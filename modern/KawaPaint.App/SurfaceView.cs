@@ -25,10 +25,17 @@ public sealed class SurfaceView : Control
     private bool _fitPending = true;
 
     private bool _drawing;
-    private Point _lastImage;
 
     public ColorBgra BrushColor { get; set; } = ColorBgra.Black;
     public int BrushWidth { get; set; } = 3;
+
+    public ITool CurrentTool { get; set; } = new PencilTool();
+
+    /// <summary>Raised by the color-picker tool with the sampled color.</summary>
+    public event Action<ColorBgra>? PrimaryColorPicked;
+
+    private Surface? _preStroke;
+    private ToolContext? _toolCtx;
 
     public HistoryStack History { get; } = new();
     public Document? Document => _document;
@@ -188,17 +195,32 @@ public sealed class SurfaceView : Control
             _lastPointer = pt.Position;
             e.Pointer.Capture(this);
         }
-        else if (pt.Properties.IsLeftButtonPressed && ActiveLayer is not null)
+        else if (pt.Properties.IsLeftButtonPressed && ActiveLayer is not null && _composite is not null)
         {
             _drawing = true;
-            // Snapshot the layer before the stroke so it can be undone as one unit.
-            History.Push(new LayerSurfaceMemento(ActiveLayer, "Pencil"));
+            Layer layer = ActiveLayer;
 
-            _lastImage = ControlToImage(pt.Position);
-            BrushOps.FillDisc(ActiveLayer.Surface, (int)Math.Round(_lastImage.X), (int)Math.Round(_lastImage.Y),
-                BrushWidth / 2, BrushColor);
-            RenderComposite();
-            InvalidateVisual();
+            _preStroke?.Dispose();
+            _preStroke = layer.Surface.Clone();
+
+            Point img = ControlToImage(pt.Position);
+            _toolCtx = new ToolContext
+            {
+                Layer = layer,
+                PreStroke = _preStroke,
+                PrimaryColor = BrushColor,
+                BrushWidth = BrushWidth,
+                X = img.X,
+                Y = img.Y,
+                PushHistory = () => History.Push(new LayerSurfaceMemento(layer, CurrentTool.Name)),
+                Composite = () => { RenderComposite(); InvalidateVisual(); },
+                SampleComposite = (x, y) =>
+                    (uint)x < (uint)_composite.Width && (uint)y < (uint)_composite.Height
+                        ? _composite[x, y] : ColorBgra.Transparent,
+                SetPrimaryColor = c => { BrushColor = c; PrimaryColorPicked?.Invoke(c); }
+            };
+
+            CurrentTool.PointerDown(_toolCtx);
             e.Pointer.Capture(this);
         }
     }
@@ -214,19 +236,26 @@ public sealed class SurfaceView : Control
             _lastPointer = p;
             InvalidateVisual();
         }
-        else if (_drawing && ActiveLayer is not null)
+        else if (_drawing && _toolCtx is not null)
         {
             Point img = ControlToImage(p);
-            BrushOps.DrawLine(ActiveLayer.Surface, _lastImage.X, _lastImage.Y, img.X, img.Y, BrushWidth / 2, BrushColor);
-            _lastImage = img;
-            RenderComposite();
-            InvalidateVisual();
+            _toolCtx.X = img.X;
+            _toolCtx.Y = img.Y;
+            CurrentTool.PointerMove(_toolCtx);
         }
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
+        if (_drawing)
+        {
+            if (_toolCtx is not null) CurrentTool.PointerUp(_toolCtx);
+            _toolCtx = null;
+            _preStroke?.Dispose();
+            _preStroke = null;
+        }
+
         if (_panning || _drawing)
         {
             _panning = false;

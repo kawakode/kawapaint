@@ -1,44 +1,29 @@
 using KawaPaint.Engine;
 
-// Headless test of the layer/document model: two layers with a blend mode, composite,
-// plus a history undo/redo round-trip.
+// Headless test of the tool engine ops: shapes, flood fill, eraser.
 
-using var doc = new Document(300, 200);
+using var s = new Surface(400, 300);
+s.Clear(ColorBgra.White);
 
-// Bottom layer: opaque blue-green gradient.
-var bottom = doc.AddLayer("Background");
-unsafe
-{
-    for (int y = 0; y < doc.Height; y++)
-    {
-        ColorBgra* row = (ColorBgra*)bottom.Surface.GetRowPointer(y);
-        for (int x = 0; x < doc.Width; x++)
-            row[x] = ColorBgra.FromBgr((byte)(x * 255 / doc.Width), (byte)(y * 255 / doc.Height), 60);
-    }
-}
+var blue = ColorBgra.FromBgr(220, 60, 20);
+var red = ColorBgra.FromBgr(20, 20, 220);
+var green = ColorBgr(40, 170, 40);
+var yellow = ColorBgra.FromBgr(40, 210, 240);
 
-// Top layer: a Multiply-blended orange disc at 70% opacity.
-var top = doc.AddLayer("Overlay");
-top.BlendMode = BlendMode.Multiply;
-top.Opacity = 178;
-BrushOps.FillDisc(top.Surface, 150, 100, 70, ColorBgra.FromBgr(40, 160, 255)); // orange (BGR)
+// Rectangle outline, then flood-fill its interior yellow.
+ShapeOps.DrawRectangle(s, 30, 30, 180, 140, 2, blue);
+FloodFill.Fill(s, 100, 85, yellow, 0);
 
-using (var flat = doc.Flatten())
-{
-    flat.Save(Path.Combine(AppContext.BaseDirectory, "layers_test.png"));
-    Console.WriteLine($"composited {flat.Width}x{flat.Height}, center={flat[150, 100]}");
-}
+// Ellipse outline + a line.
+ShapeOps.DrawEllipse(s, 220, 30, 370, 150, 3, red);
+BrushOps.DrawLine(s, 30, 200, 370, 260, 4, green);
 
-// History round-trip: snapshot the top layer, erase it, undo, redo.
-var history = new HistoryStack();
-var before = top.Surface[150, 100];
-history.Push(new LayerSurfaceMemento(top, "Clear overlay"));
-top.Surface.Clear(ColorBgra.Transparent);
-var afterClear = top.Surface[150, 100];
-history.Undo();
-var afterUndo = top.Surface[150, 100];
-history.Redo();
-var afterRedo = top.Surface[150, 100];
+// Eraser: punch a transparent hole out of the filled rectangle.
+BrushOps.FillDisc(s, 105, 90, 22, ColorBgra.Transparent, StampMode.Set);
 
-Console.WriteLine($"history: before={before} cleared={afterClear} undo={afterUndo} redo={afterRedo}");
-Console.WriteLine($"undo restored = {(before == afterUndo)}, redo re-cleared = {(afterClear == afterRedo)}");
+string outPath = Path.Combine(AppContext.BaseDirectory, "tools_test.png");
+s.Save(outPath);
+Console.WriteLine($"saved {outPath}");
+Console.WriteLine($"fill(60,60)={s[60, 60]} erased(105,90)={s[105, 90]}");
+
+static ColorBgra ColorBgr(byte b, byte g, byte r) => ColorBgra.FromBgr(b, g, r);

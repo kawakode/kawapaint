@@ -18,6 +18,7 @@ public partial class MainWindow : Window
 
         BlendCombo.ItemsSource = Enum.GetValues<BlendMode>();
         Canvas.DocumentChanged += (_, _) => RebuildLayerPanel();
+        Canvas.PrimaryColorPicked += OnColorPicked;
 
         LoadDemoDocument();
     }
@@ -127,6 +128,29 @@ public partial class MainWindow : Window
         byte bl = Convert.ToByte(hex.Substring(5, 2), 16);
         Canvas.BrushColor = ColorBgra.FromBgr(bl, g, r);
         ColorSwatch.Background = new SolidColorBrush(Color.FromRgb(r, g, bl));
+    }
+
+    private void OnTool(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is not Button b || b.Tag is not string tag) return;
+        ITool tool = tag switch
+        {
+            "Eraser" => new EraserTool(),
+            "Fill" => new PaintBucketTool(),
+            "Pick" => new ColorPickerTool(),
+            "Line" => new LineTool(),
+            "Rect" => new RectangleTool(),
+            "Ellipse" => new EllipseTool(),
+            _ => new PencilTool()
+        };
+        Canvas.CurrentTool = tool;
+        StatusText.Text = "Tool: " + tool.Name;
+    }
+
+    private void OnColorPicked(ColorBgra c)
+    {
+        ColorSwatch.Background = new SolidColorBrush(Color.FromRgb(c.R, c.G, c.B));
+        StatusText.Text = $"Picked {c}";
     }
 
     private void OnSize(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)

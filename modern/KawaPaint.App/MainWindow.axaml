@@ -20,6 +20,14 @@
         </Menu>
         <Border DockPanel.Dock="Top" Background="#282828" Padding="8,5">
             <StackPanel Orientation="Horizontal" Spacing="6">
+                <Button Content="Pencil" Tag="Pencil" Click="OnTool" />
+                <Button Content="Eraser" Tag="Eraser" Click="OnTool" />
+                <Button Content="Fill" Tag="Fill" Click="OnTool" />
+                <Button Content="Pick" Tag="Pick" Click="OnTool" />
+                <Button Content="Line" Tag="Line" Click="OnTool" />
+                <Button Content="Rect" Tag="Rect" Click="OnTool" />
+                <Button Content="Ellipse" Tag="Ellipse" Click="OnTool" />
+                <Border Width="1" Background="#505050" Margin="6,2" />
                 <TextBlock Text="Color:" Foreground="#C0C0C0" VerticalAlignment="Center" />
                 <Button Tag="#000000" Click="OnColor" Background="Black" Width="22" Height="22" />
                 <Button Tag="#FFFFFF" Click="OnColor" Background="White" Width="22" Height="22" />

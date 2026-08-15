@@ -7,12 +7,31 @@
     <DockPanel>
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="_File">
+                <MenuItem Header="_New" Click="OnNew" />
                 <MenuItem Header="_Open…" Click="OnOpen" />
                 <MenuItem Header="Save _As…" Click="OnSaveAs" />
                 <Separator />
                 <MenuItem Header="E_xit" Click="OnExit" />
             </MenuItem>
         </Menu>
+        <Border DockPanel.Dock="Top" Background="#282828" Padding="8,5">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <TextBlock Text="Color:" Foreground="#C0C0C0" VerticalAlignment="Center" />
+                <Button Tag="#000000" Click="OnColor" Background="Black" Width="22" Height="22" />
+                <Button Tag="#FFFFFF" Click="OnColor" Background="White" Width="22" Height="22" />
+                <Button Tag="#E01010" Click="OnColor" Background="#E01010" Width="22" Height="22" />
+                <Button Tag="#20B020" Click="OnColor" Background="#20B020" Width="22" Height="22" />
+                <Button Tag="#2050E0" Click="OnColor" Background="#2050E0" Width="22" Height="22" />
+                <Border Width="1" Background="#505050" Margin="6,2" />
+                <TextBlock Text="Size:" Foreground="#C0C0C0" VerticalAlignment="Center" />
+                <Slider x:Name="SizeSlider" Minimum="1" Maximum="64" Value="3" Width="140"
+                        VerticalAlignment="Center" ValueChanged="OnSize" />
+                <TextBlock x:Name="SizeLabel" Text="3 px" Foreground="#C0C0C0"
+                           VerticalAlignment="Center" Width="42" />
+                <Border Width="18" Height="18" x:Name="ColorSwatch" Background="Black"
+                        BorderBrush="#808080" BorderThickness="1" VerticalAlignment="Center" />
+            </StackPanel>
+        </Border>
         <Border DockPanel.Dock="Bottom" Background="#202020" Padding="8,3">
             <TextBlock x:Name="StatusText" Foreground="#C0C0C0" Text="Ready" />
         </Border>

@@ -24,6 +24,15 @@ public sealed class SurfaceView : Control
     private Point _lastPointer;
     private bool _fitPending = true;
 
+    private bool _drawing;
+    private Point _lastImage;        // last painted point, in image space
+
+    /// <summary>Color laid down by the pencil tool.</summary>
+    public ColorBgra BrushColor { get; set; } = ColorBgra.Black;
+
+    /// <summary>Pencil width in pixels.</summary>
+    public int BrushWidth { get; set; } = 3;
+
     public SurfaceView()
     {
         ClipToBounds = true;
@@ -139,14 +148,28 @@ public sealed class SurfaceView : Control
         e.Handled = true;
     }
 
+    private Point ControlToImage(Point p) =>
+        new((p.X - _origin.X) / _zoom, (p.Y - _origin.Y) / _zoom);
+
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
         var pt = e.GetCurrentPoint(this);
+
         if (pt.Properties.IsMiddleButtonPressed || pt.Properties.IsRightButtonPressed)
         {
             _panning = true;
             _lastPointer = pt.Position;
+            e.Pointer.Capture(this);
+        }
+        else if (pt.Properties.IsLeftButtonPressed && _surface is not null)
+        {
+            _drawing = true;
+            _lastImage = ControlToImage(pt.Position);
+            BrushOps.FillDisc(_surface, (int)Math.Round(_lastImage.X), (int)Math.Round(_lastImage.Y),
+                BrushWidth / 2, BrushColor);
+            RefreshBitmap();
+            InvalidateVisual();
             e.Pointer.Capture(this);
         }
     }
@@ -154,19 +177,31 @@ public sealed class SurfaceView : Control
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
-        if (!_panning) return;
         Point p = e.GetPosition(this);
-        _origin += p - _lastPointer;
-        _lastPointer = p;
-        InvalidateVisual();
+
+        if (_panning)
+        {
+            _origin += p - _lastPointer;
+            _lastPointer = p;
+            InvalidateVisual();
+        }
+        else if (_drawing && _surface is not null)
+        {
+            Point img = ControlToImage(p);
+            BrushOps.DrawLine(_surface, _lastImage.X, _lastImage.Y, img.X, img.Y, BrushWidth / 2, BrushColor);
+            _lastImage = img;
+            RefreshBitmap();
+            InvalidateVisual();
+        }
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
-        if (_panning)
+        if (_panning || _drawing)
         {
             _panning = false;
+            _drawing = false;
             e.Pointer.Capture(null);
         }
     }

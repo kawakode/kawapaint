@@ -100,5 +100,31 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnNew(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var surface = new Surface(800, 600);
+        surface.Clear(ColorBgra.White);
+        SetSurface(surface, "New 800×600 canvas — left-drag to draw");
+    }
+
+    private void OnColor(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is not Button b || b.Tag is not string hex) return;
+
+        byte r = Convert.ToByte(hex.Substring(1, 2), 16);
+        byte g = Convert.ToByte(hex.Substring(3, 2), 16);
+        byte bl = Convert.ToByte(hex.Substring(5, 2), 16);
+
+        Canvas.BrushColor = ColorBgra.FromBgr(bl, g, r);
+        ColorSwatch.Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(r, g, bl));
+    }
+
+    private void OnSize(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        int size = (int)Math.Round(e.NewValue);
+        if (Canvas is not null) Canvas.BrushWidth = size;
+        if (SizeLabel is not null) SizeLabel.Text = size + " px";
+    }
+
     private void OnExit(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Close();
 }

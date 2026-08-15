@@ -28,8 +28,45 @@ namespace PaintDotNet.SystemLayer
     {
         private static IntPtr hHeap;
 
+        // Linux port: maps an AllocateBitmap handle (== pixel memory pointer) to its packed
+        // dimensions (width in the high 32 bits, height in the low 32 bits). Needed because
+        // DrawBitmap only receives the handle, and the raw memory carries no size information.
+        private static readonly Dictionary<IntPtr, long> unixBitmapDims = new Dictionary<IntPtr, long>();
+
+        /// <summary>
+        /// Linux port: retrieves the width/height recorded for an AllocateBitmap handle.
+        /// </summary>
+        public static bool TryGetBitmapSize(IntPtr handle, out int width, out int height)
+        {
+            long packed;
+            bool found;
+
+            lock (unixBitmapDims)
+            {
+                found = unixBitmapDims.TryGetValue(handle, out packed);
+            }
+
+            if (found)
+            {
+                width = (int)(packed >> 32);
+                height = (int)(packed & 0xffffffff);
+                return true;
+            }
+
+            width = 0;
+            height = 0;
+            return false;
+        }
+
         static Memory()
         {
+            if (OS.IsUnix)
+            {
+                // Linux port: no Win32 heap object; allocations use the global (libc) heap.
+                Application.ApplicationExit += new EventHandler(Application_ApplicationExit);
+                return;
+            }
+
             hHeap = SafeNativeMethods.HeapCreate(0, IntPtr.Zero, IntPtr.Zero);
 
             uint info = 2;
@@ -58,6 +95,30 @@ namespace PaintDotNet.SystemLayer
         {
             get
             {
+                if (OS.IsUnix)
+                {
+                    // Linux port: read MemTotal from /proc/meminfo.
+                    try
+                    {
+                        foreach (string line in System.IO.File.ReadAllLines("/proc/meminfo"))
+                        {
+                            if (line.StartsWith("MemTotal:"))
+                            {
+                                string[] parts = line.Split(
+                                    new char[] { ' ', '\t' },
+                                    StringSplitOptions.RemoveEmptyEntries);
+                                return ulong.Parse(parts[1]) * 1024UL;
+                            }
+                        }
+                    }
+
+                    catch (Exception)
+                    {
+                    }
+
+                    return 2UL * 1024UL * 1024UL * 1024UL; // 2 GB fallback
+                }
+
                 NativeStructs.MEMORYSTATUSEX mse = new NativeStructs.MEMORYSTATUSEX();
                 mse.dwLength = (uint)sizeof(NativeStructs.MEMORYSTATUSEX);
 
@@ -74,6 +135,12 @@ namespace PaintDotNet.SystemLayer
 
         private static void DestroyHeap()
         {
+            // Linux port: nothing to destroy (global heap is used).
+            if (OS.IsUnix)
+            {
+                return;
+            }
+
             IntPtr hHeap2 = hHeap;
             hHeap = IntPtr.Zero;
             SafeNativeMethods.HeapDestroy(hHeap2);
@@ -92,6 +159,19 @@ namespace PaintDotNet.SystemLayer
         /// <exception cref="OutOfMemoryException">Thrown if the memory manager could not fulfill the request for a memory block at least as large as <b>bytes</b>.</exception>
         public static IntPtr Allocate(ulong bytes)
         {
+            if (OS.IsUnix)
+            {
+                // Linux port: allocate from the global heap.
+                IntPtr ublock = Marshal.AllocHGlobal(new IntPtr((long)bytes));
+
+                if (ublock == IntPtr.Zero)
+                {
+                    throw new OutOfMemoryException("AllocHGlobal returned a null pointer");
+                }
+
+                return ublock;
+            }
+
             if (hHeap == IntPtr.Zero)
             {
                 throw new InvalidOperationException("heap has already been destroyed");
@@ -126,7 +206,13 @@ namespace PaintDotNet.SystemLayer
         /// </remarks>
         public static IntPtr AllocateLarge(ulong bytes)
         {
-            IntPtr block = SafeNativeMethods.VirtualAlloc(IntPtr.Zero, new UIntPtr(bytes), 
+            if (OS.IsUnix)
+            {
+                // Linux port: no VirtualAlloc; use the global heap.
+                return Allocate(bytes);
+            }
+
+            IntPtr block = SafeNativeMethods.VirtualAlloc(IntPtr.Zero, new UIntPtr(bytes),
                 NativeConstants.MEM_COMMIT, NativeConstants.PAGE_READWRITE);
 
             if (block == IntPtr.Zero)
@@ -163,6 +249,34 @@ namespace PaintDotNet.SystemLayer
         /// </remarks>
         public static IntPtr AllocateBitmap(int width, int height, out IntPtr handle)
         {
+            if (OS.IsUnix)
+            {
+                // Linux port: no GDI DIB section. Allocate plain BGRA memory (stride = width*4,
+                // top-down) and use the pixel pointer itself as the unique, non-zero handle.
+                // PdnGraphics.DrawBitmap reconstructs a Bitmap from this memory on Unix.
+                long uBytes = (long)width * (long)height * 4;
+                IntPtr uBits = Marshal.AllocHGlobal(new IntPtr(uBytes));
+
+                if (uBits == IntPtr.Zero)
+                {
+                    throw new OutOfMemoryException("AllocHGlobal returned NULL while attempting to allocate " + width + "x" + height + " bitmap");
+                }
+
+                handle = uBits;
+
+                lock (unixBitmapDims)
+                {
+                    unixBitmapDims[uBits] = ((long)width << 32) | (uint)height;
+                }
+
+                if (uBytes > 0)
+                {
+                    GC.AddMemoryPressure(uBytes);
+                }
+
+                return uBits;
+            }
+
             NativeStructs.BITMAPINFO bmi = new NativeStructs.BITMAPINFO();
             bmi.bmiHeader.biSize = (uint)sizeof(NativeStructs.BITMAPINFOHEADER);
             bmi.bmiHeader.biWidth = width;
@@ -211,6 +325,24 @@ namespace PaintDotNet.SystemLayer
         {
             long bytes = (long)width * (long)height * 4;
 
+            if (OS.IsUnix)
+            {
+                // Linux port: the handle is the pixel memory pointer.
+                lock (unixBitmapDims)
+                {
+                    unixBitmapDims.Remove(handle);
+                }
+
+                Marshal.FreeHGlobal(handle);
+
+                if (bytes > 0)
+                {
+                    GC.RemoveMemoryPressure(bytes);
+                }
+
+                return;
+            }
+
             bool bResult = SafeNativeMethods.DeleteObject(handle);
 
             if (!bResult)
@@ -231,6 +363,13 @@ namespace PaintDotNet.SystemLayer
         /// <exception cref="InvalidOperationException">There was an error freeing the block.</exception>
         public static void Free(IntPtr block)
         {
+            if (OS.IsUnix)
+            {
+                // Linux port: free from the global heap.
+                Marshal.FreeHGlobal(block);
+                return;
+            }
+
             if (Memory.hHeap != IntPtr.Zero)
             {
                 long bytes = (long)SafeNativeMethods.HeapSize(hHeap, 0, block);
@@ -263,6 +402,19 @@ namespace PaintDotNet.SystemLayer
         /// <param name="bytes">The size of the block.</param>
         public static void FreeLarge(IntPtr block, ulong bytes)
         {
+            if (OS.IsUnix)
+            {
+                // Linux port: free from the global heap.
+                Marshal.FreeHGlobal(block);
+
+                if (bytes > 0)
+                {
+                    GC.RemoveMemoryPressure((long)bytes);
+                }
+
+                return;
+            }
+
             bool result = SafeNativeMethods.VirtualFree(block, UIntPtr.Zero, NativeConstants.MEM_RELEASE);
 
             if (!result)
@@ -311,6 +463,12 @@ namespace PaintDotNet.SystemLayer
                 throw new InvalidOperationException("May not specify a page to be write-only");
             }
 
+            // Linux port: page protection is documented as an allowed no-op after validation.
+            if (OS.IsUnix)
+            {
+                return;
+            }
+
 #if DEBUGSPEW
             Tracing.Ping("ProtectBlockLarge: block #" + block.ToString() + ", read: " + readAccess + ", write: " + writeAccess);
 #endif
@@ -339,6 +497,26 @@ namespace PaintDotNet.SystemLayer
         /// <param name="length">The number of bytes to copy</param>
         public static void Copy(void *dst, void *src, ulong length)
         {
+            if (OS.IsUnix)
+            {
+                // Linux port: pointer copy instead of msvcrt memcpy (8 bytes at a time).
+                byte *d = (byte *)dst;
+                byte *s = (byte *)src;
+                ulong i = 0;
+
+                for (; i + 8 <= length; i += 8)
+                {
+                    *((long *)(d + i)) = *((long *)(s + i));
+                }
+
+                for (; i < length; ++i)
+                {
+                    d[i] = s[i];
+                }
+
+                return;
+            }
+
             SafeNativeMethods.memcpy(dst, src, new UIntPtr(length));
         }
 
@@ -349,6 +527,20 @@ namespace PaintDotNet.SystemLayer
 
         public static void SetToZero(void *dst, ulong length)
         {
+            if (OS.IsUnix)
+            {
+                // Linux port: zero the block without msvcrt memset.
+                byte *p = (byte *)dst;
+                ulong i = 0;
+
+                for (; i < length; ++i)
+                {
+                    p[i] = 0;
+                }
+
+                return;
+            }
+
             SafeNativeMethods.memset(dst, 0, new UIntPtr(length));
         }
     }

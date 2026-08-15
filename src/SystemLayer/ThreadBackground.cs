@@ -43,7 +43,8 @@ namespace PaintDotNet.SystemLayer
                 activeFlags |= ThreadBackgroundFlags.Cpu;
             }
 
-            if (Environment.OSVersion.Version >= OS.WindowsVista &&
+            if (!OS.IsUnix &&
+                Environment.OSVersion.Version >= OS.WindowsVista &&
                 (flags & ThreadBackgroundFlags.IO) == ThreadBackgroundFlags.IO &&
                 (activeFlags & ThreadBackgroundFlags.IO) != ThreadBackgroundFlags.IO)
             {
@@ -89,7 +90,8 @@ namespace PaintDotNet.SystemLayer
                     activeFlags &= ~ThreadBackgroundFlags.Cpu;
                 }
 
-                if (Environment.OSVersion.Version >= OS.WindowsVista &&
+                if (!OS.IsUnix &&
+                    Environment.OSVersion.Version >= OS.WindowsVista &&
                     (activeFlags & ThreadBackgroundFlags.IO) == ThreadBackgroundFlags.IO)
                 {
                     IntPtr hThread = SafeNativeMethods.GetCurrentThread();

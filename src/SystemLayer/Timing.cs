@@ -42,7 +42,16 @@ namespace PaintDotNet.SystemLayer
         public ulong GetTickCount()
         {
             ulong tick;
-            SafeNativeMethods.QueryPerformanceCounter(out tick);
+
+            if (OS.IsUnix)
+            {
+                tick = (ulong)System.Diagnostics.Stopwatch.GetTimestamp();
+            }
+            else
+            {
+                SafeNativeMethods.QueryPerformanceCounter(out tick);
+            }
+
             return tick / countsPerMs;
         }
 
@@ -53,7 +62,16 @@ namespace PaintDotNet.SystemLayer
         public double GetTickCountDouble()
         {
             ulong tick;
-            SafeNativeMethods.QueryPerformanceCounter(out tick);
+
+            if (OS.IsUnix)
+            {
+                tick = (ulong)System.Diagnostics.Stopwatch.GetTimestamp();
+            }
+            else
+            {
+                SafeNativeMethods.QueryPerformanceCounter(out tick);
+            }
+
             return (double)tick / countsPerMsDouble;
         }
 
@@ -64,7 +82,12 @@ namespace PaintDotNet.SystemLayer
         {
             ulong frequency;
 
-            if (!SafeNativeMethods.QueryPerformanceFrequency(out frequency))
+            if (OS.IsUnix)
+            {
+                // Linux port: use the managed high-resolution timer.
+                frequency = (ulong)System.Diagnostics.Stopwatch.Frequency;
+            }
+            else if (!SafeNativeMethods.QueryPerformanceFrequency(out frequency))
             {
                 NativeMethods.ThrowOnWin32Error("QueryPerformanceFrequency returned false");
             }

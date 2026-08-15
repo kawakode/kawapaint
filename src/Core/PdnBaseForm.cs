@@ -94,6 +94,48 @@ namespace PaintDotNet
             isShown = true;
             Tracing.LogFeature("ShowDialog(" + GetType().FullName + ")");
             base.OnShown(e);
+
+            // Linux port: Mono's X11 driver under Wayland/XWayland compositors does not paint
+            // the client area on initial show -- it only blits its backing store when the window
+            // actually changes size. Force a one-shot resize "nudge" just after the window is
+            // shown so its contents (and all child controls) become visible.
+            if (OS.IsUnix)
+            {
+                NudgeRepaintForUnix();
+            }
+        }
+
+        private void NudgeRepaintForUnix()
+        {
+            System.Windows.Forms.Timer nudgeTimer = new System.Windows.Forms.Timer();
+            nudgeTimer.Interval = 200;
+            nudgeTimer.Tick += delegate(object sender, EventArgs args)
+            {
+                nudgeTimer.Stop();
+                nudgeTimer.Dispose();
+
+                try
+                {
+                    if (this.WindowState == FormWindowState.Maximized)
+                    {
+                        this.WindowState = FormWindowState.Normal;
+                        this.WindowState = FormWindowState.Maximized;
+                    }
+                    else
+                    {
+                        this.Size = new Size(this.Width + 1, this.Height + 1);
+                        this.Size = new Size(this.Width - 1, this.Height - 1);
+                    }
+
+                    this.Invalidate(true);
+                    this.Update();
+                }
+
+                catch (Exception)
+                {
+                }
+            };
+            nudgeTimer.Start();
         }
 
         public bool IsShown

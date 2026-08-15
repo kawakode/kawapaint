@@ -6,7 +6,7 @@
     <ProjectGuid>{34920450-488E-41DF-8565-AA22C2A56902}</ProjectGuid>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ApplicationIcon>Resources\icons\PaintDotNet.ico</ApplicationIcon>
+    <ApplicationIcon>Resources\Icons\PaintDotNet.ico</ApplicationIcon>
     <AssemblyKeyContainerName>
     </AssemblyKeyContainerName>
     <AssemblyName>PaintDotNet</AssemblyName>
@@ -84,7 +84,7 @@
   <ItemGroup>
     <Reference Include="ICSharpCode.SharpZipLib, Version=0.85.0.0, Culture=neutral, PublicKeyToken=1b03e6acf1164f73, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>SharpZipLib\Bin\ICSharpCode.SharpZipLib.dll</HintPath>
+      <HintPath>SharpZipLib\bin\ICSharpCode.SharpZipLib.dll</HintPath>
     </Reference>
     <Reference Include="System">
       <Name>System</Name>
@@ -586,46 +586,7 @@
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
-    <PreBuildEvent>
-    </PreBuildEvent>
-    <PostBuildEvent>@rem Embed manifest
-call "$(SolutionDir)Manifests\embedManifest.bat" "$(TargetPath)" "$(SolutionDir)Manifests\asInvoker.xml"
-call "$(SolutionDir)Manifests\embedManifest.bat" "$(ProjectDir)obj\$(ConfigurationName)\$(TargetFileName)" "$(SolutionDir)Manifests\asInvoker.xml"
-
-@rem Sign
-rem call "$(SolutionDir)signfile.bat" "$(ProjectDir)obj\$(ConfigurationName)\$(TargetFileName)"
-rem call "$(SolutionDir)signfile.bat" "$(TargetPath)"
-
-@rem copy Interop.WIA.dll over
-copy "$(SolutionDir)\Interop.WIA\Interop.WIA.dll" "$(TargetDir)"
-
-@rem Copy DDS over
-mkdir "$(TargetDir)\FileTypes"
-
-copy "$(SolutionDir)\DdsFileType\DdsFileType\bin\$(ConfigurationName)\DdsFileType.dll" "$(TargetDir)\FileTypes"
-
-copy "$(SolutionDir)\DdsFileType\Squish\Squish_x86\$(ConfigurationName)\Squish_x86.dll" "$(TargetDir)"
-copy "$(SolutionDir)\DdsFileType\Squish\Squish_x86_SSE2\$(ConfigurationName)\Squish_x86_SSE2.dll" "$(TargetDir)"
-copy "$(SolutionDir)\DdsFileType\Squish\Squish_x64\$(ConfigurationName)\Squish_x64.dll" "$(TargetDir)"
-
-@rem copy SystemLayer.Native.*.dll over
-rem copy "$(SolutionDir)\SystemLayer.Native\SystemLayer.Native.x64\$(ConfigurationName)\PaintDotNet.SystemLayer.Native.x64.dll" "$(TargetDir)"
-rem copy "$(SolutionDir)\SystemLayer.Native\SystemLayer.Native.x86\$(ConfigurationName)\PaintDotNet.SystemLayer.Native.x86.dll" "$(TargetDir)"
-
-@rem copy ShellExtension_*.dll over
-copy "$(SolutionDir)\ShellExtension\ShellExtension_x64\$(ConfigurationName)\ShellExtension_x64.dll" "$(TargetDir)"
-copy "$(SolutionDir)\ShellExtension\ShellExtension_x86\$(ConfigurationName)\ShellExtension_x86.dll" "$(TargetDir)"
-
-@rem copy WiaProxy32.exe over
-copy "$(SolutionDir)\WiaProxy32\bin\$(ConfigurationName)\WiaProxy32.exe" "$(TargetDir)"
-
-@rem copy English strings over
-copy "$(SolutionDir)\Strings\$(ConfigurationName)\PaintDotNet.Strings.3.resources" "$(TargetDir)"
-
-@rem copy non-English strings (we won't copy the other file/image resource overrides)
-copy "$(SolutionDir)\Resources.mui\*.resources" "$(TargetDir)"
-
-:done
-rem call "$(ProjectDir)prejit.bat" "$(TargetPath)"</PostBuildEvent>
+    <PreBuildEvent></PreBuildEvent>
+    <PostBuildEvent></PostBuildEvent>
   </PropertyGroup>
 </Project>

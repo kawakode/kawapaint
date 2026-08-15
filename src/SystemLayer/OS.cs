@@ -30,6 +30,19 @@ namespace PaintDotNet.SystemLayer
             }
         }
 
+        /// <summary>
+        /// Linux port: true when running on a non-Windows (Unix/macOS) platform under Mono.
+        /// Used throughout SystemLayer to guard Win32-only P/Invoke paths.
+        /// </summary>
+        public static bool IsUnix
+        {
+            get
+            {
+                return Environment.OSVersion.Platform == PlatformID.Unix ||
+                       Environment.OSVersion.Platform == PlatformID.MacOSX;
+            }
+        }
+
         public static Version WindowsXP
         {
             get
@@ -261,6 +274,14 @@ namespace PaintDotNet.SystemLayer
         // * or later (must be NT-based)
         public static bool CheckOSRequirement()
         {
+            // Linux port: on non-Windows (Unix/Mono) platforms, bypass the Windows
+            // version gate entirely and consider the OS requirement satisfied.
+            if (Environment.OSVersion.Platform == PlatformID.Unix ||
+                Environment.OSVersion.Platform == PlatformID.MacOSX)
+            {
+                return true;
+            }
+
             // Just say "no" to Windows 9x
             if (Environment.OSVersion.Platform != PlatformID.Win32NT)
             {

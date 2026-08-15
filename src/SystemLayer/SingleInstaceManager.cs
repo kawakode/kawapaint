@@ -228,6 +228,16 @@ namespace PaintDotNet.SystemLayer
 
             this.mappingName = "Local\\" + moniker;
 
+            // Linux port: no Win32 shared-memory / window-message IPC available.
+            // Degrade gracefully: always behave as the first (and only) instance.
+            if (Environment.OSVersion.Platform == PlatformID.Unix ||
+                Environment.OSVersion.Platform == PlatformID.MacOSX)
+            {
+                this.hFileMapping = IntPtr.Zero;
+                this.isFirstInstance = true;
+                return;
+            }
+
             this.hFileMapping = SafeNativeMethods.CreateFileMappingW(
                 NativeConstants.INVALID_HANDLE_VALUE,
                 IntPtr.Zero,
@@ -248,6 +258,12 @@ namespace PaintDotNet.SystemLayer
 
         private void WriteHandleValueToMappedFile(IntPtr hValue)
         {
+            // Linux port: no file mapping was created; nothing to write.
+            if (this.hFileMapping == IntPtr.Zero)
+            {
+                return;
+            }
+
             int error = NativeConstants.ERROR_SUCCESS;
             bool bResult = true;
 
@@ -286,6 +302,12 @@ namespace PaintDotNet.SystemLayer
 
         private IntPtr ReadHandleFromFromMappedFile()
         {
+            // Linux port: no file mapping was created; no handle to read.
+            if (this.hFileMapping == IntPtr.Zero)
+            {
+                return IntPtr.Zero;
+            }
+
             int error = NativeConstants.ERROR_SUCCESS;
 
             IntPtr lpData = SafeNativeMethods.MapViewOfFile(

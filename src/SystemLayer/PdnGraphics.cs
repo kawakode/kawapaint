@@ -150,6 +150,37 @@ namespace PaintDotNet.SystemLayer
             dstMatrix.TransformPoints(points);
             dstRect.Location = points[0];
 
+            if (OS.IsUnix)
+            {
+                // Linux port: the handle is the raw BGRA pixel pointer from Memory.AllocateBitmap.
+                // Wrap it in a Bitmap and blit the requested sub-rectangle 1:1 through GDI+
+                // (Format32bppRgb ignores alpha, matching the Windows BitBlt SRCCOPY path).
+                int srcW, srcH;
+
+                if (Memory.TryGetBitmapSize(srcBitmapHandle, out srcW, out srcH))
+                {
+                    int stride = srcW * 4;
+
+                    using (Bitmap srcBmp = new Bitmap(srcW, srcH, stride, PixelFormat.Format32bppRgb, srcBitmapHandle))
+                    {
+                        Rectangle srcRect = new Rectangle(srcOffsetX, srcOffsetY, dstRect.Width, dstRect.Height);
+
+                        InterpolationMode oldInterp = dst.InterpolationMode;
+                        PixelOffsetMode oldPixel = dst.PixelOffsetMode;
+                        dst.InterpolationMode = InterpolationMode.NearestNeighbor;
+                        dst.PixelOffsetMode = PixelOffsetMode.Half;
+
+                        dst.DrawImage(srcBmp, dstRect, srcRect, GraphicsUnit.Pixel);
+
+                        dst.InterpolationMode = oldInterp;
+                        dst.PixelOffsetMode = oldPixel;
+                    }
+                }
+
+                GC.KeepAlive(dst);
+                return;
+            }
+
             IntPtr hdc = IntPtr.Zero;
             IntPtr hbitmap = IntPtr.Zero;
             IntPtr chdc = IntPtr.Zero;
@@ -267,6 +298,22 @@ namespace PaintDotNet.SystemLayer
 
         private const int screwUpMax = 100;
 
+        // Linux port helper: clamps a float coordinate to the valid int range.
+        private static int ClampToInt(float value)
+        {
+            if (value <= int.MinValue)
+            {
+                return int.MinValue;
+            }
+
+            if (value >= int.MaxValue)
+            {
+                return int.MaxValue;
+            }
+
+            return (int)value;
+        }
+
         /// <summary>
         /// Retrieves an array of rectangles that approximates a region, and computes the
         /// pixel area of it. This method is necessary to work around some bugs in .NET
@@ -280,6 +327,36 @@ namespace PaintDotNet.SystemLayer
         /// and process the data for the 'out' variables.</remarks>
         public static void GetRegionScans(Region region, out Rectangle[] scans, out int area)
         {
+            if (OS.IsUnix)
+            {
+                // Linux port: use the managed region scan enumeration (documented fallback).
+                // "Infinite" regions come back with enormous bounds, so clamp coordinates to
+                // the int range and accumulate area in a long to avoid overflow.
+                using (System.Drawing.Drawing2D.Matrix identity = new System.Drawing.Drawing2D.Matrix())
+                {
+                    RectangleF[] scansF = region.GetRegionScans(identity);
+                    scans = new Rectangle[scansF.Length];
+                    long areaLong = 0;
+
+                    for (int i = 0; i < scansF.Length; ++i)
+                    {
+                        Rectangle r = Rectangle.FromLTRB(
+                            ClampToInt(scansF[i].Left),
+                            ClampToInt(scansF[i].Top),
+                            ClampToInt(scansF[i].Right),
+                            ClampToInt(scansF[i].Bottom));
+
+                        scans[i] = r;
+                        areaLong += (long)r.Width * (long)r.Height;
+                    }
+
+                    area = (areaLong > int.MaxValue) ? int.MaxValue : (int)areaLong;
+                }
+
+                GC.KeepAlive(region);
+                return;
+            }
+
             using (NullGraphics nullGraphics = new NullGraphics())
             {
                 IntPtr hRgn = IntPtr.Zero;
@@ -331,6 +408,21 @@ namespace PaintDotNet.SystemLayer
         {
             if (points.Length < 1)
             {
+                return;
+            }
+
+            if (OS.IsUnix)
+            {
+                // Linux port: thunk straight to GDI+ (documented fallback).
+                if (points.Length >= 2)
+                {
+                    using (Pen pen2 = new Pen(color))
+                    {
+                        g.DrawLines(pen2, points);
+                    }
+                }
+
+                GC.KeepAlive(g);
                 return;
             }
 
@@ -421,6 +513,21 @@ namespace PaintDotNet.SystemLayer
 
         private static void FillRectanglesImpl(Graphics g, Color color, Rectangle[] rects)
         {
+            if (OS.IsUnix)
+            {
+                // Linux port: thunk straight to GDI+ (documented fallback).
+                if (rects.Length > 0)
+                {
+                    using (SolidBrush brush2 = new SolidBrush(color))
+                    {
+                        g.FillRectangles(brush2, rects);
+                    }
+                }
+
+                GC.KeepAlive(g);
+                return;
+            }
+
             uint nativeColor = (uint)(color.R  + (color.G << 8) + (color.B << 16));
 
             IntPtr hdc = IntPtr.Zero;

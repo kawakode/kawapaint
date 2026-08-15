@@ -81,6 +81,14 @@ namespace PaintDotNet.SystemLayer
 
         private uint WaitForAll(uint dwTimeout)
         {
+            if (OS.IsUnix)
+            {
+                // Linux port: no STA restriction under Mono, so use the managed wait.
+                int ms = (dwTimeout == NativeConstants.INFINITE) ? Timeout.Infinite : (int)dwTimeout;
+                bool all = WaitHandle.WaitAll(this.waitHandles, ms);
+                return all ? NativeConstants.WAIT_OBJECT_0 : NativeConstants.WAIT_TIMEOUT;
+            }
+
             return SafeNativeMethods.WaitForMultipleObjects(this.nativeHandles, true, dwTimeout);
         }
 
@@ -121,6 +129,12 @@ namespace PaintDotNet.SystemLayer
         /// </returns>
         public int WaitAny()
         {
+            if (OS.IsUnix)
+            {
+                // Linux port: no STA restriction under Mono, so use the managed wait.
+                return WaitHandle.WaitAny(this.waitHandles);
+            }
+
             int returnVal = (int)SafeNativeMethods.WaitForMultipleObjects(this.nativeHandles, false, NativeConstants.INFINITE);
             return returnVal;
         }

@@ -32,6 +32,12 @@ namespace PaintDotNet.SystemLayer
 
         public static void FlashForm(Form form)
         {
+            // Linux port: no taskbar-flash API; no-op.
+            if (OS.IsUnix)
+            {
+                return;
+            }
+
             IntPtr hWnd = form.Handle;
             SafeNativeMethods.FlashWindow(hWnd, false);
             SafeNativeMethods.FlashWindow(hWnd, false);
@@ -57,7 +63,7 @@ namespace PaintDotNet.SystemLayer
         {
             int returnVal;
 
-            if (OS.IsVistaOrLater)
+            if (!OS.IsUnix && OS.IsVistaOrLater)
             {
                 unsafe
                 {
@@ -304,6 +310,12 @@ namespace PaintDotNet.SystemLayer
         /// </remarks>
         private static void SetControlRedrawImpl(Control control, bool enabled)
         {
+            // Linux port: WM_SETREDRAW paint suppression is an optimization; no-op here.
+            if (OS.IsUnix)
+            {
+                return;
+            }
+
             SafeNativeMethods.SendMessageW(control.Handle, NativeConstants.WM_SETREDRAW, enabled ? new IntPtr(1) : IntPtr.Zero, IntPtr.Zero);
             GC.KeepAlive(control);
         }
@@ -412,7 +424,7 @@ namespace PaintDotNet.SystemLayer
             return (pushCount == 0);
         }
 
-        private static IntPtr hRgn = SafeNativeMethods.CreateRectRgn(0, 0, 1, 1);
+        private static IntPtr hRgn = OS.IsUnix ? IntPtr.Zero : SafeNativeMethods.CreateRectRgn(0, 0, 1, 1);
 
         /// <summary>
         /// This method retrieves the update region of a control.
@@ -428,6 +440,12 @@ namespace PaintDotNet.SystemLayer
         /// </remarks>
         public static Rectangle[] GetUpdateRegion(Control control)
         {
+            // Linux port: implemented as a no-op (documented fallback returns null).
+            if (OS.IsUnix)
+            {
+                return null;
+            }
+
             SafeNativeMethods.GetUpdateRgn(control.Handle, hRgn, false);
             Rectangle[] scans;
             int area;
@@ -450,6 +468,15 @@ namespace PaintDotNet.SystemLayer
             if (opacity < 0.0 || opacity > 1.0)
             {
                 throw new ArgumentOutOfRangeException("opacity", "must be in the range [0, 1]");
+            }
+
+            // Linux port: do NOT touch Form.Opacity here. Under Mono, setting Form.Opacity
+            // (even to 1.0) turns the window into a layered/ARGB window, which XWayland/KWin
+            // fails to composite -- the client area then renders transparent/blank. Translucent
+            // tool windows simply stay fully opaque on Linux, which is an acceptable trade.
+            if (OS.IsUnix)
+            {
+                return;
             }
 
             uint exStyle = SafeNativeMethods.GetWindowLongW(form.Handle, NativeConstants.GWL_EXSTYLE);
@@ -584,6 +611,12 @@ namespace PaintDotNet.SystemLayer
 
         public static void EnableShield(Button button, bool enableShield)
         {
+            // Linux port: UAC shield icon is Windows-only; no-op.
+            if (OS.IsUnix)
+            {
+                return;
+            }
+
             IntPtr hWnd = button.Handle;
 
             SafeNativeMethods.SendMessageW(
@@ -598,11 +631,28 @@ namespace PaintDotNet.SystemLayer
         // TODO: get rid of this somehow! (this will happen when Layers window is rewritten, post-3.0)
         public static bool HideHorizontalScrollBar(Control c)
         {
+            // Linux port: no direct scrollbar-hide API; no-op.
+            if (OS.IsUnix)
+            {
+                return false;
+            }
+
             return SafeNativeMethods.ShowScrollBar(c.Handle, NativeConstants.SB_HORZ, false);
         }
 
         public static void RestoreWindow(IWin32Window window)
         {
+            // Linux port: use managed WindowState where possible.
+            if (OS.IsUnix)
+            {
+                Form form = window as Form;
+                if (form != null)
+                {
+                    form.WindowState = FormWindowState.Normal;
+                }
+                return;
+            }
+
             IntPtr hWnd = window.Handle;
             SafeNativeMethods.ShowWindow(hWnd, NativeConstants.SW_RESTORE);
             GC.KeepAlive(window);
@@ -610,6 +660,13 @@ namespace PaintDotNet.SystemLayer
 
         public static void ShowComboBox(ComboBox comboBox, bool show)
         {
+            // Linux port: use the managed DroppedDown property.
+            if (OS.IsUnix)
+            {
+                comboBox.DroppedDown = show;
+                return;
+            }
+
             IntPtr hWnd = comboBox.Handle;
 
             SafeNativeMethods.SendMessageW(
@@ -631,6 +688,12 @@ namespace PaintDotNet.SystemLayer
         /// </remarks>
         public static void DisableCloseBox(IWin32Window window)
         {
+            // Linux port: no system-menu manipulation available; best-effort no-op.
+            if (OS.IsUnix)
+            {
+                return;
+            }
+
             IntPtr hWnd = window.Handle;
             IntPtr hMenu = SafeNativeMethods.GetSystemMenu(hWnd, false);
 

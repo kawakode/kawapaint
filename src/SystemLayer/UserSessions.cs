@@ -87,7 +87,11 @@ namespace PaintDotNet.SystemLayer
                         messageControl.CreateControl(); // force the HWND to be created
                         messageControl.WmWtSessionChange += new EventHandler(SessionStrobeHandler);
 
-                        SafeNativeMethods.WTSRegisterSessionNotification(messageControl.Handle, NativeConstants.NOTIFY_FOR_ALL_SESSIONS);
+                        if (!OS.IsUnix)
+                        {
+                            SafeNativeMethods.WTSRegisterSessionNotification(messageControl.Handle, NativeConstants.NOTIFY_FOR_ALL_SESSIONS);
+                        }
+
                         lastRemoteSessionValue = IsRemote;
                     }
                 }
@@ -104,7 +108,10 @@ namespace PaintDotNet.SystemLayer
                     {
                         try
                         {
-                            SafeNativeMethods.WTSUnRegisterSessionNotification(messageControl.Handle);
+                            if (!OS.IsUnix)
+                            {
+                                SafeNativeMethods.WTSUnRegisterSessionNotification(messageControl.Handle);
+                            }
                         }
 
                         catch (EntryPointNotFoundException)
@@ -133,6 +140,12 @@ namespace PaintDotNet.SystemLayer
         {
             get
             {
+                // Linux port: no Terminal Services concept; implemented as a no-op (always false).
+                if (OS.IsUnix)
+                {
+                    return false;
+                }
+
                 return 0 != SafeNativeMethods.GetSystemMetrics(NativeConstants.SM_REMOTESESSION);
             }
         }

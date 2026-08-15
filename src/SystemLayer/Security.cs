@@ -24,6 +24,12 @@ namespace PaintDotNet.SystemLayer
 
         private static bool GetIsAdministrator()
         {
+            // Linux port: no Windows administrator concept; treat as non-admin.
+            if (OS.IsUnix)
+            {
+                return false;
+            }
+
             AppDomain domain = Thread.GetDomain();
             domain.SetPrincipalPolicy(PrincipalPolicy.WindowsPrincipal);
             WindowsPrincipal principal = (WindowsPrincipal)Thread.CurrentPrincipal;
@@ -80,9 +86,16 @@ namespace PaintDotNet.SystemLayer
             get
             {
                 bool returnVal = false;
+
+                // Linux port: no Windows registry / UAC; avoid Mono's Unix registry emulation.
+                if (OS.IsUnix)
+                {
+                    return false;
+                }
+
                 const string keyName = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System";
                 const string valueName = "EnableLUA";
-                
+
                 try
                 {
                     if (Environment.OSVersion.Version >= OS.WindowsVista)

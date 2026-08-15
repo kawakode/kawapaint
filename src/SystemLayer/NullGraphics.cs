@@ -23,6 +23,7 @@ namespace PaintDotNet.SystemLayer
     {
         private IntPtr hdc = IntPtr.Zero;
         private Graphics graphics = null;
+        private Bitmap nullBitmap = null;
         private bool disposed = false;
 
         public Graphics Graphics
@@ -35,6 +36,14 @@ namespace PaintDotNet.SystemLayer
 
         public NullGraphics()
         {
+            if (OS.IsUnix)
+            {
+                // Linux port: no memory DC; back the throwaway Graphics with a 1x1 bitmap.
+                this.nullBitmap = new Bitmap(1, 1);
+                this.graphics = Graphics.FromImage(this.nullBitmap);
+                return;
+            }
+
             this.hdc = SafeNativeMethods.CreateCompatibleDC(IntPtr.Zero);
 
             if (this.hdc == IntPtr.Zero)
@@ -62,11 +71,27 @@ namespace PaintDotNet.SystemLayer
             {
                 if (disposing)
                 {
-                    this.graphics.Dispose();
-                    this.graphics = null;
+                    if (this.graphics != null)
+                    {
+                        this.graphics.Dispose();
+                        this.graphics = null;
+                    }
+
+                    if (this.nullBitmap != null)
+                    {
+                        this.nullBitmap.Dispose();
+                        this.nullBitmap = null;
+                    }
                 }
 
-                SafeNativeMethods.DeleteDC(this.hdc);
+                // Only a real GDI memory DC needs to be deleted. Guarding on hdc != Zero
+                // keeps the finalizer from calling into missing native code on Linux.
+                if (this.hdc != IntPtr.Zero)
+                {
+                    SafeNativeMethods.DeleteDC(this.hdc);
+                    this.hdc = IntPtr.Zero;
+                }
+
                 disposed = true;
             }
         }

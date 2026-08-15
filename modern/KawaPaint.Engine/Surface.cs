@@ -124,12 +124,34 @@ public sealed unsafe class Surface : IDisposable
 
     public void Save(string path, SKEncodedImageFormat format = SKEncodedImageFormat.Png, int quality = 100)
     {
+        using var stream = File.Create(path);
+        Encode(stream, format, quality);
+    }
+
+    /// <summary>Encodes this Surface to a stream (PNG by default).</summary>
+    public void Encode(Stream stream, SKEncodedImageFormat format = SKEncodedImageFormat.Png, int quality = 100)
+    {
         ThrowIfDisposed();
         using var bitmap = WrapSKBitmap();
         using var image = SKImage.FromBitmap(bitmap);
         using var data = image.Encode(format, quality);
-        using var stream = File.OpenWrite(path);
         data.SaveTo(stream);
+    }
+
+    /// <summary>Decodes an image from a stream into a new Surface.</summary>
+    public static Surface Decode(Stream stream)
+    {
+        using var codec = SKCodec.Create(stream)
+            ?? throw new InvalidOperationException("could not decode image stream");
+        var surface = new Surface(codec.Info.Width, codec.Info.Height);
+        var info = new SKImageInfo(surface.Width, surface.Height, SKColorType.Bgra8888, SKAlphaType.Unpremul);
+        var result = codec.GetPixels(info, surface.scan0);
+        if (result != SKCodecResult.Success && result != SKCodecResult.IncompleteInput)
+        {
+            surface.Dispose();
+            throw new InvalidOperationException($"could not decode image stream ({result})");
+        }
+        return surface;
     }
 
     /// <summary>Returns a new Surface with a copy of this one's pixels.</summary>

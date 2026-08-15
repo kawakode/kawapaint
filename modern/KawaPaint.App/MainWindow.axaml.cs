@@ -90,6 +90,57 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void OnOpenProject(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Open KawaPaint project",
+            AllowMultiple = false,
+            FileTypeFilter = new[]
+            {
+                new FilePickerFileType("KawaPaint project") { Patterns = new[] { "*" + DocumentFile.Extension } }
+            }
+        });
+
+        var file = files.FirstOrDefault();
+        if (file is null) return;
+
+        try
+        {
+            string path = file.Path.LocalPath;
+            var doc = DocumentFile.Load(path);
+            Canvas.SetDocument(doc);
+            StatusText.Text = $"{System.IO.Path.GetFileName(path)} — {doc.LayerCount} layer(s)";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Open project failed: " + ex.Message;
+        }
+    }
+
+    private async void OnSaveProject(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (Canvas.Document is null) return;
+
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Save KawaPaint project",
+            DefaultExtension = DocumentFile.Extension.TrimStart('.'),
+            SuggestedFileName = "untitled" + DocumentFile.Extension
+        });
+        if (file is null) return;
+
+        try
+        {
+            DocumentFile.Save(Canvas.Document, file.Path.LocalPath);
+            StatusText.Text = "Saved project " + System.IO.Path.GetFileName(file.Path.LocalPath);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Save project failed: " + ex.Message;
+        }
+    }
+
     private async void OnSaveAs(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (Canvas.Document is null) return;

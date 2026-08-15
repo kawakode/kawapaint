@@ -1,30 +1,27 @@
 using KawaPaint.Engine;
 
-// Headless test of selection clipping: an effect applied only inside an ellipse selection.
+// Round-trip test of the native .kwp layered format.
 
-int w = 300, h = 200;
-using var s = new Surface(w, h);
-unsafe
-{
-    for (int y = 0; y < h; y++)
-    {
-        ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
-        for (int x = 0; x < w; x++)
-            row[x] = ColorBgra.FromBgr((byte)(x * 255 / w), (byte)(y * 255 / h), 128);
-    }
-}
+using var doc = new Document(120, 80);
+var bg = doc.AddLayer("Background");
+bg.Surface.Clear(ColorBgra.FromBgr(200, 180, 40));
+var top = doc.AddLayer("Top");
+top.BlendMode = BlendMode.Multiply;
+top.Opacity = 170;
+BrushOps.FillDisc(top.Surface, 60, 40, 25, ColorBgra.FromBgr(20, 20, 220));
 
-var sel = new Selection(w, h);
-sel.ReplaceWithEllipse(60, 30, 240, 170);
+string path = Path.Combine(AppContext.BaseDirectory, "roundtrip.kwp");
+DocumentFile.Save(doc, path);
+Console.WriteLine($"saved {path} ({new FileInfo(path).Length} bytes)");
 
-using var snapshot = s.Clone();
-new InvertEffect().Apply(s);        // invert everything...
-sel.Clip(s, snapshot);              // ...then restore outside the ellipse
+using var loaded = DocumentFile.Load(path);
+Console.WriteLine($"layers={loaded.LayerCount} " +
+    $"[0]={loaded.Layers[0].Name} " +
+    $"[1]={loaded.Layers[1].Name}/{loaded.Layers[1].BlendMode}/op={loaded.Layers[1].Opacity}");
 
-s.Save(Path.Combine(AppContext.BaseDirectory, "selection_test.png"));
-
-var inside = s[150, 100];
-var outside = s[10, 10];
-var origInside = snapshot[150, 100];
-Console.WriteLine($"inside inverted = {inside != origInside} ({inside}) ; outside untouched = {outside == snapshot[10, 10]}");
-Console.WriteLine("saved selection_test.png");
+bool ok = loaded.LayerCount == 2
+          && loaded.Layers[1].BlendMode == BlendMode.Multiply
+          && loaded.Layers[1].Opacity == 170
+          && loaded.Layers[1].Surface[60, 40] == top.Surface[60, 40]
+          && loaded.Layers[0].Surface[5, 5] == bg.Surface[5, 5];
+Console.WriteLine($"round-trip intact = {ok}");

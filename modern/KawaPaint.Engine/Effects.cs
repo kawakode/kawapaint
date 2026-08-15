@@ -85,6 +85,68 @@ public sealed class BrightnessContrastEffect : PerPixelEffect
     }
 }
 
+/// <summary>Hue rotation (degrees), saturation multiplier, and lightness delta [-1,1] via HSL.</summary>
+public sealed class HueSaturationEffect : PerPixelEffect
+{
+    private readonly double _hueShift;   // degrees
+    private readonly double _sat;        // multiplier
+    private readonly double _light;      // additive, [-1,1]
+
+    public HueSaturationEffect(double hueShiftDegrees, double saturation, double lightnessDelta)
+    {
+        _hueShift = hueShiftDegrees;
+        _sat = saturation;
+        _light = lightnessDelta;
+    }
+
+    public override string Name => "Hue / Saturation";
+
+    protected override ColorBgra Transform(ColorBgra c)
+    {
+        RgbToHsl(c.R, c.G, c.B, out double h, out double s, out double l);
+        h = (h + _hueShift / 360.0) % 1.0;
+        if (h < 0) h += 1.0;
+        s = Math.Clamp(s * _sat, 0, 1);
+        l = Math.Clamp(l + _light, 0, 1);
+        HslToRgb(h, s, l, out byte r, out byte g, out byte b);
+        return ColorBgra.FromBgra(b, g, r, c.A);
+    }
+
+    private static void RgbToHsl(int r, int g, int b, out double h, out double s, out double l)
+    {
+        double rd = r / 255.0, gd = g / 255.0, bd = b / 255.0;
+        double max = Math.Max(rd, Math.Max(gd, bd)), min = Math.Min(rd, Math.Min(gd, bd));
+        l = (max + min) / 2;
+        if (max == min) { h = s = 0; return; }
+        double d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        if (max == rd) h = (gd - bd) / d + (gd < bd ? 6 : 0);
+        else if (max == gd) h = (bd - rd) / d + 2;
+        else h = (rd - gd) / d + 4;
+        h /= 6;
+    }
+
+    private static void HslToRgb(double h, double s, double l, out byte r, out byte g, out byte b)
+    {
+        if (s == 0) { r = g = b = Clamp.B(l * 255); return; }
+        double q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        double p = 2 * l - q;
+        r = Clamp.B(Hue(p, q, h + 1.0 / 3) * 255);
+        g = Clamp.B(Hue(p, q, h) * 255);
+        b = Clamp.B(Hue(p, q, h - 1.0 / 3) * 255);
+    }
+
+    private static double Hue(double p, double q, double t)
+    {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1.0 / 6) return p + (q - p) * 6 * t;
+        if (t < 1.0 / 2) return q;
+        if (t < 2.0 / 3) return p + (q - p) * (2.0 / 3 - t) * 6;
+        return p;
+    }
+}
+
 /// <summary>Separable box blur; a decent, fast stand-in for a Gaussian.</summary>
 public sealed class BoxBlurEffect : IEffect
 {

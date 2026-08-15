@@ -1,27 +1,36 @@
 using KawaPaint.Engine;
 
-// Round-trip test of the native .kwp layered format.
+// Headless check of HueSaturationEffect: original | hue+120 | saturation x0 | lightness+0.3
 
-using var doc = new Document(120, 80);
-var bg = doc.AddLayer("Background");
-bg.Surface.Clear(ColorBgra.FromBgr(200, 180, 40));
-var top = doc.AddLayer("Top");
-top.BlendMode = BlendMode.Multiply;
-top.Opacity = 170;
-BrushOps.FillDisc(top.Surface, 60, 40, 25, ColorBgra.FromBgr(20, 20, 220));
+int tw = 160, th = 120;
+using var src = new Surface(tw, th);
+unsafe
+{
+    for (int y = 0; y < th; y++)
+    {
+        ColorBgra* row = (ColorBgra*)src.GetRowPointer(y);
+        for (int x = 0; x < tw; x++)
+            row[x] = ColorBgra.FromBgr((byte)(x * 255 / tw), (byte)(y * 255 / th),
+                                       (byte)(255 - x * 255 / tw));
+    }
+}
 
-string path = Path.Combine(AppContext.BaseDirectory, "roundtrip.kwp");
-DocumentFile.Save(doc, path);
-Console.WriteLine($"saved {path} ({new FileInfo(path).Length} bytes)");
+var variants = new (string, IEffect)[]
+{
+    ("hue+120", new HueSaturationEffect(120, 1, 0)),
+    ("desat",   new HueSaturationEffect(0, 0, 0)),
+    ("lighten", new HueSaturationEffect(0, 1, 0.3))
+};
 
-using var loaded = DocumentFile.Load(path);
-Console.WriteLine($"layers={loaded.LayerCount} " +
-    $"[0]={loaded.Layers[0].Name} " +
-    $"[1]={loaded.Layers[1].Name}/{loaded.Layers[1].BlendMode}/op={loaded.Layers[1].Opacity}");
-
-bool ok = loaded.LayerCount == 2
-          && loaded.Layers[1].BlendMode == BlendMode.Multiply
-          && loaded.Layers[1].Opacity == 170
-          && loaded.Layers[1].Surface[60, 40] == top.Surface[60, 40]
-          && loaded.Layers[0].Surface[5, 5] == bg.Surface[5, 5];
-Console.WriteLine($"round-trip intact = {ok}");
+using var montage = new Surface(tw * 4, th);
+void Blit(Surface s, int cx) { for (int y = 0; y < th; y++) for (int x = 0; x < tw; x++) montage[cx * tw + x, y] = s[x, y]; }
+Blit(src, 0);
+for (int i = 0; i < variants.Length; i++)
+{
+    using var copy = src.Clone();
+    variants[i].Item2.Apply(copy);
+    Blit(copy, i + 1);
+    Console.WriteLine($"applied {variants[i].Item1}");
+}
+montage.Save(Path.Combine(AppContext.BaseDirectory, "huesat_test.png"));
+Console.WriteLine("saved huesat_test.png");

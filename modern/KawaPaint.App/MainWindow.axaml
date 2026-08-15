@@ -28,11 +28,10 @@
                 <MenuItem Header="_Black &amp; White" Tag="gray" Click="OnEffect" />
                 <MenuItem Header="_Sepia" Tag="sepia" Click="OnEffect" />
                 <Separator />
-                <MenuItem Header="Brightness / Contrast…" Click="OnBrightnessContrastDialog" />
-                <MenuItem Header="Brighten" Tag="brighten" Click="OnEffect" />
-                <MenuItem Header="Darken" Tag="darken" Click="OnEffect" />
+                <MenuItem Header="Brightness / Contrast…" Tag="bc" Click="OnAdjust" />
+                <MenuItem Header="Hue / Saturation…" Tag="hsl" Click="OnAdjust" />
                 <Separator />
-                <MenuItem Header="_Blur" Tag="blur" Click="OnEffect" />
+                <MenuItem Header="Gaussian _Blur…" Tag="blur" Click="OnAdjust" />
                 <MenuItem Header="Sharpe_n" Tag="sharpen" Click="OnEffect" />
             </MenuItem>
         </Menu>

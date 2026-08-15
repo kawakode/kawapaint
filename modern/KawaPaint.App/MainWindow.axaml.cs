@@ -200,12 +200,33 @@ public partial class MainWindow : Window
         StatusText.Text = "Selection cleared";
     }
 
-    private async void OnBrightnessContrastDialog(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    private async void OnAdjust(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (Canvas.ActiveLayer is null) return;
-        var dlg = new BrightnessContrastDialog(Canvas);
+        if (sender is not MenuItem mi || mi.Tag is not string tag || Canvas.ActiveLayer is null) return;
+
+        AdjustmentDialog dlg = tag switch
+        {
+            "bc" => new AdjustmentDialog(Canvas, "Brightness / Contrast", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Brightness", -100, 100, 0, "0"),
+                new AdjustmentDialog.SliderSpec("Contrast", 0.5, 2.0, 1.0, "0.00")
+            }, v => new BrightnessContrastEffect((int)v[0], v[1])),
+
+            "hsl" => new AdjustmentDialog(Canvas, "Hue / Saturation", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Hue", -180, 180, 0, "0"),
+                new AdjustmentDialog.SliderSpec("Saturation", 0, 2, 1, "0.00"),
+                new AdjustmentDialog.SliderSpec("Lightness", -1, 1, 0, "0.00")
+            }, v => new HueSaturationEffect(v[0], v[1], v[2])),
+
+            _ => new AdjustmentDialog(Canvas, "Gaussian Blur", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Radius", 1, 30, 5, "0")
+            }, v => new BoxBlurEffect((int)v[0]))
+        };
+
         await dlg.ShowDialog(this);
-        StatusText.Text = "Brightness / Contrast";
+        StatusText.Text = dlg.Title ?? "Adjustment";
     }
 
     private void OnUndo(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.Undo();

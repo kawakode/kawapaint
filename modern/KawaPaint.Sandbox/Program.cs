@@ -1,40 +1,44 @@
 using KawaPaint.Engine;
 
-// Headless engine smoke test: raw pixel ops + alpha blend, plus BrushOps stroke rasterization.
-// Proves the engine (and the pencil tool's engine side) runs on modern .NET, no Mono/WinForms.
+// Headless test of the layer/document model: two layers with a blend mode, composite,
+// plus a history undo/redo round-trip.
 
-int w = 400, h = 300;
-using var surface = new Surface(w, h);
+using var doc = new Document(300, 200);
 
+// Bottom layer: opaque blue-green gradient.
+var bottom = doc.AddLayer("Background");
 unsafe
 {
-    for (int y = 0; y < h; y++)
+    for (int y = 0; y < doc.Height; y++)
     {
-        ColorBgra* row = (ColorBgra*)surface.GetRowPointer(y);
-        for (int x = 0; x < w; x++)
-            row[x] = ColorBgra.FromBgra((byte)(x * 255 / w), (byte)(y * 255 / h), 80, 255);
+        ColorBgra* row = (ColorBgra*)bottom.Surface.GetRowPointer(y);
+        for (int x = 0; x < doc.Width; x++)
+            row[x] = ColorBgra.FromBgr((byte)(x * 255 / doc.Width), (byte)(y * 255 / doc.Height), 60);
     }
 }
 
-var red = ColorBgra.FromBgra(0, 0, 220, 128);
-for (int y = 60; y < 200; y++)
-    for (int x = 80; x < 260; x++)
-        surface[x, y] = ColorBgra.BlendOver(surface[x, y], red);
+// Top layer: a Multiply-blended orange disc at 70% opacity.
+var top = doc.AddLayer("Overlay");
+top.BlendMode = BlendMode.Multiply;
+top.Opacity = 178;
+BrushOps.FillDisc(top.Surface, 150, 100, 70, ColorBgra.FromBgr(40, 160, 255)); // orange (BGR)
 
-string outPath = Path.Combine(AppContext.BaseDirectory, "engine_test.png");
-surface.Save(outPath);
-Console.WriteLine($"saved {outPath} ({surface.Width}x{surface.Height})");
+using (var flat = doc.Flatten())
+{
+    flat.Save(Path.Combine(AppContext.BaseDirectory, "layers_test.png"));
+    Console.WriteLine($"composited {flat.Width}x{flat.Height}, center={flat[150, 100]}");
+}
 
-using var loaded = Surface.Load(outPath);
-Console.WriteLine($"reloaded {loaded.Width}x{loaded.Height}, pixel(170,130)={loaded[170, 130]}");
+// History round-trip: snapshot the top layer, erase it, undo, redo.
+var history = new HistoryStack();
+var before = top.Surface[150, 100];
+history.Push(new LayerSurfaceMemento(top, "Clear overlay"));
+top.Surface.Clear(ColorBgra.Transparent);
+var afterClear = top.Surface[150, 100];
+history.Undo();
+var afterUndo = top.Surface[150, 100];
+history.Redo();
+var afterRedo = top.Surface[150, 100];
 
-// --- BrushOps: strokes on a blank white canvas ---
-using var canvas = new Surface(400, 300);
-canvas.Clear(ColorBgra.White);
-BrushOps.DrawLine(canvas, 30, 30, 370, 90, 6, ColorBgra.FromBgr(20, 20, 220));   // thick red
-BrushOps.DrawLine(canvas, 30, 120, 370, 200, 2, ColorBgra.FromBgr(220, 40, 40)); // thin blue
-BrushOps.DrawLine(canvas, 40, 260, 360, 260, 14, ColorBgra.FromBgra(40, 180, 40, 128)); // fat translucent green
-BrushOps.FillDisc(canvas, 200, 150, 40, ColorBgra.FromBgra(0, 0, 0, 90));         // soft-ish black blob
-string brushPath = Path.Combine(AppContext.BaseDirectory, "brush_test.png");
-canvas.Save(brushPath);
-Console.WriteLine($"saved {brushPath}");
+Console.WriteLine($"history: before={before} cleared={afterClear} undo={afterUndo} redo={afterRedo}");
+Console.WriteLine($"undo restored = {(before == afterUndo)}, redo re-cleared = {(afterClear == afterRedo)}");

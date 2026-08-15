@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:app="clr-namespace:KawaPaint.App"
         x:Class="KawaPaint.App.MainWindow"
-        Width="1000" Height="700"
+        Width="1100" Height="720"
         Title="KawaPaint">
     <DockPanel>
         <Menu DockPanel.Dock="Top">
@@ -12,6 +12,10 @@
                 <MenuItem Header="Save _As…" Click="OnSaveAs" />
                 <Separator />
                 <MenuItem Header="E_xit" Click="OnExit" />
+            </MenuItem>
+            <MenuItem Header="_Edit">
+                <MenuItem Header="_Undo" Click="OnUndo" InputGesture="Ctrl+Z" />
+                <MenuItem Header="_Redo" Click="OnRedo" InputGesture="Ctrl+Y" />
             </MenuItem>
         </Menu>
         <Border DockPanel.Dock="Top" Background="#282828" Padding="8,5">
@@ -35,6 +39,31 @@
         <Border DockPanel.Dock="Bottom" Background="#202020" Padding="8,3">
             <TextBlock x:Name="StatusText" Foreground="#C0C0C0" Text="Ready" />
         </Border>
+
+        <!-- Layers panel -->
+        <Border DockPanel.Dock="Right" Width="220" Background="#262626" BorderBrush="#404040" BorderThickness="1,0,0,0">
+            <DockPanel Margin="6">
+                <TextBlock DockPanel.Dock="Top" Text="Layers" Foreground="#E0E0E0"
+                           FontWeight="Bold" Margin="2,2,2,6" />
+                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="4" Margin="0,6,0,0">
+                    <Button Content="Add" Click="OnAddLayer" />
+                    <Button Content="Delete" Click="OnDeleteLayer" />
+                    <Button Content="Up" Click="OnLayerUp" />
+                    <Button Content="Down" Click="OnLayerDown" />
+                </StackPanel>
+                <StackPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                    <TextBlock Text="Blend mode" Foreground="#A0A0A0" Margin="2,0" />
+                    <ComboBox x:Name="BlendCombo" HorizontalAlignment="Stretch"
+                              SelectionChanged="OnBlendChanged" />
+                    <TextBlock Text="Opacity" Foreground="#A0A0A0" Margin="2,6,2,0" />
+                    <Slider x:Name="OpacitySlider" Minimum="0" Maximum="255" Value="255"
+                            ValueChanged="OnOpacityChanged" />
+                </StackPanel>
+                <ListBox x:Name="LayerList" Background="#1E1E1E"
+                         SelectionChanged="OnLayerSelected" />
+            </DockPanel>
+        </Border>
+
         <app:SurfaceView x:Name="Canvas" />
     </DockPanel>
 </Window>

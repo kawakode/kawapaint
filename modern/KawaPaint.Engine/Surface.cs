@@ -132,6 +132,26 @@ public sealed unsafe class Surface : IDisposable
         data.SaveTo(stream);
     }
 
+    /// <summary>Returns a new Surface with a copy of this one's pixels.</summary>
+    public Surface Clone()
+    {
+        ThrowIfDisposed();
+        var copy = new Surface(Width, Height);
+        long bytes = (long)Stride * Height;
+        NativeMemory.Copy((void*)scan0, (void*)copy.scan0, (nuint)bytes);
+        return copy;
+    }
+
+    /// <summary>Copies all pixels from another same-sized Surface into this one.</summary>
+    public void CopyFrom(Surface other)
+    {
+        ThrowIfDisposed();
+        if (other.Width != Width || other.Height != Height)
+            throw new ArgumentException("surface size mismatch");
+        long bytes = (long)Stride * Height;
+        NativeMemory.Copy((void*)other.scan0, (void*)scan0, (nuint)bytes);
+    }
+
     public void Dispose()
     {
         if (disposed) return;

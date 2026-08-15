@@ -197,6 +197,25 @@ public partial class MainWindow : Window
         StatusText.Text = "Applied: " + fx.Name + " (to " + layer.Name + ")";
     }
 
+    private void OnCropToSelection(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document;
+        if (doc is null || Canvas.Selection is not { IsActive: true } sel) { StatusText.Text = "Crop needs an active selection"; return; }
+
+        var (x, y, w, h) = sel.GetBounds();
+        if (w <= 0 || h <= 0) return;
+        Canvas.SetDocument(DocumentOps.Crop(doc, x, y, w, h));
+        StatusText.Text = $"Cropped to {w}×{h}";
+    }
+
+    private void OnFlatten(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document;
+        if (doc is null || doc.LayerCount <= 1) return;
+        Canvas.SetDocument(DocumentOps.Flatten(doc));
+        StatusText.Text = "Flattened";
+    }
+
     private void OnSelectNone(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         Canvas.Selection?.SelectNone();

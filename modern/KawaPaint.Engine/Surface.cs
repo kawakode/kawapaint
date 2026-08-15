@@ -164,6 +164,26 @@ public sealed unsafe class Surface : IDisposable
         return copy;
     }
 
+    /// <summary>Returns a new Surface containing the (x,y,w,h) region of this one (out-of-bounds = transparent).</summary>
+    public Surface Crop(int x, int y, int w, int h)
+    {
+        ThrowIfDisposed();
+        var dst = new Surface(w, h);
+        for (int yy = 0; yy < h; yy++)
+        {
+            int sy = y + yy;
+            if ((uint)sy >= (uint)Height) continue;
+            ColorBgra* srcRow = (ColorBgra*)GetRowPointer(sy);
+            ColorBgra* dstRow = (ColorBgra*)dst.GetRowPointer(yy);
+            for (int xx = 0; xx < w; xx++)
+            {
+                int sx = x + xx;
+                if ((uint)sx < (uint)Width) dstRow[xx] = srcRow[sx];
+            }
+        }
+        return dst;
+    }
+
     /// <summary>Copies all pixels from another same-sized Surface into this one.</summary>
     public void CopyFrom(Surface other)
     {

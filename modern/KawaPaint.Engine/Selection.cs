@@ -106,6 +106,26 @@ public sealed class Selection
         IsActive = true;
     }
 
+    /// <summary>Bounding box of the selection (whole image if inactive).</summary>
+    public (int X, int Y, int W, int H) GetBounds()
+    {
+        if (!IsActive) return (0, 0, Width, Height);
+
+        int minX = Width, minY = Height, maxX = -1, maxY = -1;
+        for (int y = 0; y < Height; y++)
+            for (int x = 0; x < Width; x++)
+                if (_mask[y * Width + x] != 0)
+                {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+
+        if (maxX < 0) return (0, 0, Width, Height);   // empty mask
+        return (minX, minY, maxX - minX + 1, maxY - minY + 1);
+    }
+
     /// <summary>Restores pixels outside the selection in <paramref name="edited"/> from <paramref name="original"/>.</summary>
     public unsafe void Clip(Surface edited, Surface original)
     {

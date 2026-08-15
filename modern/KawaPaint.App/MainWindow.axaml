@@ -33,6 +33,8 @@
                 <Separator />
                 <MenuItem Header="Gaussian _Blur…" Tag="blur" Click="OnAdjust" />
                 <MenuItem Header="Sharpe_n" Tag="sharpen" Click="OnEffect" />
+                <MenuItem Header="_Emboss" Tag="emboss" Click="OnEffect" />
+                <MenuItem Header="Edge _Detect" Tag="edge" Click="OnEffect" />
             </MenuItem>
         </Menu>
         <Border DockPanel.Dock="Top" Background="#282828" Padding="8,5">

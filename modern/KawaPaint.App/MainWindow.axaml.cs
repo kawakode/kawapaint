@@ -20,6 +20,7 @@ public partial class MainWindow : Window
         Canvas.DocumentChanged += (_, _) => RebuildLayerPanel();
         Canvas.PrimaryColorPicked += OnColorPicked;
         Canvas.TextRequested += OnTextRequested;
+        KeyDown += OnKeyDown;
 
         LoadDemoDocument();
     }
@@ -182,6 +183,8 @@ public partial class MainWindow : Window
             "contrast" => new BrightnessContrastEffect(0, 1.3),
             "blur" => new BoxBlurEffect(6),
             "sharpen" => new SharpenEffect(),
+            "emboss" => new EmbossEffect(),
+            "edge" => new EdgeDetectEffect(),
             _ => new InvertEffect()
         };
 
@@ -261,7 +264,11 @@ public partial class MainWindow : Window
 
     private void OnTool(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (sender is not Button b || b.Tag is not string tag) return;
+        if (sender is Button { Tag: string tag }) SelectTool(tag);
+    }
+
+    private void SelectTool(string tag)
+    {
         ITool tool = tag switch
         {
             "Eraser" => new EraserTool(),
@@ -280,6 +287,30 @@ public partial class MainWindow : Window
         };
         Canvas.CurrentTool = tool;
         StatusText.Text = "Tool: " + tool.Name;
+    }
+
+    private void OnKeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
+    {
+        // Ignore when typing into a control (e.g. a text field gets focus).
+        if (e.KeyModifiers != Avalonia.Input.KeyModifiers.None) return;
+        if (TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox) return;
+
+        string? tag = e.Key switch
+        {
+            Avalonia.Input.Key.P => "Pencil",
+            Avalonia.Input.Key.E => "Eraser",
+            Avalonia.Input.Key.F => "Fill",
+            Avalonia.Input.Key.K => "Pick",
+            Avalonia.Input.Key.L => "Line",
+            Avalonia.Input.Key.R => "Rect",
+            Avalonia.Input.Key.O => "Ellipse",
+            Avalonia.Input.Key.G => "Gradient",
+            Avalonia.Input.Key.T => "Text",
+            Avalonia.Input.Key.M => "Move",
+            Avalonia.Input.Key.S => "RectSel",
+            _ => null
+        };
+        if (tag is not null) { SelectTool(tag); e.Handled = true; }
     }
 
     private async void OnTextRequested(int x, int y)

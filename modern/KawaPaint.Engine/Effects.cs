@@ -204,6 +204,76 @@ public sealed class BoxBlurEffect : IEffect
     }
 }
 
+/// <summary>3x3 emboss convolution (adds a mid-gray bias).</summary>
+public sealed class EmbossEffect : IEffect
+{
+    private static readonly int[,] Kernel = { { -2, -1, 0 }, { -1, 1, 1 }, { 0, 1, 2 } };
+    public string Name => "Emboss";
+
+    public unsafe void Apply(Surface s)
+    {
+        using var src = s.Clone();
+        int w = s.Width, h = s.Height;
+        for (int y = 0; y < h; y++)
+        {
+            ColorBgra* d = (ColorBgra*)s.GetRowPointer(y);
+            for (int x = 0; x < w; x++)
+            {
+                int sb = 0, sg = 0, sr = 0;
+                for (int dy = -1; dy <= 1; dy++)
+                {
+                    ColorBgra* r = (ColorBgra*)src.GetRowPointer(Math.Clamp(y + dy, 0, h - 1));
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        int k = Kernel[dy + 1, dx + 1];
+                        ColorBgra c = r[Math.Clamp(x + dx, 0, w - 1)];
+                        sb += c.B * k; sg += c.G * k; sr += c.R * k;
+                    }
+                }
+                byte a = ((ColorBgra*)src.GetRowPointer(y))[x].A;
+                d[x] = ColorBgra.FromBgra(Clamp.B(sb + 128), Clamp.B(sg + 128), Clamp.B(sr + 128), a);
+            }
+        }
+    }
+}
+
+/// <summary>Sobel edge detection (gradient magnitude per channel).</summary>
+public sealed class EdgeDetectEffect : IEffect
+{
+    public string Name => "Edge Detect";
+
+    public unsafe void Apply(Surface s)
+    {
+        using var src = s.Clone();
+        int w = s.Width, h = s.Height;
+        int[,] gxK = { { -1, 0, 1 }, { -2, 0, 2 }, { -1, 0, 1 } };
+        int[,] gyK = { { -1, -2, -1 }, { 0, 0, 0 }, { 1, 2, 1 } };
+
+        for (int y = 0; y < h; y++)
+        {
+            ColorBgra* d = (ColorBgra*)s.GetRowPointer(y);
+            for (int x = 0; x < w; x++)
+            {
+                int gxB = 0, gxG = 0, gxR = 0, gyB = 0, gyG = 0, gyR = 0;
+                for (int dy = -1; dy <= 1; dy++)
+                {
+                    ColorBgra* r = (ColorBgra*)src.GetRowPointer(Math.Clamp(y + dy, 0, h - 1));
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        ColorBgra c = r[Math.Clamp(x + dx, 0, w - 1)];
+                        int kx = gxK[dy + 1, dx + 1], ky = gyK[dy + 1, dx + 1];
+                        gxB += c.B * kx; gxG += c.G * kx; gxR += c.R * kx;
+                        gyB += c.B * ky; gyG += c.G * ky; gyR += c.R * ky;
+                    }
+                }
+                byte Mag(int gx, int gy) => Clamp.B(Math.Sqrt((double)gx * gx + (double)gy * gy));
+                byte a = ((ColorBgra*)src.GetRowPointer(y))[x].A;
+                d[x] = ColorBgra.FromBgra(Mag(gxB, gyB), Mag(gxG, gyG), Mag(gxR, gyR), a);
+            }
+        }
+    }
+}
+
 /// <summary>3x3 unsharp/sharpen convolution.</summary>
 public sealed class SharpenEffect : IEffect
 {

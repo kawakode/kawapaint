@@ -44,12 +44,13 @@
                 <Button Content="Line" Tag="Line" Click="OnTool" />
                 <Button Content="Rect" Tag="Rect" Click="OnTool" />
                 <Button Content="Ellipse" Tag="Ellipse" Click="OnTool" />
+                <Button Content="Gradient" Tag="Gradient" Click="OnTool" />
                 <Border Width="1" Background="#505050" Margin="6,2" />
                 <Button Content="▭ Sel" Tag="RectSel" Click="OnTool" />
                 <Button Content="◯ Sel" Tag="EllipseSel" Click="OnTool" />
                 <Button Content="Lasso" Tag="Lasso" Click="OnTool" />
                 <Border Width="1" Background="#505050" Margin="6,2" />
-                <TextBlock Text="Color:" Foreground="#C0C0C0" VerticalAlignment="Center" />
+                <TextBlock Text="Fg:" Foreground="#C0C0C0" VerticalAlignment="Center" />
                 <Button Tag="#000000" Click="OnColor" Background="Black" Width="22" Height="22" />
                 <Button Tag="#FFFFFF" Click="OnColor" Background="White" Width="22" Height="22" />
                 <Button Tag="#E01010" Click="OnColor" Background="#E01010" Width="22" Height="22" />
@@ -62,6 +63,9 @@
                 <TextBlock x:Name="SizeLabel" Text="3 px" Foreground="#C0C0C0"
                            VerticalAlignment="Center" Width="42" />
                 <ColorPicker x:Name="ColorPick" Color="Black" ColorChanged="OnPickColor"
+                             VerticalAlignment="Center" />
+                <TextBlock Text="Bg:" Foreground="#C0C0C0" VerticalAlignment="Center" />
+                <ColorPicker x:Name="ColorPick2" Color="White" ColorChanged="OnPickColor2"
                              VerticalAlignment="Center" />
             </StackPanel>
         </Border>

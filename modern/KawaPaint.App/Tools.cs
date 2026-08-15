@@ -13,6 +13,7 @@ public sealed class ToolContext
     public required Layer Layer { get; init; }
     public required Surface PreStroke { get; init; }   // active layer snapshot at pointer-down
     public required ColorBgra PrimaryColor { get; init; }
+    public required ColorBgra SecondaryColor { get; init; }
     public required int BrushWidth { get; init; }
 
     public double X { get; set; }
@@ -147,6 +148,13 @@ public sealed class RectangleTool : ShapeToolBase
     public override string Name => "Rectangle";
     protected override void Draw(ToolContext c, double x0, double y0, double x1, double y1)
         => ShapeOps.DrawRectangle(c.Layer.Surface, x0, y0, x1, y1, c.BrushWidth / 2, c.PrimaryColor);
+}
+
+public sealed class GradientTool : ShapeToolBase
+{
+    public override string Name => "Gradient";
+    protected override void Draw(ToolContext c, double x0, double y0, double x1, double y1)
+        => GradientOps.LinearGradient(c.Layer.Surface, x0, y0, x1, y1, c.PrimaryColor, c.SecondaryColor);
 }
 
 public sealed class EllipseTool : ShapeToolBase

@@ -251,6 +251,13 @@ public partial class MainWindow : Window
         Canvas.BrushColor = ColorBgra.FromBgra(c.B, c.G, c.R, c.A);
     }
 
+    private void OnPickColor2(object? sender, Avalonia.Controls.ColorChangedEventArgs e)
+    {
+        if (Canvas is null) return;
+        Color c = e.NewColor;
+        Canvas.SecondaryColor = ColorBgra.FromBgra(c.B, c.G, c.R, c.A);
+    }
+
     private void OnTool(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (sender is not Button b || b.Tag is not string tag) return;
@@ -262,6 +269,7 @@ public partial class MainWindow : Window
             "Line" => new LineTool(),
             "Rect" => new RectangleTool(),
             "Ellipse" => new EllipseTool(),
+            "Gradient" => new GradientTool(),
             "RectSel" => new RectSelectTool(),
             "EllipseSel" => new EllipseSelectTool(),
             "Lasso" => new LassoSelectTool(),

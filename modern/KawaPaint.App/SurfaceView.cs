@@ -30,6 +30,7 @@ public sealed class SurfaceView : Control
     private bool _drawing;
 
     public ColorBgra BrushColor { get; set; } = ColorBgra.Black;
+    public ColorBgra SecondaryColor { get; set; } = ColorBgra.White;
     public int BrushWidth { get; set; } = 3;
 
     public ITool CurrentTool { get; set; } = new PencilTool();
@@ -253,6 +254,7 @@ public sealed class SurfaceView : Control
                 Layer = layer,
                 PreStroke = _preStroke,
                 PrimaryColor = BrushColor,
+                SecondaryColor = SecondaryColor,
                 BrushWidth = BrushWidth,
                 X = img.X,
                 Y = img.Y,

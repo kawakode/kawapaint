@@ -3,6 +3,7 @@
 // (history snapshot, recomposite, color sampling). Engine algorithms do the actual pixel work.
 
 using System;
+using System.Collections.Generic;
 using KawaPaint.Engine;
 
 namespace KawaPaint.App;
@@ -23,6 +24,9 @@ public sealed class ToolContext
     public required Action Composite { get; init; }
     public required Func<int, int, ColorBgra> SampleComposite { get; init; }
     public required Action<ColorBgra> SetPrimaryColor { get; init; }
+
+    public required Selection Selection { get; init; }
+    public required Action SelectionChanged { get; init; }
 }
 
 public interface ITool
@@ -150,4 +154,70 @@ public sealed class EllipseTool : ShapeToolBase
     public override string Name => "Ellipse";
     protected override void Draw(ToolContext c, double x0, double y0, double x1, double y1)
         => ShapeOps.DrawEllipse(c.Layer.Surface, x0, y0, x1, y1, c.BrushWidth / 2, c.PrimaryColor);
+}
+
+/// <summary>Base for drag-out selection tools (rectangle / ellipse).</summary>
+public abstract class SelectToolBase : ITool
+{
+    private double _sx, _sy;
+    public abstract string Name { get; }
+
+    public void PointerDown(ToolContext c) { _sx = c.X; _sy = c.Y; }
+
+    public void PointerMove(ToolContext c)
+    {
+        Select(c.Selection, _sx, _sy, c.X, c.Y);
+        c.SelectionChanged();
+    }
+
+    public void PointerUp(ToolContext c)
+    {
+        if (Math.Abs(c.X - _sx) < 1 && Math.Abs(c.Y - _sy) < 1)
+            c.Selection.SelectNone();     // a click clears the selection
+        else
+            Select(c.Selection, _sx, _sy, c.X, c.Y);
+        c.SelectionChanged();
+    }
+
+    protected abstract void Select(Selection sel, double x0, double y0, double x1, double y1);
+}
+
+public sealed class RectSelectTool : SelectToolBase
+{
+    public override string Name => "Rectangle Select";
+    protected override void Select(Selection sel, double x0, double y0, double x1, double y1)
+        => sel.ReplaceWithRectangle(x0, y0, x1, y1);
+}
+
+public sealed class EllipseSelectTool : SelectToolBase
+{
+    public override string Name => "Ellipse Select";
+    protected override void Select(Selection sel, double x0, double y0, double x1, double y1)
+        => sel.ReplaceWithEllipse(x0, y0, x1, y1);
+}
+
+/// <summary>Freehand lasso selection.</summary>
+public sealed class LassoSelectTool : ITool
+{
+    private readonly List<(double X, double Y)> _points = new();
+    public string Name => "Lasso Select";
+
+    public void PointerDown(ToolContext c) { _points.Clear(); _points.Add((c.X, c.Y)); }
+
+    public void PointerMove(ToolContext c)
+    {
+        _points.Add((c.X, c.Y));
+        if (_points.Count >= 3)
+        {
+            c.Selection.ReplaceWithPolygon(_points);
+            c.SelectionChanged();
+        }
+    }
+
+    public void PointerUp(ToolContext c)
+    {
+        if (_points.Count < 3) c.Selection.SelectNone();
+        else c.Selection.ReplaceWithPolygon(_points);
+        c.SelectionChanged();
+    }
 }

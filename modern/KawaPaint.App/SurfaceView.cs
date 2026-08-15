@@ -17,6 +17,9 @@ public sealed class SurfaceView : Control
     private Document? _document;
     private Surface? _composite;
     private WriteableBitmap? _bitmap;
+    private WriteableBitmap? _selectionOverlay;
+
+    public Selection? Selection { get; private set; }
 
     private double _zoom = 1.0;
     private Point _origin;
@@ -59,10 +62,18 @@ public sealed class SurfaceView : Control
         _composite?.Dispose();
         _bitmap?.Dispose();
 
+        _selectionOverlay?.Dispose();
+
         _document = document;
         ActiveLayer = document.LayerCount > 0 ? document.Layers[^1] : document.AddLayer();
         _composite = new Surface(document.Width, document.Height);
+        Selection = new Selection(document.Width, document.Height);
         _bitmap = new WriteableBitmap(
+            new PixelSize(document.Width, document.Height),
+            new Vector(96, 96),
+            PixelFormat.Bgra8888,
+            AlphaFormat.Unpremul);
+        _selectionOverlay = new WriteableBitmap(
             new PixelSize(document.Width, document.Height),
             new Vector(96, 96),
             PixelFormat.Bgra8888,
@@ -103,6 +114,35 @@ public sealed class SurfaceView : Control
             byte* src = _composite.GetRowPointer(y);
             System.Buffer.MemoryCopy(src, dst + (long)y * fb.RowBytes, fb.RowBytes, rowBytes);
         }
+    }
+
+    /// <summary>Rebuilds the selection veil overlay and repaints. Called by selection tools.</summary>
+    public unsafe void NotifySelectionChanged()
+    {
+        if (Selection is null || _selectionOverlay is null) return;
+
+        if (Selection.IsActive)
+        {
+            var mask = Selection.Mask;
+            using ILockedFramebuffer fb = _selectionOverlay.Lock();
+            for (int y = 0; y < Selection.Height; y++)
+            {
+                ColorBgra* row = (ColorBgra*)((byte*)fb.Address + (long)y * fb.RowBytes);
+                int rowBase = y * Selection.Width;
+                for (int x = 0; x < Selection.Width; x++)
+                    row[x] = mask[rowBase + x] != 0
+                        ? ColorBgra.Transparent
+                        : ColorBgra.FromBgra(0, 0, 0, 0x66);   // veil unselected area
+            }
+        }
+
+        InvalidateVisual();
+    }
+
+    private void ClipToSelection()
+    {
+        if (Selection is { IsActive: true } && ActiveLayer is not null && _preStroke is not null)
+            Selection.Clip(ActiveLayer.Surface, _preStroke);
     }
 
     public void Undo()
@@ -149,6 +189,10 @@ public sealed class SurfaceView : Control
 
         DrawCheckerboard(context, dest);
         context.DrawImage(_bitmap, new Rect(0, 0, _composite.Width, _composite.Height), dest);
+
+        if (Selection is { IsActive: true } && _selectionOverlay is not null)
+            context.DrawImage(_selectionOverlay, new Rect(0, 0, _composite.Width, _composite.Height), dest);
+
         context.DrawRectangle(null, new Pen(Brushes.Black, 1), dest);
     }
 
@@ -213,11 +257,13 @@ public sealed class SurfaceView : Control
                 X = img.X,
                 Y = img.Y,
                 PushHistory = () => History.Push(new LayerSurfaceMemento(layer, CurrentTool.Name)),
-                Composite = () => { RenderComposite(); InvalidateVisual(); },
+                Composite = () => { ClipToSelection(); RenderComposite(); InvalidateVisual(); },
                 SampleComposite = (x, y) =>
                     (uint)x < (uint)_composite.Width && (uint)y < (uint)_composite.Height
                         ? _composite[x, y] : ColorBgra.Transparent,
-                SetPrimaryColor = c => { BrushColor = c; PrimaryColorPicked?.Invoke(c); }
+                SetPrimaryColor = c => { BrushColor = c; PrimaryColorPicked?.Invoke(c); },
+                Selection = Selection!,
+                SelectionChanged = NotifySelectionChanged
             };
 
             CurrentTool.PointerDown(_toolCtx);

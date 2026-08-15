@@ -1,51 +1,30 @@
 using KawaPaint.Engine;
 
-// Headless test of effects: apply each to a copy of a colorful source and tile into a montage.
+// Headless test of selection clipping: an effect applied only inside an ellipse selection.
 
-int tw = 200, th = 150;
-using var source = new Surface(tw, th);
+int w = 300, h = 200;
+using var s = new Surface(w, h);
 unsafe
 {
-    for (int y = 0; y < th; y++)
+    for (int y = 0; y < h; y++)
     {
-        ColorBgra* row = (ColorBgra*)source.GetRowPointer(y);
-        for (int x = 0; x < tw; x++)
-            row[x] = ColorBgra.FromBgr((byte)(x * 255 / tw), (byte)(y * 255 / th),
-                                       (byte)((x + y) * 255 / (tw + th)));
+        ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
+        for (int x = 0; x < w; x++)
+            row[x] = ColorBgra.FromBgr((byte)(x * 255 / w), (byte)(y * 255 / h), 128);
     }
 }
-// a couple of shapes so blur/sharpen are visible
-ShapeOps.DrawEllipse(source, 60, 40, 140, 110, 3, ColorBgra.White);
-BrushOps.DrawLine(source, 10, 130, 190, 20, 4, ColorBgra.Black);
 
-var effects = new IEffect[]
-{
-    new InvertEffect(), new GrayscaleEffect(), new SepiaEffect(),
-    new BrightnessContrastEffect(40, 1.0), new BrightnessContrastEffect(0, 1.6),
-    new BoxBlurEffect(6), new SharpenEffect()
-};
+var sel = new Selection(w, h);
+sel.ReplaceWithEllipse(60, 30, 240, 170);
 
-int cols = 4, rows = 2;
-using var montage = new Surface(tw * cols, th * rows);
-montage.Clear(ColorBgra.FromBgr(30, 30, 30));
+using var snapshot = s.Clone();
+new InvertEffect().Apply(s);        // invert everything...
+sel.Clip(s, snapshot);              // ...then restore outside the ellipse
 
-// Cell 0 = original, then each effect.
-void Blit(Surface src, int cx, int cy)
-{
-    for (int y = 0; y < th; y++)
-        for (int x = 0; x < tw; x++)
-            montage[cx * tw + x, cy * th + y] = src[x, y];
-}
-Blit(source, 0, 0);
-for (int i = 0; i < effects.Length; i++)
-{
-    using var copy = source.Clone();
-    effects[i].Apply(copy);
-    int idx = i + 1;
-    Blit(copy, idx % cols, idx / cols);
-    Console.WriteLine($"applied {effects[i].Name}");
-}
+s.Save(Path.Combine(AppContext.BaseDirectory, "selection_test.png"));
 
-string outPath = Path.Combine(AppContext.BaseDirectory, "effects_test.png");
-montage.Save(outPath);
-Console.WriteLine($"saved {outPath}");
+var inside = s[150, 100];
+var outside = s[10, 10];
+var origInside = snapshot[150, 100];
+Console.WriteLine($"inside inverted = {inside != origInside} ({inside}) ; outside untouched = {outside == snapshot[10, 10]}");
+Console.WriteLine("saved selection_test.png");

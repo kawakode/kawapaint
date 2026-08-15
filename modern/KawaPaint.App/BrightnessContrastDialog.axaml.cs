@@ -37,6 +37,7 @@ public partial class BrightnessContrastDialog : Window
 
         _layer.Surface.CopyFrom(_snapshot);
         new BrightnessContrastEffect(brightness, contrast).Apply(_layer.Surface);
+        if (_canvas.Selection is { IsActive: true }) _canvas.Selection.Clip(_layer.Surface, _snapshot);
         _canvas.RenderComposite();
         _canvas.InvalidateVisual();
     }

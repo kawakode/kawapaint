@@ -133,11 +133,20 @@ public partial class MainWindow : Window
             _ => new InvertEffect()
         };
 
-        Canvas.History.Push(new LayerSurfaceMemento(layer, fx.Name));
+        var snapshot = layer.Surface.Clone();
         fx.Apply(layer.Surface);
+        if (Canvas.Selection is { IsActive: true }) Canvas.Selection.Clip(layer.Surface, snapshot);
+        Canvas.History.Push(LayerSurfaceMemento.FromSnapshot(layer, snapshot, fx.Name));
         Canvas.RenderComposite();
         Canvas.InvalidateVisual();
         StatusText.Text = "Applied: " + fx.Name + " (to " + layer.Name + ")";
+    }
+
+    private void OnSelectNone(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Canvas.Selection?.SelectNone();
+        Canvas.NotifySelectionChanged();
+        StatusText.Text = "Selection cleared";
     }
 
     private async void OnBrightnessContrastDialog(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -181,6 +190,9 @@ public partial class MainWindow : Window
             "Line" => new LineTool(),
             "Rect" => new RectangleTool(),
             "Ellipse" => new EllipseTool(),
+            "RectSel" => new RectSelectTool(),
+            "EllipseSel" => new EllipseSelectTool(),
+            "Lasso" => new LassoSelectTool(),
             _ => new PencilTool()
         };
         Canvas.CurrentTool = tool;

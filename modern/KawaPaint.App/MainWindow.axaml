@@ -17,6 +17,9 @@
                 <MenuItem Header="_Undo" Click="OnUndo" InputGesture="Ctrl+Z" />
                 <MenuItem Header="_Redo" Click="OnRedo" InputGesture="Ctrl+Y" />
             </MenuItem>
+            <MenuItem Header="_Select">
+                <MenuItem Header="Deselect (Select _None)" Click="OnSelectNone" InputGesture="Ctrl+D" />
+            </MenuItem>
             <MenuItem Header="Effe_cts">
                 <MenuItem Header="_Invert Colors" Tag="invert" Click="OnEffect" />
                 <MenuItem Header="_Black &amp; White" Tag="gray" Click="OnEffect" />
@@ -39,6 +42,10 @@
                 <Button Content="Line" Tag="Line" Click="OnTool" />
                 <Button Content="Rect" Tag="Rect" Click="OnTool" />
                 <Button Content="Ellipse" Tag="Ellipse" Click="OnTool" />
+                <Border Width="1" Background="#505050" Margin="6,2" />
+                <Button Content="▭ Sel" Tag="RectSel" Click="OnTool" />
+                <Button Content="◯ Sel" Tag="EllipseSel" Click="OnTool" />
+                <Button Content="Lasso" Tag="Lasso" Click="OnTool" />
                 <Border Width="1" Background="#505050" Margin="6,2" />
                 <TextBlock Text="Color:" Foreground="#C0C0C0" VerticalAlignment="Center" />
                 <Button Tag="#000000" Click="OnColor" Background="Black" Width="22" Height="22" />

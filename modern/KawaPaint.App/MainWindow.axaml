@@ -52,8 +52,8 @@
                         VerticalAlignment="Center" ValueChanged="OnSize" />
                 <TextBlock x:Name="SizeLabel" Text="3 px" Foreground="#C0C0C0"
                            VerticalAlignment="Center" Width="42" />
-                <Border Width="18" Height="18" x:Name="ColorSwatch" Background="Black"
-                        BorderBrush="#808080" BorderThickness="1" VerticalAlignment="Center" />
+                <ColorPicker x:Name="ColorPick" Color="Black" ColorChanged="OnPickColor"
+                             VerticalAlignment="Center" />
             </StackPanel>
         </Border>
         <Border DockPanel.Dock="Bottom" Background="#202020" Padding="8,3">

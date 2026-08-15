@@ -152,8 +152,14 @@ public partial class MainWindow : Window
         byte r = Convert.ToByte(hex.Substring(1, 2), 16);
         byte g = Convert.ToByte(hex.Substring(3, 2), 16);
         byte bl = Convert.ToByte(hex.Substring(5, 2), 16);
-        Canvas.BrushColor = ColorBgra.FromBgr(bl, g, r);
-        ColorSwatch.Background = new SolidColorBrush(Color.FromRgb(r, g, bl));
+        ColorPick.Color = Color.FromRgb(r, g, bl);   // fires OnPickColor
+    }
+
+    private void OnPickColor(object? sender, Avalonia.Controls.ColorChangedEventArgs e)
+    {
+        if (Canvas is null) return;
+        Color c = e.NewColor;
+        Canvas.BrushColor = ColorBgra.FromBgra(c.B, c.G, c.R, c.A);
     }
 
     private void OnTool(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -175,7 +181,7 @@ public partial class MainWindow : Window
 
     private void OnColorPicked(ColorBgra c)
     {
-        ColorSwatch.Background = new SolidColorBrush(Color.FromRgb(c.R, c.G, c.B));
+        ColorPick.Color = Color.FromArgb(c.A, c.R, c.G, c.B);
         StatusText.Text = $"Picked {c}";
     }
 

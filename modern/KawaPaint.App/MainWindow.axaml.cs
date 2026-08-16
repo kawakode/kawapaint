@@ -217,21 +217,34 @@ public partial class MainWindow : Window
 
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            Title = "Save flattened image as PNG",
+            Title = "Export flattened image",
             DefaultExtension = "png",
-            SuggestedFileName = "untitled.png"
+            SuggestedFileName = "untitled.png",
+            FileTypeChoices = new[]
+            {
+                new FilePickerFileType("PNG") { Patterns = new[] { "*.png" } },
+                new FilePickerFileType("JPEG") { Patterns = new[] { "*.jpg", "*.jpeg" } },
+                new FilePickerFileType("WebP") { Patterns = new[] { "*.webp" } }
+            }
         });
         if (file is null) return;
 
         try
         {
+            string path = file.Path.LocalPath;
+            var format = System.IO.Path.GetExtension(path).ToLowerInvariant() switch
+            {
+                ".jpg" or ".jpeg" => SkiaSharp.SKEncodedImageFormat.Jpeg,
+                ".webp" => SkiaSharp.SKEncodedImageFormat.Webp,
+                _ => SkiaSharp.SKEncodedImageFormat.Png
+            };
             using var flat = Canvas.Document.Flatten();
-            flat.Save(file.Path.LocalPath);
-            StatusText.Text = "Saved " + System.IO.Path.GetFileName(file.Path.LocalPath);
+            flat.Save(path, format, 92);
+            StatusText.Text = "Exported " + System.IO.Path.GetFileName(path);
         }
         catch (Exception ex)
         {
-            StatusText.Text = "Save failed: " + ex.Message;
+            StatusText.Text = "Export failed: " + ex.Message;
         }
     }
 

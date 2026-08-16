@@ -85,6 +85,22 @@ public sealed class BrightnessContrastEffect : PerPixelEffect
     }
 }
 
+/// <summary>Applies a 256-entry tone curve LUT to the R, G, B channels.</summary>
+public sealed class CurvesEffect : PerPixelEffect
+{
+    private readonly byte[] _lut;
+    public override string Name => "Curves";
+
+    public CurvesEffect(byte[] lut256)
+    {
+        if (lut256.Length != 256) throw new ArgumentException("LUT must have 256 entries");
+        _lut = lut256;
+    }
+
+    protected override ColorBgra Transform(ColorBgra c)
+        => ColorBgra.FromBgra(_lut[c.B], _lut[c.G], _lut[c.R], c.A);
+}
+
 /// <summary>Posterize: reduce each channel to N levels.</summary>
 public sealed class PosterizeEffect : PerPixelEffect
 {

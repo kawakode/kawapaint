@@ -397,6 +397,13 @@ public partial class MainWindow : Window
         StatusText.Text = dlg.Title ?? "Adjustment";
     }
 
+    private async void OnCurves(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (Canvas.ActiveLayer is null) return;
+        await new CurvesDialog(Canvas).ShowDialog(this);
+        StatusText.Text = "Curves";
+    }
+
     private void OnUndo(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.Undo();
     private void OnRedo(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.Redo();
     private void OnZoomIn(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.ZoomIn();

@@ -22,6 +22,10 @@ public partial class MainWindow : Window
     private Palette _palette = new();
     private readonly string _palettePath = System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "KawaPaint", "palette.kwpal");
+
+    private UiLayout _layout = new();
+    private readonly string _layoutPath = System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "KawaPaint", "layout.json");
     private bool _forceClose;
     private string? _currentPath;   // set once a .kwp path is known
 
@@ -46,6 +50,8 @@ public partial class MainWindow : Window
         BuildToolPalette();
         _palette = Palette.LoadOrDefault(_palettePath);
         BuildPaletteStrip();
+        _layout = UiLayout.LoadOrDefault(_layoutPath);
+        ApplyLayout();
         LoadDemoDocument();
         Canvas.History.Changed += (_, _) => MarkDirty();
         SetClean(null);
@@ -443,6 +449,58 @@ public partial class MainWindow : Window
     private void OnZoomOut(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.ZoomOut();
     private void OnZoomFit(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.ZoomToFit();
     private void OnZoomActual(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.ZoomActual();
+
+    // ---- modular panel layout --------------------------------------------
+
+    private void ApplyLayout()
+    {
+        var panels = new (Border Border, string Place)[]
+        {
+            (ToolsBorder, _layout.Tools), (ColorsBorder, _layout.Colors), (LayersBorder, _layout.Layers)
+        };
+
+        foreach (var (b, _) in panels) RootDock.Children.Remove(b);
+        RootDock.Children.Remove(Canvas);
+
+        foreach (var (b, place) in panels)
+        {
+            if (place == "Hidden") { b.IsVisible = false; continue; }
+            b.IsVisible = true;
+            DockPanel.SetDock(b, ParseDock(place));
+            RootDock.Children.Add(b);
+        }
+        RootDock.Children.Add(Canvas);   // fill
+    }
+
+    private static Dock ParseDock(string s) => s switch
+    {
+        "Left" => Dock.Left,
+        "Right" => Dock.Right,
+        "Top" => Dock.Top,
+        _ => Dock.Bottom
+    };
+
+    private void OnPanelPlace(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string tag }) return;
+        var parts = tag.Split(':');
+        if (parts.Length != 2) return;
+        switch (parts[0])
+        {
+            case "Tools": _layout.Tools = parts[1]; break;
+            case "Colors": _layout.Colors = parts[1]; break;
+            case "Layers": _layout.Layers = parts[1]; break;
+        }
+        ApplyLayout();
+        try { _layout.Save(_layoutPath); } catch { /* ignore */ }
+    }
+
+    private void OnResetLayout(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        _layout = new UiLayout();
+        ApplyLayout();
+        try { _layout.Save(_layoutPath); } catch { /* ignore */ }
+    }
 
     private void OnExit(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Close();
 

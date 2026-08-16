@@ -4,7 +4,7 @@
         x:Class="KawaPaint.App.MainWindow"
         Width="1100" Height="720"
         Title="KawaPaint">
-    <DockPanel>
+    <DockPanel x:Name="RootDock">
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="_File">
                 <MenuItem Header="_New" Click="OnNew" />
@@ -30,6 +30,32 @@
                 <MenuItem Header="Zoom _Out" Click="OnZoomOut" />
                 <MenuItem Header="_Fit to Window" Click="OnZoomFit" />
                 <MenuItem Header="_Actual Size (100%)" Click="OnZoomActual" />
+                <Separator />
+                <MenuItem Header="_Panels">
+                    <MenuItem Header="Tools">
+                        <MenuItem Header="Left" Tag="Tools:Left" Click="OnPanelPlace" />
+                        <MenuItem Header="Right" Tag="Tools:Right" Click="OnPanelPlace" />
+                        <MenuItem Header="Top" Tag="Tools:Top" Click="OnPanelPlace" />
+                        <MenuItem Header="Bottom" Tag="Tools:Bottom" Click="OnPanelPlace" />
+                        <MenuItem Header="Hidden" Tag="Tools:Hidden" Click="OnPanelPlace" />
+                    </MenuItem>
+                    <MenuItem Header="Colors">
+                        <MenuItem Header="Left" Tag="Colors:Left" Click="OnPanelPlace" />
+                        <MenuItem Header="Right" Tag="Colors:Right" Click="OnPanelPlace" />
+                        <MenuItem Header="Top" Tag="Colors:Top" Click="OnPanelPlace" />
+                        <MenuItem Header="Bottom" Tag="Colors:Bottom" Click="OnPanelPlace" />
+                        <MenuItem Header="Hidden" Tag="Colors:Hidden" Click="OnPanelPlace" />
+                    </MenuItem>
+                    <MenuItem Header="Layers">
+                        <MenuItem Header="Left" Tag="Layers:Left" Click="OnPanelPlace" />
+                        <MenuItem Header="Right" Tag="Layers:Right" Click="OnPanelPlace" />
+                        <MenuItem Header="Top" Tag="Layers:Top" Click="OnPanelPlace" />
+                        <MenuItem Header="Bottom" Tag="Layers:Bottom" Click="OnPanelPlace" />
+                        <MenuItem Header="Hidden" Tag="Layers:Hidden" Click="OnPanelPlace" />
+                    </MenuItem>
+                    <Separator />
+                    <MenuItem Header="Reset Layout" Click="OnResetLayout" />
+                </MenuItem>
             </MenuItem>
             <MenuItem Header="_Image">
                 <MenuItem Header="_Resize…" Click="OnResize" />
@@ -114,7 +140,7 @@
         </Border>
 
         <!-- Colors palette strip -->
-        <Border DockPanel.Dock="Bottom" Background="#282828" BorderBrush="#404040" BorderThickness="0,1,0,0" Padding="6,4">
+        <Border x:Name="ColorsBorder" DockPanel.Dock="Bottom" Background="#282828" BorderBrush="#404040" BorderThickness="0,1,0,0" Padding="6,4">
             <StackPanel Orientation="Horizontal" Spacing="8">
                 <TextBlock Text="Colors" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
                 <WrapPanel x:Name="PaletteStrip" VerticalAlignment="Center" MaxWidth="640" />
@@ -126,7 +152,7 @@
         </Border>
 
         <!-- Layers panel -->
-        <Border DockPanel.Dock="Right" Width="220" Background="#262626" BorderBrush="#404040" BorderThickness="1,0,0,0">
+        <Border x:Name="LayersBorder" DockPanel.Dock="Right" Width="220" Background="#262626" BorderBrush="#404040" BorderThickness="1,0,0,0">
             <DockPanel Margin="6">
                 <TextBlock DockPanel.Dock="Top" Text="Layers" Foreground="#E0E0E0"
                            FontWeight="Bold" Margin="2,2,2,6" />
@@ -151,7 +177,7 @@
             </DockPanel>
         </Border>
 
-        <Border DockPanel.Dock="Left" Width="70" Background="#262626"
+        <Border x:Name="ToolsBorder" DockPanel.Dock="Left" Width="70" Background="#262626"
                 BorderBrush="#404040" BorderThickness="0,0,1,0">
             <WrapPanel x:Name="ToolPalette" Orientation="Horizontal" Margin="4" />
         </Border>

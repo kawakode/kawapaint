@@ -31,6 +31,7 @@ public sealed class SurfaceView : Control
     private bool _fitPending = true;
 
     private bool _drawing;
+    private Point? _cursorScreen;
 
     public ColorBgra BrushColor { get; set; } = ColorBgra.Black;
     public ColorBgra SecondaryColor { get; set; } = ColorBgra.White;
@@ -206,6 +207,13 @@ public sealed class SurfaceView : Control
             DrawMarchingAnts(context, sel);
 
         context.DrawRectangle(null, new Pen(Brushes.Black, 1), dest);
+
+        if (_cursorScreen is Point cs && ShowsBrushCursor && !_panning)
+        {
+            double r = Math.Max(1.0, BrushWidth / 2.0) * _zoom;
+            context.DrawEllipse(null, new Pen(new SolidColorBrush(Color.FromArgb(200, 255, 255, 255)), 1), cs, r + 1, r + 1);
+            context.DrawEllipse(null, new Pen(new SolidColorBrush(Color.FromArgb(200, 0, 0, 0)), 1), cs, r, r);
+        }
     }
 
     private void DrawMarchingAnts(DrawingContext context, Selection sel)
@@ -267,6 +275,14 @@ public sealed class SurfaceView : Control
     }
 
     private Point ControlToImage(Point p) => new((p.X - _origin.X) / _zoom, (p.Y - _origin.Y) / _zoom);
+
+    private bool ShowsBrushCursor => CurrentTool is PencilTool or EraserTool;
+
+    protected override void OnPointerExited(PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+        if (_cursorScreen is not null) { _cursorScreen = null; InvalidateVisual(); }
+    }
 
     /// <summary>Raised whenever the zoom factor changes.</summary>
     public event Action<double>? ZoomChanged;
@@ -354,6 +370,12 @@ public sealed class SurfaceView : Control
         {
             Point ip = ControlToImage(p);
             CursorMoved((int)Math.Floor(ip.X), (int)Math.Floor(ip.Y));
+        }
+
+        if (ShowsBrushCursor)
+        {
+            _cursorScreen = p;
+            InvalidateVisual();
         }
 
         if (_panning)

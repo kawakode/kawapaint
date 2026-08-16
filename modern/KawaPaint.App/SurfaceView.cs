@@ -8,6 +8,7 @@ using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Avalonia.Threading;
 using KawaPaint.Engine;
 
 namespace KawaPaint.App;
@@ -17,7 +18,9 @@ public sealed class SurfaceView : Control
     private Document? _document;
     private Surface? _composite;
     private WriteableBitmap? _bitmap;
-    private WriteableBitmap? _selectionOverlay;
+
+    private int _antPhase;
+    private DispatcherTimer? _antTimer;
 
     public Selection? Selection { get; private set; }
 
@@ -66,18 +69,11 @@ public sealed class SurfaceView : Control
         _composite?.Dispose();
         _bitmap?.Dispose();
 
-        _selectionOverlay?.Dispose();
-
         _document = document;
         ActiveLayer = document.LayerCount > 0 ? document.Layers[^1] : document.AddLayer();
         _composite = new Surface(document.Width, document.Height);
         Selection = new Selection(document.Width, document.Height);
         _bitmap = new WriteableBitmap(
-            new PixelSize(document.Width, document.Height),
-            new Vector(96, 96),
-            PixelFormat.Bgra8888,
-            AlphaFormat.Unpremul);
-        _selectionOverlay = new WriteableBitmap(
             new PixelSize(document.Width, document.Height),
             new Vector(96, 96),
             PixelFormat.Bgra8888,
@@ -120,24 +116,21 @@ public sealed class SurfaceView : Control
         }
     }
 
-    /// <summary>Rebuilds the selection veil overlay and repaints. Called by selection tools.</summary>
-    public unsafe void NotifySelectionChanged()
+    /// <summary>Starts/stops the marching-ants animation and repaints. Called by selection tools.</summary>
+    public void NotifySelectionChanged()
     {
-        if (Selection is null || _selectionOverlay is null) return;
+        bool active = Selection is { IsActive: true };
 
-        if (Selection.IsActive)
+        if (active && _antTimer is null)
         {
-            var mask = Selection.Mask;
-            using ILockedFramebuffer fb = _selectionOverlay.Lock();
-            for (int y = 0; y < Selection.Height; y++)
-            {
-                ColorBgra* row = (ColorBgra*)((byte*)fb.Address + (long)y * fb.RowBytes);
-                int rowBase = y * Selection.Width;
-                for (int x = 0; x < Selection.Width; x++)
-                    row[x] = mask[rowBase + x] != 0
-                        ? ColorBgra.Transparent
-                        : ColorBgra.FromBgra(0, 0, 0, 0x66);   // veil unselected area
-            }
+            _antTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+            _antTimer.Tick += (_, _) => { _antPhase++; InvalidateVisual(); };
+            _antTimer.Start();
+        }
+        else if (!active && _antTimer is not null)
+        {
+            _antTimer.Stop();
+            _antTimer = null;
         }
 
         InvalidateVisual();
@@ -203,10 +196,37 @@ public sealed class SurfaceView : Control
         DrawCheckerboard(context, dest);
         context.DrawImage(_bitmap, new Rect(0, 0, _composite.Width, _composite.Height), dest);
 
-        if (Selection is { IsActive: true } && _selectionOverlay is not null)
-            context.DrawImage(_selectionOverlay, new Rect(0, 0, _composite.Width, _composite.Height), dest);
+        if (Selection is { IsActive: true } sel)
+            DrawMarchingAnts(context, sel);
 
         context.DrawRectangle(null, new Pen(Brushes.Black, 1), dest);
+    }
+
+    private void DrawMarchingAnts(DrawingContext context, Selection sel)
+    {
+        var mask = sel.Mask;
+        int w = sel.Width, h = sel.Height;
+        double size = Math.Max(1.0, _zoom);
+        var black = new SolidColorBrush(Colors.Black);
+        var white = new SolidColorBrush(Colors.White);
+
+        for (int y = 0; y < h; y++)
+        {
+            for (int x = 0; x < w; x++)
+            {
+                int idx = y * w + x;
+                if (mask[idx] == 0) continue;
+
+                // Boundary pixel: a selected pixel touching an unselected one (or the image edge).
+                bool interior = x > 0 && x < w - 1 && y > 0 && y < h - 1
+                    && mask[idx - 1] != 0 && mask[idx + 1] != 0
+                    && mask[idx - w] != 0 && mask[idx + w] != 0;
+                if (interior) continue;
+
+                var brush = (((x + y + _antPhase) >> 2) & 1) == 0 ? black : white;
+                context.FillRectangle(brush, new Rect(_origin.X + x * _zoom, _origin.Y + y * _zoom, size, size));
+            }
+        }
     }
 
     private static void DrawCheckerboard(DrawingContext context, Rect dest)

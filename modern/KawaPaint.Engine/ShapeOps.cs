@@ -16,6 +16,41 @@ public static class ShapeOps
         BrushOps.DrawLine(s, left, bottom, left, top, radius, color, StampMode.Blend, antialias);
     }
 
+    public static unsafe void FillRectangle(Surface s, double x0, double y0, double x1, double y1, ColorBgra color)
+    {
+        int left = Math.Max(0, (int)Math.Round(Math.Min(x0, x1)));
+        int top = Math.Max(0, (int)Math.Round(Math.Min(y0, y1)));
+        int right = Math.Min(s.Width - 1, (int)Math.Round(Math.Max(x0, x1)));
+        int bottom = Math.Min(s.Height - 1, (int)Math.Round(Math.Max(y0, y1)));
+
+        for (int y = top; y <= bottom; y++)
+        {
+            ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
+            for (int x = left; x <= right; x++)
+                row[x] = ColorBgra.BlendOver(row[x], color);
+        }
+    }
+
+    public static unsafe void FillEllipse(Surface s, double x0, double y0, double x1, double y1, ColorBgra color)
+    {
+        double cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+        double rx = Math.Abs(x1 - x0) / 2, ry = Math.Abs(y1 - y0) / 2;
+        if (rx < 0.5 || ry < 0.5) return;
+
+        int top = Math.Max(0, (int)(cy - ry)), bottom = Math.Min(s.Height - 1, (int)(cy + ry));
+        for (int y = top; y <= bottom; y++)
+        {
+            double dy = (y - cy) / ry;
+            double inside = 1 - dy * dy;
+            if (inside < 0) continue;
+            double half = rx * Math.Sqrt(inside);
+            int left = Math.Max(0, (int)(cx - half)), right = Math.Min(s.Width - 1, (int)(cx + half));
+            ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
+            for (int x = left; x <= right; x++)
+                row[x] = ColorBgra.BlendOver(row[x], color);
+        }
+    }
+
     public static void DrawEllipse(Surface s, double x0, double y0, double x1, double y1, int radius, ColorBgra color, bool antialias = false)
     {
         double cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;

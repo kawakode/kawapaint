@@ -453,6 +453,11 @@ public partial class MainWindow : Window
         if (Canvas is not null && AntialiasCheck is not null) Canvas.Antialias = AntialiasCheck.IsChecked ?? true;
     }
 
+    private void OnFillShapes(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (Canvas is not null && FillShapesCheck is not null) Canvas.FillShapes = FillShapesCheck.IsChecked ?? false;
+    }
+
     private void OnTolerance(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
         int tol = (int)Math.Round(e.NewValue);

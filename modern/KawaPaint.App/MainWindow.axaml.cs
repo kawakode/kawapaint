@@ -1,9 +1,12 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 using Avalonia.Platform.Storage;
 using KawaPaint.Engine;
 
@@ -593,6 +596,13 @@ public partial class MainWindow : Window
             var layer = doc.Layers[i];
 
             var check = new CheckBox { IsChecked = layer.Visible, VerticalAlignment = VerticalAlignment.Center };
+            var thumb = new Border
+            {
+                Width = 40, Height = 30, Background = Brushes.DimGray,
+                BorderBrush = Brushes.Gray, BorderThickness = new Thickness(1),
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = new Image { Source = MakeThumbnail(layer.Surface, 38, 28), Stretch = Stretch.Uniform }
+            };
             var capturedLayer = layer;
             check.IsCheckedChanged += (_, _) =>
             {
@@ -608,6 +618,7 @@ public partial class MainWindow : Window
 
             var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
             panel.Children.Add(check);
+            panel.Children.Add(thumb);
             panel.Children.Add(new TextBlock { Text = layer.Name, VerticalAlignment = VerticalAlignment.Center });
 
             var item = new ListBoxItem { Content = panel, Tag = layer };
@@ -636,6 +647,23 @@ public partial class MainWindow : Window
         }
 
         _suppress = false;
+    }
+
+    private static unsafe WriteableBitmap MakeThumbnail(Surface s, int maxW, int maxH)
+    {
+        double scale = Math.Min((double)maxW / s.Width, (double)maxH / s.Height);
+        int tw = Math.Max(1, (int)(s.Width * scale));
+        int th = Math.Max(1, (int)(s.Height * scale));
+        using var small = s.Resized(tw, th);
+        var wb = new WriteableBitmap(new PixelSize(tw, th), new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Unpremul);
+        using (var fb = wb.Lock())
+        {
+            int rowBytes = tw * 4;
+            byte* dst = (byte*)fb.Address;
+            for (int y = 0; y < th; y++)
+                System.Buffer.MemoryCopy(small.GetRowPointer(y), dst + (long)y * fb.RowBytes, fb.RowBytes, rowBytes);
+        }
+        return wb;
     }
 
     private void OnLayerSelected(object? sender, SelectionChangedEventArgs e)

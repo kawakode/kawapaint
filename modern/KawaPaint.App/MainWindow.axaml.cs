@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -38,9 +39,11 @@ public partial class MainWindow : Window
         OpacitySlider.AddHandler(Avalonia.Input.InputElement.PointerReleasedEvent,
             OnOpacityCommitted, Avalonia.Interactivity.RoutingStrategies.Tunnel);
 
+        BuildToolPalette();
         LoadDemoDocument();
         Canvas.History.Changed += (_, _) => MarkDirty();
         SetClean(null);
+        SelectTool("Pencil");
     }
 
     // ---- unsaved-changes tracking ----------------------------------------
@@ -467,8 +470,42 @@ public partial class MainWindow : Window
         if (sender is Button { Tag: string tag }) SelectTool(tag);
     }
 
+    private static readonly (string Key, string Name, string Shortcut)[] ToolDefs =
+    {
+        ("Pencil", "Pencil", "P"), ("Eraser", "Eraser", "E"), ("Fill", "Paint Bucket", "F"),
+        ("Pick", "Color Picker", "K"), ("Line", "Line", "L"), ("Rect", "Rectangle", "R"),
+        ("Ellipse", "Ellipse", "O"), ("Gradient", "Gradient", "G"), ("Text", "Text", "T"),
+        ("Move", "Move", "M"), ("RectSel", "Rectangle Select", "S"),
+        ("EllipseSel", "Ellipse Select", ""), ("Lasso", "Lasso Select", "")
+    };
+
+    private readonly System.Collections.Generic.List<ToggleButton> _toolButtons = new();
+
+    private void BuildToolPalette()
+    {
+        foreach (var (key, name, sc) in ToolDefs)
+        {
+            var btn = new ToggleButton
+            {
+                Content = Icons.Create(key),
+                Width = 28,
+                Height = 28,
+                Padding = new Thickness(3),
+                Margin = new Thickness(1),
+                Tag = key
+            };
+            ToolTip.SetTip(btn, string.IsNullOrEmpty(sc) ? name : $"{name}   ({sc})");
+            btn.Click += (_, _) => SelectTool(key);
+            _toolButtons.Add(btn);
+            ToolPalette.Children.Add(btn);
+        }
+    }
+
     private void SelectTool(string tag)
     {
+        foreach (var b in _toolButtons)
+            b.IsChecked = (b.Tag as string) == tag;
+
         ITool tool = tag switch
         {
             "Eraser" => new EraserTool(),

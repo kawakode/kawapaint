@@ -75,23 +75,6 @@
                     </Style>
                 </WrapPanel.Styles>
                 <StackPanel Classes="group">
-                    <Button Content="Pencil" Tag="Pencil" Click="OnTool" />
-                    <Button Content="Eraser" Tag="Eraser" Click="OnTool" />
-                    <Button Content="Fill" Tag="Fill" Click="OnTool" />
-                    <Button Content="Pick" Tag="Pick" Click="OnTool" />
-                    <Button Content="Line" Tag="Line" Click="OnTool" />
-                    <Button Content="Rect" Tag="Rect" Click="OnTool" />
-                    <Button Content="Ellipse" Tag="Ellipse" Click="OnTool" />
-                    <Button Content="Gradient" Tag="Gradient" Click="OnTool" />
-                    <Button Content="Text" Tag="Text" Click="OnTool" />
-                    <Button Content="Move" Tag="Move" Click="OnTool" />
-                </StackPanel>
-                <StackPanel Classes="group">
-                    <Button Content="▭ Sel" Tag="RectSel" Click="OnTool" />
-                    <Button Content="◯ Sel" Tag="EllipseSel" Click="OnTool" />
-                    <Button Content="Lasso" Tag="Lasso" Click="OnTool" />
-                </StackPanel>
-                <StackPanel Classes="group">
                     <TextBlock Text="Fg:" />
                     <Button Tag="#000000" Click="OnColor" Background="Black" Width="22" Height="22" />
                     <Button Tag="#FFFFFF" Click="OnColor" Background="White" Width="22" Height="22" />
@@ -154,6 +137,11 @@
                 <ListBox x:Name="LayerList" Background="#1E1E1E"
                          SelectionChanged="OnLayerSelected" />
             </DockPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Left" Width="70" Background="#262626"
+                BorderBrush="#404040" BorderThickness="0,0,1,0">
+            <WrapPanel x:Name="ToolPalette" Orientation="Horizontal" Margin="4" />
         </Border>
 
         <app:SurfaceView x:Name="Canvas" />

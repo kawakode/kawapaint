@@ -12,6 +12,7 @@ namespace KawaPaint.App;
 public partial class MainWindow : Window
 {
     private bool _suppress;   // guards programmatic updates to layer-panel controls
+    private byte? _opacityBefore;
     private bool _dirty;
     private bool _forceClose;
     private string? _currentPath;   // set once a .kwp path is known
@@ -27,6 +28,12 @@ public partial class MainWindow : Window
         Canvas.ZoomChanged += z => { if (ZoomText is not null) ZoomText.Text = $"{z * 100:0}%"; };
         Canvas.CursorMoved += (x, y) => { if (CoordText is not null) CoordText.Text = $"{x}, {y}"; };
         KeyDown += OnKeyDown;
+
+        OpacitySlider.AddHandler(Avalonia.Input.InputElement.PointerPressedEvent,
+            (_, _) => _opacityBefore = Canvas.ActiveLayer?.Opacity,
+            Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        OpacitySlider.AddHandler(Avalonia.Input.InputElement.PointerReleasedEvent,
+            OnOpacityCommitted, Avalonia.Interactivity.RoutingStrategies.Tunnel);
 
         LoadDemoDocument();
         Canvas.History.Changed += (_, _) => MarkDirty();
@@ -726,7 +733,11 @@ public partial class MainWindow : Window
         if (_suppress || Canvas.ActiveLayer is null) return;
         if (BlendCombo.SelectedItem is BlendMode mode)
         {
-            Canvas.ActiveLayer.BlendMode = mode;
+            var layer = Canvas.ActiveLayer;
+            BlendMode old = e.RemovedItems.Count > 0 && e.RemovedItems[0] is BlendMode om ? om : layer.BlendMode;
+            layer.BlendMode = mode;
+            Canvas.History.Push(new DelegateMemento("Blend Mode",
+                () => layer.BlendMode = old, () => layer.BlendMode = mode));
             Canvas.RenderComposite();
             Canvas.InvalidateVisual();
         }
@@ -738,5 +749,16 @@ public partial class MainWindow : Window
         Canvas.ActiveLayer.Opacity = (byte)Math.Round(e.NewValue);
         Canvas.RenderComposite();
         Canvas.InvalidateVisual();
+    }
+
+    private void OnOpacityCommitted(object? sender, Avalonia.Input.PointerReleasedEventArgs e)
+    {
+        var layer = Canvas.ActiveLayer;
+        if (layer is null || _opacityBefore is null) return;
+        byte before = _opacityBefore.Value, after = layer.Opacity;
+        _opacityBefore = null;
+        if (before != after)
+            Canvas.History.Push(new DelegateMemento("Opacity",
+                () => layer.Opacity = before, () => layer.Opacity = after));
     }
 }

@@ -148,14 +148,19 @@
                 <Button Content="+ Add" Click="OnAddPaletteColor" ToolTip.Tip="Add current foreground color" />
                 <Button Content="Save…" Click="OnSavePalette" />
                 <Button Content="Load…" Click="OnLoadPalette" />
+                <Button Content="✕" Padding="6,0" Tag="Colors:Hidden" Click="OnPanelPlace"
+                        ToolTip.Tip="Hide (View ▸ Panels to restore)" />
             </StackPanel>
         </Border>
 
         <!-- Layers panel -->
         <Border x:Name="LayersBorder" DockPanel.Dock="Right" Width="220" Background="#262626" BorderBrush="#404040" BorderThickness="1,0,0,0">
             <DockPanel Margin="6">
-                <TextBlock DockPanel.Dock="Top" Text="Layers" Foreground="#E0E0E0"
-                           FontWeight="Bold" Margin="2,2,2,6" />
+                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="2,2,2,6">
+                    <TextBlock Text="Layers" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Content="✕" Padding="4,0" Tag="Layers:Hidden" Click="OnPanelPlace"
+                            ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                </Grid>
                 <WrapPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
                     <Button Content="Add" Click="OnAddLayer" Margin="0,0,4,4" />
                     <Button Content="Dup" Click="OnDuplicateLayer" Margin="0,0,4,4" />
@@ -179,7 +184,11 @@
 
         <Border x:Name="ToolsBorder" DockPanel.Dock="Left" Width="70" Background="#262626"
                 BorderBrush="#404040" BorderThickness="0,0,1,0">
-            <WrapPanel x:Name="ToolPalette" Orientation="Horizontal" Margin="4" />
+            <DockPanel>
+                <Button DockPanel.Dock="Top" Content="✕" HorizontalAlignment="Right" Padding="4,0" Margin="2"
+                        Tag="Tools:Hidden" Click="OnPanelPlace" ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                <WrapPanel x:Name="ToolPalette" Orientation="Horizontal" Margin="4" />
+            </DockPanel>
         </Border>
 
         <app:SurfaceView x:Name="Canvas" />

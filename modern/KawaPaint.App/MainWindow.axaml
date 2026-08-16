@@ -21,6 +21,8 @@
                 <MenuItem Header="_Redo" Click="OnRedo" InputGesture="Ctrl+Y" />
             </MenuItem>
             <MenuItem Header="_Select">
+                <MenuItem Header="Select _All" Click="OnSelectAll" InputGesture="Ctrl+A" />
+                <MenuItem Header="_Invert" Click="OnInvertSelection" InputGesture="Ctrl+I" />
                 <MenuItem Header="Deselect (Select _None)" Click="OnSelectNone" InputGesture="Ctrl+D" />
             </MenuItem>
             <MenuItem Header="_View">

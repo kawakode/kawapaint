@@ -358,6 +358,20 @@ public partial class MainWindow : Window
         StatusText.Text = "Selection cleared";
     }
 
+    private void OnSelectAll(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Canvas.Selection?.SelectAll();
+        Canvas.NotifySelectionChanged();
+        StatusText.Text = "Selected all";
+    }
+
+    private void OnInvertSelection(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Canvas.Selection?.Invert();
+        Canvas.NotifySelectionChanged();
+        StatusText.Text = "Selection inverted";
+    }
+
     private async void OnAdjust(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (sender is not MenuItem mi || mi.Tag is not string tag || Canvas.ActiveLayer is null) return;

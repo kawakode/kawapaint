@@ -27,6 +27,20 @@ public sealed class Selection
         IsActive = false;
     }
 
+    public void SelectAll()
+    {
+        Array.Fill(_mask, (byte)255);
+        IsActive = true;
+    }
+
+    /// <summary>Inverts the current selection. If nothing is selected, selects everything.</summary>
+    public void Invert()
+    {
+        if (!IsActive) { SelectAll(); return; }
+        for (int i = 0; i < _mask.Length; i++)
+            _mask[i] = _mask[i] == 0 ? (byte)255 : (byte)0;
+    }
+
     public bool IsSelected(int x, int y)
         => !IsActive || ((uint)x < (uint)Width && (uint)y < (uint)Height && _mask[y * Width + x] != 0);
 

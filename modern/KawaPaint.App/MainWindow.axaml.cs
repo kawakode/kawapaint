@@ -25,6 +25,7 @@ public partial class MainWindow : Window
         Canvas.PrimaryColorPicked += OnColorPicked;
         Canvas.TextRequested += OnTextRequested;
         Canvas.ZoomChanged += z => { if (ZoomText is not null) ZoomText.Text = $"{z * 100:0}%"; };
+        Canvas.CursorMoved += (x, y) => { if (CoordText is not null) CoordText.Text = $"{x}, {y}"; };
         KeyDown += OnKeyDown;
 
         LoadDemoDocument();
@@ -528,7 +529,18 @@ public partial class MainWindow : Window
             panel.Children.Add(check);
             panel.Children.Add(new TextBlock { Text = layer.Name, VerticalAlignment = VerticalAlignment.Center });
 
-            LayerList.Items.Add(new ListBoxItem { Content = panel, Tag = layer });
+            var item = new ListBoxItem { Content = panel, Tag = layer };
+            item.DoubleTapped += async (_, _) =>
+            {
+                var dlg = new PromptDialog("Rename layer", capturedLayer.Name);
+                if (await dlg.ShowDialog<bool>(this) && !string.IsNullOrWhiteSpace(dlg.ResultText))
+                {
+                    capturedLayer.Name = dlg.ResultText.Trim();
+                    MarkDirty();
+                    RebuildLayerPanel();
+                }
+            };
+            LayerList.Items.Add(item);
         }
 
         // Sync selection + property controls to the active layer.

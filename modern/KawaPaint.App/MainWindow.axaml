@@ -112,9 +112,10 @@
             </WrapPanel>
         </Border>
         <Border DockPanel.Dock="Bottom" Background="#202020" Padding="8,3">
-            <Grid ColumnDefinitions="*,Auto">
+            <Grid ColumnDefinitions="*,Auto,Auto">
                 <TextBlock x:Name="StatusText" Foreground="#C0C0C0" Text="Ready" />
-                <TextBlock x:Name="ZoomText" Grid.Column="1" Foreground="#C0C0C0" Text="Fit" />
+                <TextBlock x:Name="CoordText" Grid.Column="1" Foreground="#C0C0C0" Text="" Margin="0,0,16,0" />
+                <TextBlock x:Name="ZoomText" Grid.Column="2" Foreground="#C0C0C0" Text="Fit" />
             </Grid>
         </Border>
 

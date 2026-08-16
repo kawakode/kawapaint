@@ -47,6 +47,9 @@ public sealed class SurfaceView : Control
     /// <summary>Raised by the text tool at the clicked image point (x,y).</summary>
     public event Action<int, int>? TextRequested;
 
+    /// <summary>Raised as the pointer moves, with the image-space coordinate under it.</summary>
+    public event Action<int, int>? CursorMoved;
+
     private Surface? _preStroke;
     private ToolContext? _toolCtx;
 
@@ -346,6 +349,12 @@ public sealed class SurfaceView : Control
     {
         base.OnPointerMoved(e);
         Point p = e.GetPosition(this);
+
+        if (CursorMoved is not null)
+        {
+            Point ip = ControlToImage(p);
+            CursorMoved((int)Math.Floor(ip.X), (int)Math.Floor(ip.Y));
+        }
 
         if (_panning)
         {

@@ -24,6 +24,7 @@ public partial class MainWindow : Window
         Canvas.DocumentChanged += (_, _) => RebuildLayerPanel();
         Canvas.PrimaryColorPicked += OnColorPicked;
         Canvas.TextRequested += OnTextRequested;
+        Canvas.ZoomChanged += z => { if (ZoomText is not null) ZoomText.Text = $"{z * 100:0}%"; };
         KeyDown += OnKeyDown;
 
         LoadDemoDocument();
@@ -339,6 +340,11 @@ public partial class MainWindow : Window
 
     private void OnUndo(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.Undo();
     private void OnRedo(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.Redo();
+    private void OnZoomIn(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.ZoomIn();
+    private void OnZoomOut(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.ZoomOut();
+    private void OnZoomFit(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.ZoomToFit();
+    private void OnZoomActual(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.ZoomActual();
+
     private void OnExit(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Close();
 
     // ---- toolbar ----------------------------------------------------------
@@ -395,6 +401,20 @@ public partial class MainWindow : Window
 
     private void OnKeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
     {
+        if (e.KeyModifiers == Avalonia.Input.KeyModifiers.Control)
+        {
+            switch (e.Key)
+            {
+                case Avalonia.Input.Key.OemPlus:
+                case Avalonia.Input.Key.Add: Canvas.ZoomIn(); e.Handled = true; break;
+                case Avalonia.Input.Key.OemMinus:
+                case Avalonia.Input.Key.Subtract: Canvas.ZoomOut(); e.Handled = true; break;
+                case Avalonia.Input.Key.D0: Canvas.ZoomToFit(); e.Handled = true; break;
+                case Avalonia.Input.Key.D1: Canvas.ZoomActual(); e.Handled = true; break;
+            }
+            return;
+        }
+
         // Ignore when typing into a control (e.g. a text field gets focus).
         if (e.KeyModifiers != Avalonia.Input.KeyModifiers.None) return;
         if (TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox) return;

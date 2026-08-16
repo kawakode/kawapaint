@@ -256,13 +256,43 @@ public sealed class SurfaceView : Control
         double ix = (p.X - _origin.X) / _zoom;
         double iy = (p.Y - _origin.Y) / _zoom;
         double factor = e.Delta.Y > 0 ? 1.2 : 1 / 1.2;
-        _zoom = Math.Clamp(_zoom * factor, 0.05, 32.0);
+        _zoom = Math.Clamp(_zoom * factor, 0.02, 64.0);
         _origin = new Point(p.X - ix * _zoom, p.Y - iy * _zoom);
         InvalidateVisual();
+        ZoomChanged?.Invoke(_zoom);
         e.Handled = true;
     }
 
     private Point ControlToImage(Point p) => new((p.X - _origin.X) / _zoom, (p.Y - _origin.Y) / _zoom);
+
+    /// <summary>Raised whenever the zoom factor changes.</summary>
+    public event Action<double>? ZoomChanged;
+
+    private void ZoomAround(Point anchor, double factor)
+    {
+        if (_composite is null) return;
+        double ix = (anchor.X - _origin.X) / _zoom;
+        double iy = (anchor.Y - _origin.Y) / _zoom;
+        _zoom = Math.Clamp(_zoom * factor, 0.02, 64.0);
+        _origin = new Point(anchor.X - ix * _zoom, anchor.Y - iy * _zoom);
+        InvalidateVisual();
+        ZoomChanged?.Invoke(_zoom);
+    }
+
+    private Point ViewportCenter => new(Bounds.Width / 2, Bounds.Height / 2);
+
+    public void ZoomIn() => ZoomAround(ViewportCenter, 1.25);
+    public void ZoomOut() => ZoomAround(ViewportCenter, 1 / 1.25);
+
+    public void ZoomToFit()
+    {
+        _fitPending = false;
+        FitToView();
+        InvalidateVisual();
+        ZoomChanged?.Invoke(_zoom);
+    }
+
+    public void ZoomActual() => ZoomAround(ViewportCenter, 1.0 / _zoom);
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {

@@ -18,8 +18,10 @@ public partial class MainWindow : Window
     private bool _suppress;   // guards programmatic updates to layer-panel controls
     private byte? _opacityBefore;
     private bool _dirty;
-    private Layer? _draggedLayer;
+    private Layer? _dragLayer;     // row being dragged, null when no drag is in flight
+    private int _dragFromIndex;    // its index at pointer-down, for a single undo entry
     private double _dragStartY;
+    private bool _dragActive;      // true once the pointer moved past the click threshold
 
     private bool _suppressColor;      // guards programmatic updates to the color-wheel widgets
     private bool _editingSecondary;   // true while the wheel edits the background color
@@ -53,6 +55,15 @@ public partial class MainWindow : Window
             Avalonia.Interactivity.RoutingStrategies.Tunnel);
         OpacitySlider.AddHandler(Avalonia.Input.InputElement.PointerReleasedEvent,
             OnOpacityCommitted, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+
+        // handledEventsToo: the ListBox marks pointer events handled for its own
+        // selection handling, which would otherwise hide them from these handlers.
+        LayerList.AddHandler(Avalonia.Input.InputElement.PointerPressedEvent,
+            OnLayerPointerPressed, Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
+        LayerList.AddHandler(Avalonia.Input.InputElement.PointerMovedEvent,
+            OnLayerPointerMoved, Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
+        LayerList.AddHandler(Avalonia.Input.InputElement.PointerReleasedEvent,
+            OnLayerPointerReleased, Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
 
         BuildToolPalette();
         _palette = Palette.LoadOrDefault(_palettePath);
@@ -955,44 +966,6 @@ public partial class MainWindow : Window
                 }
             };
 
-            // drag-reorder support
-            item.PointerPressed += (s, e) =>
-            {
-                if (e.GetCurrentPoint(item).Properties.IsLeftButtonPressed)
-                {
-                    LayerList.SelectedItem = item;
-                    _draggedLayer = capturedLayer;
-                    _dragStartY = e.GetPosition(LayerList).Y;
-                }
-            };
-            item.PointerMoved += (s, e) =>
-            {
-                if (_draggedLayer is not null && e.Pointer.Captured == item)
-                {
-                    var pos = e.GetPosition(LayerList).Y;
-                    if (Math.Abs(pos - _dragStartY) > 20)
-                    {
-                        var doc = Canvas.Document;
-                        if (doc is null) return;
-                        int fromIdx = doc.IndexOf(_draggedLayer);
-                        if (fromIdx < 0) return;
-
-                        // Find target layer based on Y position
-                        if (pos < _dragStartY && fromIdx < doc.LayerCount - 1)
-                        {
-                            OnLayerUp(null, new());
-                            _dragStartY = pos;
-                        }
-                        else if (pos > _dragStartY && fromIdx > 0)
-                        {
-                            OnLayerDown(null, new());
-                            _dragStartY = pos;
-                        }
-                    }
-                }
-            };
-            item.PointerReleased += (_, _) => _draggedLayer = null;
-
             LayerList.Items.Add(item);
         }
 
@@ -1032,6 +1005,79 @@ public partial class MainWindow : Window
         if (_suppress) return;
         if (LayerList.SelectedItem is ListBoxItem { Tag: Layer layer })
             Canvas.SetActiveLayer(layer);
+    }
+
+    // ---- layer drag-reorder ----------------------------------------------
+    //
+    // These handlers sit on the ListBox rather than on each row. Reordering rebuilds
+    // every row, which would destroy the control a per-row gesture started on and
+    // strand the drag half-finished; the list itself survives. The rows are reordered
+    // live as the pointer passes over them, but history is deferred to pointer-up so
+    // that dragging across several positions stays a single undo step.
+
+    private void OnLayerPointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(LayerList).Properties.IsLeftButtonPressed) return;
+        if (Canvas.Document is not { } doc) return;
+        if (RowAt(e.GetPosition(LayerList).Y)?.Tag is not Layer layer) return;
+
+        _dragLayer = layer;
+        _dragFromIndex = doc.IndexOf(layer);
+        _dragStartY = e.GetPosition(LayerList).Y;
+        _dragActive = false;
+    }
+
+    private void OnLayerPointerMoved(object? sender, Avalonia.Input.PointerEventArgs e)
+    {
+        if (_dragLayer is null || Canvas.Document is not { } doc) return;
+
+        double y = e.GetPosition(LayerList).Y;
+        if (!_dragActive)
+        {
+            if (Math.Abs(y - _dragStartY) < 4) return;   // let a plain click through untouched
+            _dragActive = true;
+            // Captured only once it is really a drag, so click and double-tap-to-rename
+            // keep reaching the row itself.
+            e.Pointer.Capture(LayerList);
+        }
+
+        if (RowAt(y)?.Tag is not Layer over || ReferenceEquals(over, _dragLayer)) return;
+
+        int from = doc.IndexOf(_dragLayer);
+        int to = doc.IndexOf(over);
+        if (from < 0 || to < 0) return;
+
+        doc.MoveLayer(from, to);
+        RefreshDocument();
+    }
+
+    private void OnLayerPointerReleased(object? sender, Avalonia.Input.PointerReleasedEventArgs e)
+    {
+        var layer = _dragLayer;
+        bool dragged = _dragActive;
+        _dragLayer = null;
+        _dragActive = false;
+        if (dragged) e.Pointer.Capture(null);
+
+        if (!dragged || layer is null || Canvas.Document is not { } doc) return;
+
+        int from = _dragFromIndex, to = doc.IndexOf(layer);
+        if (to < 0 || to == from) return;
+
+        Canvas.History.Push(new DelegateMemento("Reorder Layer",
+            undo: () => doc.MoveLayer(to, from),
+            redo: () => doc.MoveLayer(from, to)));
+    }
+
+    /// <summary>Finds the layer row containing <paramref name="y"/>, in ListBox coordinates.</summary>
+    private ListBoxItem? RowAt(double y)
+    {
+        foreach (ListBoxItem row in LayerList.Items.Cast<ListBoxItem>())
+        {
+            double? top = row.TranslatePoint(default, LayerList)?.Y;
+            if (top is not null && y >= top && y < top + row.Bounds.Height) return row;
+        }
+        return null;
     }
 
     private void RefreshDocument()

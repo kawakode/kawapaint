@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -11,6 +12,9 @@ namespace KawaPaint.App;
 public partial class MainWindow : Window
 {
     private bool _suppress;   // guards programmatic updates to layer-panel controls
+    private bool _dirty;
+    private bool _forceClose;
+    private string? _currentPath;   // set once a .kwp path is known
 
     public MainWindow()
     {
@@ -23,6 +27,47 @@ public partial class MainWindow : Window
         KeyDown += OnKeyDown;
 
         LoadDemoDocument();
+        Canvas.History.Changed += (_, _) => MarkDirty();
+        SetClean(null);
+    }
+
+    // ---- unsaved-changes tracking ----------------------------------------
+
+    private void MarkDirty() { _dirty = true; UpdateTitle(); }
+
+    private void SetClean(string? path) { _dirty = false; _currentPath = path; UpdateTitle(); }
+
+    private void UpdateTitle()
+    {
+        string name = _currentPath is null ? "untitled" : System.IO.Path.GetFileName(_currentPath);
+        Title = (_dirty ? "* " : "") + name + " — KawaPaint";
+    }
+
+    /// <summary>Returns true if it's OK to proceed (saved or discarded); false if the user cancelled.</summary>
+    private async Task<bool> ConfirmDiscardAsync()
+    {
+        if (!_dirty) return true;
+        var choice = await new ConfirmSaveDialog("Save changes to the current image before continuing?")
+            .ShowDialog<SaveChoice>(this);
+        return choice switch
+        {
+            SaveChoice.Save => await SaveProjectAsync(),
+            SaveChoice.Discard => true,
+            _ => false
+        };
+    }
+
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        base.OnClosing(e);
+        if (_forceClose || !_dirty) return;
+        e.Cancel = true;
+        _ = HandleCloseAsync();
+    }
+
+    private async Task HandleCloseAsync()
+    {
+        if (await ConfirmDiscardAsync()) { _forceClose = true; Close(); }
     }
 
     // ---- documents --------------------------------------------------------
@@ -52,16 +97,19 @@ public partial class MainWindow : Window
         StatusText.Text = "Demo document — left-drag to draw, wheel zoom, middle/right-drag pan, Ctrl+Z undo";
     }
 
-    private void OnNew(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    private async void OnNew(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        if (!await ConfirmDiscardAsync()) return;
         var doc = new Document(800, 600);
         doc.AddLayer("Background").Surface.Clear(ColorBgra.White);
         Canvas.SetDocument(doc);
+        SetClean(null);
         StatusText.Text = "New 800×600 document";
     }
 
     private async void OnOpen(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        if (!await ConfirmDiscardAsync()) return;
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "Open image",
@@ -84,6 +132,7 @@ public partial class MainWindow : Window
             var layer = doc.AddLayer(System.IO.Path.GetFileNameWithoutExtension(path));
             layer.Surface.CopyFrom(loaded);
             Canvas.SetDocument(doc);
+            SetClean(null);   // imported image has no project path yet
             StatusText.Text = $"{System.IO.Path.GetFileName(path)} — {loaded.Width}×{loaded.Height}";
         }
         catch (Exception ex)
@@ -94,6 +143,7 @@ public partial class MainWindow : Window
 
     private async void OnOpenProject(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        if (!await ConfirmDiscardAsync()) return;
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "Open KawaPaint project",
@@ -112,6 +162,7 @@ public partial class MainWindow : Window
             string path = file.Path.LocalPath;
             var doc = DocumentFile.Load(path);
             Canvas.SetDocument(doc);
+            SetClean(path);
             StatusText.Text = $"{System.IO.Path.GetFileName(path)} — {doc.LayerCount} layer(s)";
         }
         catch (Exception ex)
@@ -120,26 +171,37 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void OnSaveProject(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        if (Canvas.Document is null) return;
+    private async void OnSaveProject(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => await SaveProjectAsync();
 
-        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+    /// <summary>Saves the project (to the known path, or prompts). Returns true if saved.</summary>
+    private async Task<bool> SaveProjectAsync()
+    {
+        if (Canvas.Document is null) return false;
+
+        string? path = _currentPath;
+        if (path is null || !path.EndsWith(DocumentFile.Extension, StringComparison.OrdinalIgnoreCase))
         {
-            Title = "Save KawaPaint project",
-            DefaultExtension = DocumentFile.Extension.TrimStart('.'),
-            SuggestedFileName = "untitled" + DocumentFile.Extension
-        });
-        if (file is null) return;
+            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Save KawaPaint project",
+                DefaultExtension = DocumentFile.Extension.TrimStart('.'),
+                SuggestedFileName = "untitled" + DocumentFile.Extension
+            });
+            if (file is null) return false;
+            path = file.Path.LocalPath;
+        }
 
         try
         {
-            DocumentFile.Save(Canvas.Document, file.Path.LocalPath);
-            StatusText.Text = "Saved project " + System.IO.Path.GetFileName(file.Path.LocalPath);
+            DocumentFile.Save(Canvas.Document, path);
+            SetClean(path);
+            StatusText.Text = "Saved project " + System.IO.Path.GetFileName(path);
+            return true;
         }
         catch (Exception ex)
         {
             StatusText.Text = "Save project failed: " + ex.Message;
+            return false;
         }
     }
 

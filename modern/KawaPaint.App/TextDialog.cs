@@ -28,7 +28,7 @@ public sealed class TextDialog : Window
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
             Height = 90,
-            Watermark = "Type text…"
+            PlaceholderText = "Type text…"
         };
 
         _size = new Slider { Minimum = 8, Maximum = 240, Value = 48 };

@@ -21,6 +21,22 @@ public static class DocumentOps
         return result;
     }
 
+    /// <summary>Returns a new document scaled to (w,h); every layer is resampled.</summary>
+    public static Document Resize(Document doc, int w, int h)
+    {
+        var result = new Document(w, h);
+        foreach (var layer in doc.Layers)
+        {
+            result.AddLayer(new Layer(layer.Surface.Resized(w, h), layer.Name)
+            {
+                Opacity = layer.Opacity,
+                Visible = layer.Visible,
+                BlendMode = layer.BlendMode
+            });
+        }
+        return result;
+    }
+
     /// <summary>Returns a new single-layer document with all layers composited together.</summary>
     public static Document Flatten(Document doc)
     {

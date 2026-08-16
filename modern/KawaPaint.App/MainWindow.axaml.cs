@@ -259,6 +259,21 @@ public partial class MainWindow : Window
         StatusText.Text = "Applied: " + fx.Name + " (to " + layer.Name + ")";
     }
 
+    private async void OnResize(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document;
+        if (doc is null) return;
+        var dlg = new ResizeDialog(doc.Width, doc.Height);
+        if (await dlg.ShowDialog<bool>(this))
+        {
+            int w = dlg.ResultWidth, h = dlg.ResultHeight;
+            if (w == doc.Width && h == doc.Height) return;
+            Canvas.SetDocument(DocumentOps.Resize(doc, w, h));
+            MarkDirty();
+            StatusText.Text = $"Resized to {w}×{h}";
+        }
+    }
+
     private void OnCropToSelection(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         var doc = Canvas.Document;

@@ -154,6 +154,20 @@ public sealed unsafe class Surface : IDisposable
         return surface;
     }
 
+    /// <summary>Returns a new Surface scaled to (newWidth,newHeight) with linear sampling.</summary>
+    public Surface Resized(int newWidth, int newHeight)
+    {
+        ThrowIfDisposed();
+        var dst = new Surface(newWidth, newHeight);
+        using var srcBmp = WrapSKBitmap();
+        using var dstBmp = dst.WrapSKBitmap();
+        using var canvas = new SKCanvas(dstBmp);
+        using var image = SKImage.FromBitmap(srcBmp);
+        canvas.DrawImage(image, new SKRect(0, 0, newWidth, newHeight),
+            new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
+        return dst;
+    }
+
     /// <summary>Returns a new Surface with a copy of this one's pixels.</summary>
     public Surface Clone()
     {

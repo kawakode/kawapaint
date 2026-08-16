@@ -24,6 +24,7 @@
                 <MenuItem Header="Deselect (Select _None)" Click="OnSelectNone" InputGesture="Ctrl+D" />
             </MenuItem>
             <MenuItem Header="_Image">
+                <MenuItem Header="_Resize…" Click="OnResize" />
                 <MenuItem Header="_Crop to Selection" Click="OnCropToSelection" />
                 <MenuItem Header="_Flatten Image" Click="OnFlatten" />
             </MenuItem>

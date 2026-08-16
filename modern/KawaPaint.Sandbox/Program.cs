@@ -1,22 +1,12 @@
 using KawaPaint.Engine;
 
-using var doc = new Document(200, 150);
-doc.AddLayer("bg").Surface.Clear(ColorBgra.FromBgr(200, 200, 60));
-var top = doc.AddLayer("top");
-BrushOps.FillDisc(top.Surface, 100, 75, 40, ColorBgra.FromBgr(20, 20, 220));
+using var doc = new Document(200, 100);
+doc.AddLayer("a").Surface.Clear(ColorBgra.FromBgr(30, 160, 220));
+BrushOps.FillDisc(doc.Layers[0].Surface, 100, 50, 30, ColorBgra.Black);
 
-// Crop to a selection.
-var sel = new Selection(200, 150);
-sel.ReplaceWithRectangle(60, 40, 160, 120);
-var (bx, by, bw, bh) = sel.GetBounds();
-Console.WriteLine($"bounds = {bx},{by} {bw}x{bh}");
+using var resized = DocumentOps.Resize(doc, 100, 50);   // half size
+Console.WriteLine($"resized doc = {resized.Width}x{resized.Height}, layers={resized.LayerCount}");
+resized.Flatten().Save(Path.Combine(AppContext.BaseDirectory, "resize_test.png"));
 
-using var cropped = DocumentOps.Crop(doc, bx, by, bw, bh);
-Console.WriteLine($"cropped doc = {cropped.Width}x{cropped.Height}, layers={cropped.LayerCount}");
-cropped.Flatten().Save(Path.Combine(AppContext.BaseDirectory, "crop_test.png"));
-
-using var flat = DocumentOps.Flatten(doc);
-Console.WriteLine($"flattened layers = {flat.LayerCount} (expect 1)");
-
-bool ok = cropped.Width == bw && cropped.Height == bh && cropped.LayerCount == 2 && flat.LayerCount == 1;
-Console.WriteLine($"crop+flatten ok = {ok}");
+bool ok = resized.Width == 100 && resized.Height == 50 && resized.LayerCount == 1;
+Console.WriteLine($"resize ok = {ok}, center={resized.Layers[0].Surface[50, 25]}");

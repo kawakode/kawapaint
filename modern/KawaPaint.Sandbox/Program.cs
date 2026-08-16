@@ -1,25 +1,13 @@
 using KawaPaint.Engine;
 
-// Low-contrast source; original | auto-levels | levels(gamma 0.5)
-int tw = 160, th = 120;
-using var src = new Surface(tw, th);
-unsafe
-{
-    for (int y = 0; y < th; y++)
-    {
-        ColorBgra* row = (ColorBgra*)src.GetRowPointer(y);
-        for (int x = 0; x < tw; x++)
-        {
-            byte v = (byte)(70 + (x * 90 / tw));   // compressed 70..160 range
-            row[x] = ColorBgra.FromBgr(v, (byte)(70 + y * 90 / th), v);
-        }
-    }
-}
+using var s = new Surface(200, 100);
+s.Clear(ColorBgra.White);
+var blk = ColorBgra.Black;
+BrushOps.FillDisc(s, 50, 50, 30, blk, StampMode.Blend, antialias: false);  // hard
+BrushOps.FillDisc(s, 150, 50, 30, blk, StampMode.Blend, antialias: true);   // soft
+BrushOps.DrawLine(s, 10, 90, 190, 95, 2, ColorBgra.FromBgr(0, 0, 220), StampMode.Blend, antialias: true);
+s.Save(Path.Combine(AppContext.BaseDirectory, "aa_test.png"));
 
-var fx = new (string, IEffect)[] { ("auto", new AutoLevelsEffect()), ("levels g0.5", new LevelsEffect(60, 200, 0.5)) };
-using var montage = new Surface(tw * 3, th);
-void Blit(Surface s, int c) { for (int y = 0; y < th; y++) for (int x = 0; x < tw; x++) montage[c * tw + x, y] = s[x, y]; }
-Blit(src, 0);
-for (int i = 0; i < fx.Length; i++) { using var cp = src.Clone(); fx[i].Item2.Apply(cp); Blit(cp, i + 1); Console.WriteLine($"applied {fx[i].Item1}"); }
-montage.Save(Path.Combine(AppContext.BaseDirectory, "levels_test.png"));
-Console.WriteLine("saved levels_test.png");
+// edge pixel of AA disc should be partial alpha (blended toward white), hard disc should be solid.
+Console.WriteLine($"hard edge(50,20)={s[50, 20]}  aa edge(150,20)={s[150, 20]}");
+Console.WriteLine("saved aa_test.png");

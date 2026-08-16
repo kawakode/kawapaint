@@ -35,6 +35,8 @@ public sealed class SurfaceView : Control
     public ColorBgra BrushColor { get; set; } = ColorBgra.Black;
     public ColorBgra SecondaryColor { get; set; } = ColorBgra.White;
     public int BrushWidth { get; set; } = 3;
+    public bool Antialias { get; set; } = true;
+    public int FillTolerance { get; set; } = 32;
 
     public ITool CurrentTool { get; set; } = new PencilTool();
 
@@ -288,6 +290,8 @@ public sealed class SurfaceView : Control
                 PrimaryColor = BrushColor,
                 SecondaryColor = SecondaryColor,
                 BrushWidth = BrushWidth,
+                Antialias = Antialias,
+                FillTolerance = FillTolerance,
                 X = img.X,
                 Y = img.Y,
                 PushHistory = () => History.Push(new LayerSurfaceMemento(layer, CurrentTool.Name)),

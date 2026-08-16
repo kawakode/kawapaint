@@ -448,6 +448,18 @@ public partial class MainWindow : Window
         if (SizeLabel is not null) SizeLabel.Text = size + " px";
     }
 
+    private void OnAntialias(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (Canvas is not null && AntialiasCheck is not null) Canvas.Antialias = AntialiasCheck.IsChecked ?? true;
+    }
+
+    private void OnTolerance(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        int tol = (int)Math.Round(e.NewValue);
+        if (Canvas is not null) Canvas.FillTolerance = tol;
+        if (ToleranceLabel is not null) ToleranceLabel.Text = tol.ToString();
+    }
+
     // ---- layers panel -----------------------------------------------------
 
     private void RebuildLayerPanel()

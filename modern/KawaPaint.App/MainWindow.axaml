@@ -91,6 +91,14 @@
                             VerticalAlignment="Center" ValueChanged="OnSize" />
                     <TextBlock x:Name="SizeLabel" Text="3 px" Width="42" />
                 </StackPanel>
+                <StackPanel Classes="group">
+                    <CheckBox x:Name="AntialiasCheck" Content="AA" IsChecked="True"
+                              VerticalAlignment="Center" IsCheckedChanged="OnAntialias" />
+                    <TextBlock Text="Tol:" />
+                    <Slider x:Name="ToleranceSlider" Minimum="0" Maximum="128" Value="32" Width="100"
+                            VerticalAlignment="Center" ValueChanged="OnTolerance" />
+                    <TextBlock x:Name="ToleranceLabel" Text="32" Width="28" />
+                </StackPanel>
             </WrapPanel>
         </Border>
         <Border DockPanel.Dock="Bottom" Background="#202020" Padding="8,3">

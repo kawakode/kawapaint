@@ -24,12 +24,13 @@ public abstract class PerPixelEffect : IEffect
 
     public unsafe void Apply(Surface s)
     {
-        for (int y = 0; y < s.Height; y++)
+        int width = s.Width;
+        System.Threading.Tasks.Parallel.For(0, s.Height, y =>
         {
             ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
-            for (int x = 0; x < s.Width; x++)
+            for (int x = 0; x < width; x++)
                 row[x] = Transform(row[x]);
-        }
+        });
     }
 }
 
@@ -367,7 +368,7 @@ public sealed class EdgeDetectEffect : IEffect
         int[,] gxK = { { -1, 0, 1 }, { -2, 0, 2 }, { -1, 0, 1 } };
         int[,] gyK = { { -1, -2, -1 }, { 0, 0, 0 }, { 1, 2, 1 } };
 
-        for (int y = 0; y < h; y++)
+        System.Threading.Tasks.Parallel.For(0, h, y =>
         {
             ColorBgra* d = (ColorBgra*)s.GetRowPointer(y);
             for (int x = 0; x < w; x++)
@@ -388,7 +389,7 @@ public sealed class EdgeDetectEffect : IEffect
                 byte a = ((ColorBgra*)src.GetRowPointer(y))[x].A;
                 d[x] = ColorBgra.FromBgra(Mag(gxB, gyB), Mag(gxG, gyG), Mag(gxR, gyR), a);
             }
-        }
+        });
     }
 }
 
@@ -402,7 +403,7 @@ public sealed class SharpenEffect : IEffect
         using var src = s.Clone();
         int w = s.Width, h = s.Height;
 
-        for (int y = 0; y < h; y++)
+        System.Threading.Tasks.Parallel.For(0, h, y =>
         {
             ColorBgra* dRow = (ColorBgra*)s.GetRowPointer(y);
             for (int x = 0; x < w; x++)
@@ -421,6 +422,6 @@ public sealed class SharpenEffect : IEffect
                 ColorBgra center = ((ColorBgra*)src.GetRowPointer(y))[x];
                 dRow[x] = ColorBgra.FromBgra(Clamp.B(sumB), Clamp.B(sumG), Clamp.B(sumR), center.A);
             }
-        }
+        });
     }
 }

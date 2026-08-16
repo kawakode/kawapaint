@@ -69,16 +69,17 @@ public sealed class Document : IDisposable
             byte op = layer.Opacity;
             BlendMode mode = layer.BlendMode;
 
-            for (int y = 0; y < Height; y++)
+            int width = Width;
+            System.Threading.Tasks.Parallel.For(0, Height, y =>
             {
                 ColorBgra* dRow = (ColorBgra*)dest.GetRowPointer(y);
                 ColorBgra* sRow = (ColorBgra*)src.GetRowPointer(y);
-                for (int x = 0; x < Width; x++)
+                for (int x = 0; x < width; x++)
                 {
                     if (sRow[x].A == 0) continue;
                     dRow[x] = Blending.Composite(mode, dRow[x], sRow[x], op);
                 }
-            }
+            });
         }
     }
 

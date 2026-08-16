@@ -18,6 +18,8 @@ public partial class MainWindow : Window
     private bool _suppress;   // guards programmatic updates to layer-panel controls
     private byte? _opacityBefore;
     private bool _dirty;
+    private Layer? _draggedLayer;
+    private double _dragStartY;
 
     private Palette _palette = new();
     private readonly string _palettePath = System.IO.Path.Combine(
@@ -456,7 +458,7 @@ public partial class MainWindow : Window
     {
         var panels = new (Border Border, string Place)[]
         {
-            (ToolsBorder, _layout.Tools), (ColorsBorder, _layout.Colors), (LayersBorder, _layout.Layers)
+            (ToolsBorder, _layout.Tools), (ColorsBorder, _layout.Colors), (ColorWheelBorder, _layout.ColorWheel), (LayersBorder, _layout.Layers)
         };
 
         foreach (var (b, _) in panels) RootDock.Children.Remove(b);
@@ -482,13 +484,18 @@ public partial class MainWindow : Window
 
     private void OnPanelPlace(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (sender is not MenuItem { Tag: string tag }) return;
+        string? tag = null;
+        if (sender is Button b) tag = b.Tag as string;
+        else if (sender is MenuItem m) tag = m.Tag as string;
+        if (tag is null) return;
+
         var parts = tag.Split(':');
         if (parts.Length != 2) return;
         switch (parts[0])
         {
             case "Tools": _layout.Tools = parts[1]; break;
             case "Colors": _layout.Colors = parts[1]; break;
+            case "ColorWheel": _layout.ColorWheel = parts[1]; break;
             case "Layers": _layout.Layers = parts[1]; break;
         }
         ApplyLayout();
@@ -512,21 +519,14 @@ public partial class MainWindow : Window
         byte r = Convert.ToByte(hex.Substring(1, 2), 16);
         byte g = Convert.ToByte(hex.Substring(3, 2), 16);
         byte bl = Convert.ToByte(hex.Substring(5, 2), 16);
-        ColorPick.Color = Color.FromRgb(r, g, bl);   // fires OnPickColor
+        ColorWheel.Color = Color.FromRgb(r, g, bl);   // fires OnColorWheelChanged
     }
 
-    private void OnPickColor(object? sender, Avalonia.Controls.ColorChangedEventArgs e)
+    private void OnColorWheelChanged(object? sender, Avalonia.Controls.ColorChangedEventArgs e)
     {
         if (Canvas is null) return;
         Color c = e.NewColor;
         Canvas.BrushColor = ColorBgra.FromBgra(c.B, c.G, c.R, c.A);
-    }
-
-    private void OnPickColor2(object? sender, Avalonia.Controls.ColorChangedEventArgs e)
-    {
-        if (Canvas is null) return;
-        Color c = e.NewColor;
-        Canvas.SecondaryColor = ColorBgra.FromBgra(c.B, c.G, c.R, c.A);
     }
 
     // ---- color palette ----------------------------------------------------
@@ -552,7 +552,7 @@ public partial class MainWindow : Window
 
             var menu = new ContextMenu();
             var asBg = new MenuItem { Header = "Set as Background" };
-            asBg.Click += (_, _) => ColorPick2.Color = Color.FromArgb(color.A, color.R, color.G, color.B);
+            asBg.Click += (_, _) => Canvas.SecondaryColor = color;
             var rename = new MenuItem { Header = "Rename…" };
             rename.Click += async (_, _) =>
             {
@@ -570,7 +570,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void SetForeground(ColorBgra c) => ColorPick.Color = Color.FromArgb(c.A, c.R, c.G, c.B);
+    private void SetForeground(ColorBgra c) => ColorWheel.Color = Color.FromArgb(c.A, c.R, c.G, c.B);
 
     private void PersistPalette()
     {
@@ -733,7 +733,7 @@ public partial class MainWindow : Window
 
     private void OnColorPicked(ColorBgra c)
     {
-        ColorPick.Color = Color.FromArgb(c.A, c.R, c.G, c.B);
+        ColorWheel.Color = Color.FromArgb(c.A, c.R, c.G, c.B);
         StatusText.Text = $"Picked {c}";
     }
 
@@ -818,6 +818,45 @@ public partial class MainWindow : Window
                     RebuildLayerPanel();
                 }
             };
+
+            // drag-reorder support
+            item.PointerPressed += (s, e) =>
+            {
+                if (e.GetCurrentPoint(item).Properties.IsLeftButtonPressed)
+                {
+                    LayerList.SelectedItem = item;
+                    _draggedLayer = capturedLayer;
+                    _dragStartY = e.GetPosition(LayerList).Y;
+                }
+            };
+            item.PointerMoved += (s, e) =>
+            {
+                if (_draggedLayer is not null && e.Pointer.Captured == item)
+                {
+                    var pos = e.GetPosition(LayerList).Y;
+                    if (Math.Abs(pos - _dragStartY) > 20)
+                    {
+                        var doc = Canvas.Document;
+                        if (doc is null) return;
+                        int fromIdx = doc.IndexOf(_draggedLayer);
+                        if (fromIdx < 0) return;
+
+                        // Find target layer based on Y position
+                        if (pos < _dragStartY && fromIdx < doc.LayerCount - 1)
+                        {
+                            OnLayerUp(null, new());
+                            _dragStartY = pos;
+                        }
+                        else if (pos > _dragStartY && fromIdx > 0)
+                        {
+                            OnLayerDown(null, new());
+                            _dragStartY = pos;
+                        }
+                    }
+                }
+            };
+            item.PointerReleased += (_, _) => _draggedLayer = null;
+
             LayerList.Items.Add(item);
         }
 

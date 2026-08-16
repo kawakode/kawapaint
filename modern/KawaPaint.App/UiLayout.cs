@@ -11,6 +11,7 @@ public sealed class UiLayout
     public string Tools { get; set; } = "Left";
     public string Colors { get; set; } = "Bottom";
     public string Layers { get; set; } = "Right";
+    public string ColorWheel { get; set; } = "Right";
 
     public void Save(string path)
     {

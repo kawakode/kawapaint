@@ -247,6 +247,7 @@ public partial class MainWindow : Window
             "sharpen" => new SharpenEffect(),
             "emboss" => new EmbossEffect(),
             "edge" => new EdgeDetectEffect(),
+            "autolevels" => new AutoLevelsEffect(),
             _ => new InvertEffect()
         };
 
@@ -318,6 +319,13 @@ public partial class MainWindow : Window
                 new AdjustmentDialog.SliderSpec("Saturation", 0, 2, 1, "0.00"),
                 new AdjustmentDialog.SliderSpec("Lightness", -1, 1, 0, "0.00")
             }, v => new HueSaturationEffect(v[0], v[1], v[2])),
+
+            "levels" => new AdjustmentDialog(Canvas, "Levels", new[]
+            {
+                new AdjustmentDialog.SliderSpec("In Black", 0, 254, 0, "0"),
+                new AdjustmentDialog.SliderSpec("In White", 1, 255, 255, "0"),
+                new AdjustmentDialog.SliderSpec("Gamma", 0.1, 3.0, 1.0, "0.00")
+            }, v => new LevelsEffect((int)v[0], (int)v[1], v[2])),
 
             _ => new AdjustmentDialog(Canvas, "Gaussian Blur", new[]
             {

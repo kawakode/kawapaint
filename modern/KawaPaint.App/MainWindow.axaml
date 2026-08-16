@@ -35,6 +35,8 @@
                 <Separator />
                 <MenuItem Header="Brightness / Contrast…" Tag="bc" Click="OnAdjust" />
                 <MenuItem Header="Hue / Saturation…" Tag="hsl" Click="OnAdjust" />
+                <MenuItem Header="_Levels…" Tag="levels" Click="OnAdjust" />
+                <MenuItem Header="_Auto Levels" Tag="autolevels" Click="OnEffect" />
                 <Separator />
                 <MenuItem Header="Gaussian _Blur…" Tag="blur" Click="OnAdjust" />
                 <MenuItem Header="Sharpe_n" Tag="sharpen" Click="OnEffect" />

@@ -85,6 +85,73 @@ public sealed class BrightnessContrastEffect : PerPixelEffect
     }
 }
 
+/// <summary>Levels: remap each channel through input black/white points and gamma.</summary>
+public sealed class LevelsEffect : PerPixelEffect
+{
+    private readonly byte[] _lut = new byte[256];
+    public override string Name => "Levels";
+
+    public LevelsEffect(int inBlack, int inWhite, double gamma)
+    {
+        inBlack = Math.Clamp(inBlack, 0, 254);
+        inWhite = Math.Clamp(inWhite, inBlack + 1, 255);
+        double invGamma = 1.0 / Math.Max(0.01, gamma);
+        double range = inWhite - inBlack;
+
+        for (int v = 0; v < 256; v++)
+        {
+            double t = (v - inBlack) / range;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            _lut[v] = Clamp.B(Math.Pow(t, invGamma) * 255);
+        }
+    }
+
+    protected override ColorBgra Transform(ColorBgra c)
+        => ColorBgra.FromBgra(_lut[c.B], _lut[c.G], _lut[c.R], c.A);
+}
+
+/// <summary>Auto levels: stretch each channel's used range to full [0,255].</summary>
+public sealed class AutoLevelsEffect : IEffect
+{
+    public string Name => "Auto Levels";
+
+    public unsafe void Apply(Surface s)
+    {
+        int minB = 255, minG = 255, minR = 255, maxB = 0, maxG = 0, maxR = 0;
+        for (int y = 0; y < s.Height; y++)
+        {
+            ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
+            for (int x = 0; x < s.Width; x++)
+            {
+                ColorBgra c = row[x];
+                if (c.B < minB) minB = c.B; if (c.B > maxB) maxB = c.B;
+                if (c.G < minG) minG = c.G; if (c.G > maxG) maxG = c.G;
+                if (c.R < minR) minR = c.R; if (c.R > maxR) maxR = c.R;
+            }
+        }
+
+        byte[] lutB = BuildStretch(minB, maxB);
+        byte[] lutG = BuildStretch(minG, maxG);
+        byte[] lutR = BuildStretch(minR, maxR);
+
+        for (int y = 0; y < s.Height; y++)
+        {
+            ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
+            for (int x = 0; x < s.Width; x++)
+                row[x] = ColorBgra.FromBgra(lutB[row[x].B], lutG[row[x].G], lutR[row[x].R], row[x].A);
+        }
+    }
+
+    private static byte[] BuildStretch(int min, int max)
+    {
+        var lut = new byte[256];
+        int range = Math.Max(1, max - min);
+        for (int v = 0; v < 256; v++)
+            lut[v] = Clamp.B((v - min) * 255 / range);
+        return lut;
+    }
+}
+
 /// <summary>Hue rotation (degrees), saturation multiplier, and lightness delta [-1,1] via HSL.</summary>
 public sealed class HueSaturationEffect : PerPixelEffect
 {

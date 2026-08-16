@@ -18,6 +18,10 @@ public partial class MainWindow : Window
     private bool _suppress;   // guards programmatic updates to layer-panel controls
     private byte? _opacityBefore;
     private bool _dirty;
+
+    private Palette _palette = new();
+    private readonly string _palettePath = System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "KawaPaint", "palette.kwpal");
     private bool _forceClose;
     private string? _currentPath;   // set once a .kwp path is known
 
@@ -40,6 +44,8 @@ public partial class MainWindow : Window
             OnOpacityCommitted, Avalonia.Interactivity.RoutingStrategies.Tunnel);
 
         BuildToolPalette();
+        _palette = Palette.LoadOrDefault(_palettePath);
+        BuildPaletteStrip();
         LoadDemoDocument();
         Canvas.History.Changed += (_, _) => MarkDirty();
         SetClean(null);
@@ -463,6 +469,91 @@ public partial class MainWindow : Window
         if (Canvas is null) return;
         Color c = e.NewColor;
         Canvas.SecondaryColor = ColorBgra.FromBgra(c.B, c.G, c.R, c.A);
+    }
+
+    // ---- color palette ----------------------------------------------------
+
+    private void BuildPaletteStrip()
+    {
+        PaletteStrip.Children.Clear();
+        foreach (var entry in _palette.Colors)
+        {
+            var e = entry;
+            var color = e.Color;
+            var swatch = new Button
+            {
+                Width = 22,
+                Height = 22,
+                Margin = new Thickness(1),
+                Padding = new Thickness(0),
+                Background = new SolidColorBrush(Color.FromArgb(color.A, color.R, color.G, color.B)),
+                Tag = e
+            };
+            ToolTip.SetTip(swatch, string.IsNullOrEmpty(e.Name) ? color.ToHexString() : $"{e.Name}  ({color.ToHexString()})");
+            swatch.Click += (_, _) => SetForeground(color);
+
+            var menu = new ContextMenu();
+            var asBg = new MenuItem { Header = "Set as Background" };
+            asBg.Click += (_, _) => ColorPick2.Color = Color.FromArgb(color.A, color.R, color.G, color.B);
+            var rename = new MenuItem { Header = "Rename…" };
+            rename.Click += async (_, _) =>
+            {
+                var dlg = new PromptDialog("Name color", e.Name ?? "");
+                if (await dlg.ShowDialog<bool>(this)) { e.Name = dlg.ResultText.Trim(); PersistPalette(); BuildPaletteStrip(); }
+            };
+            var remove = new MenuItem { Header = "Remove" };
+            remove.Click += (_, _) => { _palette.Colors.Remove(e); PersistPalette(); BuildPaletteStrip(); };
+            menu.Items.Add(asBg);
+            menu.Items.Add(rename);
+            menu.Items.Add(remove);
+            swatch.ContextMenu = menu;
+
+            PaletteStrip.Children.Add(swatch);
+        }
+    }
+
+    private void SetForeground(ColorBgra c) => ColorPick.Color = Color.FromArgb(c.A, c.R, c.G, c.B);
+
+    private void PersistPalette()
+    {
+        try { _palette.Save(_palettePath); } catch { /* ignore */ }
+    }
+
+    private void OnAddPaletteColor(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        _palette.Add(Canvas.BrushColor);
+        PersistPalette();
+        BuildPaletteStrip();
+        StatusText.Text = "Added color to palette";
+    }
+
+    private async void OnSavePalette(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Save palette",
+            DefaultExtension = "kwpal",
+            SuggestedFileName = "palette.kwpal"
+        });
+        if (file is null) return;
+        try { _palette.Save(file.Path.LocalPath); StatusText.Text = "Palette saved"; }
+        catch (Exception ex) { StatusText.Text = "Save palette failed: " + ex.Message; }
+    }
+
+    private async void OnLoadPalette(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Load palette",
+            AllowMultiple = false,
+            FileTypeFilter = new[] { new FilePickerFileType("KawaPaint palette") { Patterns = new[] { "*.kwpal" } } }
+        });
+        var file = files.FirstOrDefault();
+        if (file is null) return;
+        _palette = Palette.LoadOrDefault(file.Path.LocalPath);
+        PersistPalette();
+        BuildPaletteStrip();
+        StatusText.Text = "Palette loaded";
     }
 
     private void OnTool(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

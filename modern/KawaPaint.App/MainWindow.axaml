@@ -113,6 +113,18 @@
             </Grid>
         </Border>
 
+        <!-- Colors palette strip -->
+        <Border DockPanel.Dock="Bottom" Background="#282828" BorderBrush="#404040" BorderThickness="0,1,0,0" Padding="6,4">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="Colors" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
+                <WrapPanel x:Name="PaletteStrip" VerticalAlignment="Center" MaxWidth="640" />
+                <Border Width="1" Background="#505050" Margin="4,2" />
+                <Button Content="+ Add" Click="OnAddPaletteColor" ToolTip.Tip="Add current foreground color" />
+                <Button Content="Save…" Click="OnSavePalette" />
+                <Button Content="Load…" Click="OnLoadPalette" />
+            </StackPanel>
+        </Border>
+
         <!-- Layers panel -->
         <Border DockPanel.Dock="Right" Width="220" Background="#262626" BorderBrush="#404040" BorderThickness="1,0,0,0">
             <DockPanel Margin="6">

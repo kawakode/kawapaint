@@ -38,6 +38,7 @@ public sealed class SurfaceView : Control
     public int BrushWidth { get; set; } = 3;
     public bool Antialias { get; set; } = true;
     public int FillTolerance { get; set; } = 32;
+    public bool GlobalFill { get; set; }
     public bool FillShapes { get; set; }
 
     public ITool CurrentTool { get; set; } = new PencilTool();
@@ -342,6 +343,7 @@ public sealed class SurfaceView : Control
                 BrushWidth = BrushWidth,
                 Antialias = Antialias,
                 FillTolerance = FillTolerance,
+                GlobalFill = GlobalFill,
                 FillShapes = FillShapes,
                 X = img.X,
                 Y = img.Y,

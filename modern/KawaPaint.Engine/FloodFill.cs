@@ -53,6 +53,21 @@ public static class FloodFill
         }
     }
 
+    /// <summary>Replaces every pixel matching the seed color (within tolerance) anywhere on the surface.</summary>
+    public static unsafe void FillGlobal(Surface s, int seedX, int seedY, ColorBgra fill, int tolerance = 0)
+    {
+        if ((uint)seedX >= (uint)s.Width || (uint)seedY >= (uint)s.Height) return;
+        ColorBgra target = s[seedX, seedY];
+
+        for (int y = 0; y < s.Height; y++)
+        {
+            ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
+            for (int x = 0; x < s.Width; x++)
+                if (Match(row[x], target, tolerance))
+                    row[x] = fill;
+        }
+    }
+
     private static bool Match(ColorBgra a, ColorBgra b, int tol)
     {
         if (tol <= 0) return a.Bgra == b.Bgra;

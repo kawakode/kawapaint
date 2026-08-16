@@ -17,6 +17,7 @@ public sealed class ToolContext
     public required int BrushWidth { get; init; }
     public required bool Antialias { get; init; }
     public required int FillTolerance { get; init; }
+    public required bool GlobalFill { get; init; }
     public required bool FillShapes { get; init; }
 
     public double X { get; set; }
@@ -108,7 +109,10 @@ public sealed class PaintBucketTool : ITool
     public void PointerDown(ToolContext c)
     {
         c.PushHistory();
-        FloodFill.Fill(c.Layer.Surface, c.IX, c.IY, c.PrimaryColor, c.FillTolerance);
+        if (c.GlobalFill)
+            FloodFill.FillGlobal(c.Layer.Surface, c.IX, c.IY, c.PrimaryColor, c.FillTolerance);
+        else
+            FloodFill.Fill(c.Layer.Surface, c.IX, c.IY, c.PrimaryColor, c.FillTolerance);
         c.Composite();
     }
 

@@ -111,6 +111,8 @@
                               VerticalAlignment="Center" IsCheckedChanged="OnAntialias" />
                     <CheckBox x:Name="FillShapesCheck" Content="Fill"
                               VerticalAlignment="Center" IsCheckedChanged="OnFillShapes" />
+                    <CheckBox x:Name="GlobalFillCheck" Content="Global"
+                              VerticalAlignment="Center" IsCheckedChanged="OnGlobalFill" />
                     <TextBlock Text="Tol:" />
                     <Slider x:Name="ToleranceSlider" Minimum="0" Maximum="128" Value="32" Width="100"
                             VerticalAlignment="Center" ValueChanged="OnTolerance" />

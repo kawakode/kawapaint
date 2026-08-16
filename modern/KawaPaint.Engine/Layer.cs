@@ -24,5 +24,13 @@ public sealed class Layer : IDisposable
         Name = name ?? "Layer";
     }
 
+    /// <summary>Deep copy (pixels + properties).</summary>
+    public Layer Clone() => new(Surface.Clone(), Name + " copy")
+    {
+        Opacity = Opacity,
+        Visible = Visible,
+        BlendMode = BlendMode
+    };
+
     public void Dispose() => Surface.Dispose();
 }

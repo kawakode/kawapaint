@@ -560,6 +560,45 @@ public partial class MainWindow : Window
         RefreshDocument();
     }
 
+    private void OnDuplicateLayer(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document;
+        var active = Canvas.ActiveLayer;
+        if (doc is null || active is null) return;
+
+        int idx = doc.IndexOf(active);
+        var dup = active.Clone();
+        doc.InsertLayer(idx + 1, dup);
+        Canvas.SetActiveLayer(dup);
+
+        Canvas.History.Push(new DelegateMemento("Duplicate Layer",
+            undo: () => { doc.RemoveLayer(dup); Canvas.SetActiveLayer(active); },
+            redo: () => { doc.InsertLayer(idx + 1, dup); Canvas.SetActiveLayer(dup); }));
+
+        RefreshDocument();
+    }
+
+    private void OnMergeDown(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document;
+        var active = Canvas.ActiveLayer;
+        if (doc is null || active is null) return;
+        int idx = doc.IndexOf(active);
+        if (idx <= 0) { StatusText.Text = "Nothing below to merge into"; return; }
+
+        var below = doc.Layers[idx - 1];
+        var belowBefore = below.Surface.Clone();
+        LayerOps.MergeInto(below, active);
+        doc.RemoveLayer(active);
+        Canvas.SetActiveLayer(below);
+
+        Canvas.History.Push(new DelegateMemento("Merge Down",
+            undo: () => { below.Surface.CopyFrom(belowBefore); doc.InsertLayer(idx, active); Canvas.SetActiveLayer(active); },
+            redo: () => { LayerOps.MergeInto(below, active); doc.RemoveLayer(active); Canvas.SetActiveLayer(below); }));
+
+        RefreshDocument();
+    }
+
     private void MoveActive(int delta)
     {
         var doc = Canvas.Document;

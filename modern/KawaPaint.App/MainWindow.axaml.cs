@@ -102,11 +102,15 @@ public partial class MainWindow : Window
     private async void OnNew(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (!await ConfirmDiscardAsync()) return;
-        var doc = new Document(800, 600);
-        doc.AddLayer("Background").Surface.Clear(ColorBgra.White);
+        var dlg = new NewImageDialog();
+        if (!await dlg.ShowDialog<bool>(this)) return;
+
+        var doc = new Document(dlg.ResultWidth, dlg.ResultHeight);
+        var bg = doc.AddLayer("Background");
+        if (!dlg.Transparent) bg.Surface.Clear(ColorBgra.White);
         Canvas.SetDocument(doc);
         SetClean(null);
-        StatusText.Text = "New 800×600 document";
+        StatusText.Text = $"New {dlg.ResultWidth}×{dlg.ResultHeight} document";
     }
 
     private async void OnOpen(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

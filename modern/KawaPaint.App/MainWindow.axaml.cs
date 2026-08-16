@@ -328,6 +328,16 @@ public partial class MainWindow : Window
                 new AdjustmentDialog.SliderSpec("Gamma", 0.1, 3.0, 1.0, "0.00")
             }, v => new LevelsEffect((int)v[0], (int)v[1], v[2])),
 
+            "posterize" => new AdjustmentDialog(Canvas, "Posterize", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Levels", 2, 16, 4, "0")
+            }, v => new PosterizeEffect((int)v[0])),
+
+            "noise" => new AdjustmentDialog(Canvas, "Add Noise", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Amount", 0, 100, 25, "0")
+            }, v => new NoiseEffect((int)v[0])),
+
             _ => new AdjustmentDialog(Canvas, "Gaussian Blur", new[]
             {
                 new AdjustmentDialog.SliderSpec("Radius", 1, 30, 5, "0")

@@ -1,15 +1,20 @@
 using KawaPaint.Engine;
 
-using var doc = new Document(20, 20);
-var below = doc.AddLayer("below");
-below.Surface.Clear(ColorBgra.FromBgr(0, 0, 200));       // red
-var above = doc.AddLayer("above");
-above.Opacity = 128;
-above.Surface.Clear(ColorBgra.FromBgr(200, 0, 0));        // blue @ 50%
-
-var expected = Blending.Composite(above.BlendMode, below.Surface[5, 5], above.Surface[5, 5], above.Opacity);
-LayerOps.MergeInto(below, above);
-Console.WriteLine($"merged pixel = {below.Surface[5, 5]}  expected = {expected}  match = {below.Surface[5, 5] == expected}");
-
-var dup = below.Clone();
-Console.WriteLine($"clone name='{dup.Name}' same-pixels={dup.Surface[5, 5] == below.Surface[5, 5]}");
+int tw = 160, th = 120;
+using var src = new Surface(tw, th);
+unsafe
+{
+    for (int y = 0; y < th; y++)
+    {
+        ColorBgra* row = (ColorBgra*)src.GetRowPointer(y);
+        for (int x = 0; x < tw; x++)
+            row[x] = ColorBgra.FromBgr((byte)(x * 255 / tw), (byte)(y * 255 / th), 150);
+    }
+}
+var fx = new (string, IEffect)[] { ("posterize4", new PosterizeEffect(4)), ("noise40", new NoiseEffect(40)) };
+using var montage = new Surface(tw * 3, th);
+void Blit(Surface s, int c) { for (int y = 0; y < th; y++) for (int x = 0; x < tw; x++) montage[c * tw + x, y] = s[x, y]; }
+Blit(src, 0);
+for (int i = 0; i < fx.Length; i++) { using var cp = src.Clone(); fx[i].Item2.Apply(cp); Blit(cp, i + 1); Console.WriteLine($"applied {fx[i].Item1}"); }
+montage.Save(Path.Combine(AppContext.BaseDirectory, "posternoise_test.png"));
+Console.WriteLine("saved posternoise_test.png");

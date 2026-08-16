@@ -85,6 +85,41 @@ public sealed class BrightnessContrastEffect : PerPixelEffect
     }
 }
 
+/// <summary>Posterize: reduce each channel to N levels.</summary>
+public sealed class PosterizeEffect : PerPixelEffect
+{
+    private readonly byte[] _lut = new byte[256];
+    public override string Name => "Posterize";
+
+    public PosterizeEffect(int levels)
+    {
+        levels = Math.Clamp(levels, 2, 256);
+        for (int v = 0; v < 256; v++)
+        {
+            int q = v * (levels - 1) / 255;          // bucket
+            _lut[v] = (byte)(q * 255 / (levels - 1)); // back to 0..255
+        }
+    }
+
+    protected override ColorBgra Transform(ColorBgra c)
+        => ColorBgra.FromBgra(_lut[c.B], _lut[c.G], _lut[c.R], c.A);
+}
+
+/// <summary>Adds uniform random noise (+/- amount) to each channel.</summary>
+public sealed class NoiseEffect : PerPixelEffect
+{
+    private readonly Random _rng = new();
+    private readonly int _amount;
+    public NoiseEffect(int amount) => _amount = Math.Max(0, amount);
+    public override string Name => "Add Noise";
+
+    protected override ColorBgra Transform(ColorBgra c)
+    {
+        int n = _rng.Next(-_amount, _amount + 1);
+        return ColorBgra.FromBgra(Clamp.B(c.B + n), Clamp.B(c.G + n), Clamp.B(c.R + n), c.A);
+    }
+}
+
 /// <summary>Levels: remap each channel through input black/white points and gamma.</summary>
 public sealed class LevelsEffect : PerPixelEffect
 {

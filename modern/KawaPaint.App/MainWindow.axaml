@@ -48,6 +48,8 @@
                 <MenuItem Header="Sharpe_n" Tag="sharpen" Click="OnEffect" />
                 <MenuItem Header="_Emboss" Tag="emboss" Click="OnEffect" />
                 <MenuItem Header="Edge _Detect" Tag="edge" Click="OnEffect" />
+                <MenuItem Header="_Posterize…" Tag="posterize" Click="OnAdjust" />
+                <MenuItem Header="Add _Noise…" Tag="noise" Click="OnAdjust" />
             </MenuItem>
         </Menu>
         <Border DockPanel.Dock="Top" Background="#282828" Padding="8,5">

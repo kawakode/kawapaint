@@ -21,6 +21,11 @@ public partial class MainWindow : Window
     private Layer? _draggedLayer;
     private double _dragStartY;
 
+    private bool _suppressColor;      // guards programmatic updates to the color-wheel widgets
+    private bool _editingSecondary;   // true while the wheel edits the background color
+    private double _value = 0;        // HSV value, owned by ValueSlider
+    private double _alpha = 1;        // alpha, owned by AlphaSlider
+
     private Palette _palette = new();
     private readonly string _palettePath = System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "KawaPaint", "palette.kwpal");
@@ -54,6 +59,8 @@ public partial class MainWindow : Window
         BuildPaletteStrip();
         _layout = UiLayout.LoadOrDefault(_layoutPath);
         ApplyLayout();
+        SyncWheelToActiveColor();
+        RefreshSwatches();
         LoadDemoDocument();
         Canvas.History.Changed += (_, _) => MarkDirty();
         SetClean(null);
@@ -468,7 +475,12 @@ public partial class MainWindow : Window
         {
             if (place == "Hidden") { b.IsVisible = false; continue; }
             b.IsVisible = true;
-            DockPanel.SetDock(b, ParseDock(place));
+            var dock = ParseDock(place);
+            DockPanel.SetDock(b, dock);
+            // A fixed Width only makes sense on a side dock; on top/bottom it would
+            // pin the panel to a thin column, so let it size to its content instead.
+            if (b == ColorWheelBorder)
+                b.Width = dock is Dock.Left or Dock.Right ? 190 : double.NaN;
             RootDock.Children.Add(b);
         }
         RootDock.Children.Add(Canvas);   // fill
@@ -519,14 +531,124 @@ public partial class MainWindow : Window
         byte r = Convert.ToByte(hex.Substring(1, 2), 16);
         byte g = Convert.ToByte(hex.Substring(3, 2), 16);
         byte bl = Convert.ToByte(hex.Substring(5, 2), 16);
-        ColorWheel.Color = Color.FromRgb(r, g, bl);   // fires OnColorWheelChanged
+        SetActiveColor(Color.FromRgb(r, g, bl));
     }
 
-    private void OnColorWheelChanged(object? sender, Avalonia.Controls.ColorChangedEventArgs e)
+    // ---- color wheel panel ------------------------------------------------
+    //
+    // The wheel edits whichever swatch is active (foreground by default). The three
+    // input widgets each own one part of the color: the ring gives hue+saturation,
+    // and the two sliders give value and alpha. They are recombined here rather than
+    // cross-bound, so a change from any one of them can't feed back into the others.
+
+    /// <summary>Reads the panel widgets back into a single color and applies it.</summary>
+    private void CommitWheelColor()
+    {
+        if (_suppressColor) return;
+        var hsv = ColorWheel.HsvColor;
+        var c = new HsvColor(_alpha, hsv.H, hsv.S, _value).ToRgb();
+        SetActiveColor(c);
+    }
+
+    private void OnSpectrumChanged(object? sender, Avalonia.Controls.ColorChangedEventArgs e) => CommitWheelColor();
+
+    private void OnValueSliderChanged(object? sender, Avalonia.Controls.ColorChangedEventArgs e)
+    {
+        if (_suppressColor) return;
+        _value = ValueSlider.HsvColor.V;
+        CommitWheelColor();
+    }
+
+    private void OnAlphaSliderChanged(object? sender, Avalonia.Controls.ColorChangedEventArgs e)
+    {
+        if (_suppressColor) return;
+        _alpha = AlphaSlider.HsvColor.A;
+        CommitWheelColor();
+    }
+
+    private void OnSelectFg(object? sender, Avalonia.Input.PointerPressedEventArgs e) => SetEditTarget(secondary: false);
+
+    private void OnSelectBg(object? sender, Avalonia.Input.PointerPressedEventArgs e) => SetEditTarget(secondary: true);
+
+    private void SetEditTarget(bool secondary)
+    {
+        _editingSecondary = secondary;
+        SyncWheelToActiveColor();
+        RefreshSwatches();
+    }
+
+    private void OnSwapColors(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        (Canvas.BrushColor, Canvas.SecondaryColor) = (Canvas.SecondaryColor, Canvas.BrushColor);
+        SyncWheelToActiveColor();
+        RefreshSwatches();
+    }
+
+    private void OnHexKeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
+    {
+        if (e.Key != Avalonia.Input.Key.Enter) return;
+        OnHexCommit(sender, e);
+        e.Handled = true;
+    }
+
+    private void OnHexCommit(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var text = (HexBox.Text ?? "").Trim().TrimStart('#');
+        if ((text.Length == 6 || text.Length == 8) &&
+            uint.TryParse(text, System.Globalization.NumberStyles.HexNumber, null, out uint v))
+        {
+            byte a = text.Length == 8 ? (byte)(v >> 24) : (byte)255;
+            SetActiveColor(Color.FromArgb(a, (byte)(v >> 16), (byte)(v >> 8), (byte)v));
+            SyncWheelToActiveColor();
+        }
+        RefreshSwatches();   // rewrites the box from the real color, reverting bad input
+    }
+
+    /// <summary>Applies a color to the active target and refreshes the panel readouts.</summary>
+    private void SetActiveColor(Color c)
     {
         if (Canvas is null) return;
-        Color c = e.NewColor;
-        Canvas.BrushColor = ColorBgra.FromBgra(c.B, c.G, c.R, c.A);
+        var bgra = ColorBgra.FromBgra(c.B, c.G, c.R, c.A);
+        if (_editingSecondary) Canvas.SecondaryColor = bgra;
+        else Canvas.BrushColor = bgra;
+        RefreshSwatches();
+    }
+
+    /// <summary>Pushes the active color back into the wheel/sliders without re-triggering them.</summary>
+    private void SyncWheelToActiveColor()
+    {
+        var bgra = _editingSecondary ? Canvas.SecondaryColor : Canvas.BrushColor;
+        var c = Color.FromArgb(bgra.A, bgra.R, bgra.G, bgra.B);
+        var hsv = c.ToHsv();
+
+        _suppressColor = true;
+        _value = hsv.V;
+        _alpha = hsv.A;
+        ColorWheel.HsvColor = hsv;
+        ValueSlider.HsvColor = hsv;
+        AlphaSlider.HsvColor = hsv;
+        _suppressColor = false;
+    }
+
+    /// <summary>Repaints the Fg/Bg swatches, the active-target outline, and the hex box.</summary>
+    private void RefreshSwatches()
+    {
+        if (FgSwatch is null || Canvas is null) return;
+
+        var fg = Canvas.BrushColor;
+        var bg = Canvas.SecondaryColor;
+        FgSwatch.Background = new SolidColorBrush(Color.FromArgb(fg.A, fg.R, fg.G, fg.B));
+        BgSwatch.Background = new SolidColorBrush(Color.FromArgb(bg.A, bg.R, bg.G, bg.B));
+
+        var active = new SolidColorBrush(Color.FromRgb(0x8C, 0xB4, 0xFF));
+        var idle = new SolidColorBrush(Color.FromRgb(0x50, 0x50, 0x50));
+        FgSwatch.BorderBrush = _editingSecondary ? idle : active;
+        BgSwatch.BorderBrush = _editingSecondary ? active : idle;
+
+        var cur = _editingSecondary ? bg : fg;
+        HexBox.Text = cur.A == 255
+            ? $"{cur.R:X2}{cur.G:X2}{cur.B:X2}"
+            : $"{cur.A:X2}{cur.R:X2}{cur.G:X2}{cur.B:X2}";
     }
 
     // ---- color palette ----------------------------------------------------
@@ -552,7 +674,7 @@ public partial class MainWindow : Window
 
             var menu = new ContextMenu();
             var asBg = new MenuItem { Header = "Set as Background" };
-            asBg.Click += (_, _) => Canvas.SecondaryColor = color;
+            asBg.Click += (_, _) => SetBackground(color);
             var rename = new MenuItem { Header = "Rename…" };
             rename.Click += async (_, _) =>
             {
@@ -570,7 +692,19 @@ public partial class MainWindow : Window
         }
     }
 
-    private void SetForeground(ColorBgra c) => ColorWheel.Color = Color.FromArgb(c.A, c.R, c.G, c.B);
+    private void SetForeground(ColorBgra c)
+    {
+        Canvas.BrushColor = c;
+        if (!_editingSecondary) SyncWheelToActiveColor();
+        RefreshSwatches();
+    }
+
+    private void SetBackground(ColorBgra c)
+    {
+        Canvas.SecondaryColor = c;
+        if (_editingSecondary) SyncWheelToActiveColor();
+        RefreshSwatches();
+    }
 
     private void PersistPalette()
     {
@@ -733,7 +867,9 @@ public partial class MainWindow : Window
 
     private void OnColorPicked(ColorBgra c)
     {
-        ColorWheel.Color = Color.FromArgb(c.A, c.R, c.G, c.B);
+        // The eyedropper always targets the foreground; SurfaceView has already applied it.
+        if (!_editingSecondary) SyncWheelToActiveColor();
+        RefreshSwatches();
         StatusText.Text = $"Picked {c}";
     }
 

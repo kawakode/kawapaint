@@ -292,6 +292,37 @@ public partial class MainWindow : Window
         StatusText.Text = $"Cropped to {w}×{h}";
     }
 
+    private void OnFlipH(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document; if (doc is null) return;
+        DocumentOps.FlipHorizontal(doc);
+        Canvas.History.Push(new DelegateMemento("Flip Horizontal",
+            () => DocumentOps.FlipHorizontal(doc), () => DocumentOps.FlipHorizontal(doc)));
+        Canvas.RenderComposite(); Canvas.InvalidateVisual();
+        StatusText.Text = "Flipped horizontally";
+    }
+
+    private void OnFlipV(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document; if (doc is null) return;
+        DocumentOps.FlipVertical(doc);
+        Canvas.History.Push(new DelegateMemento("Flip Vertical",
+            () => DocumentOps.FlipVertical(doc), () => DocumentOps.FlipVertical(doc)));
+        Canvas.RenderComposite(); Canvas.InvalidateVisual();
+        StatusText.Text = "Flipped vertically";
+    }
+
+    private void OnRotateCW(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Rotate(true);
+    private void OnRotateCCW(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Rotate(false);
+
+    private void Rotate(bool cw)
+    {
+        var doc = Canvas.Document; if (doc is null) return;
+        Canvas.SetDocument(DocumentOps.Rotate90(doc, cw));
+        MarkDirty();
+        StatusText.Text = cw ? "Rotated 90° CW" : "Rotated 90° CCW";
+    }
+
     private void OnFlatten(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         var doc = Canvas.Document;

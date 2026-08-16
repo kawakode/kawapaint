@@ -1,20 +1,13 @@
 using KawaPaint.Engine;
 
-int tw = 160, th = 120;
-using var src = new Surface(tw, th);
-unsafe
-{
-    for (int y = 0; y < th; y++)
-    {
-        ColorBgra* row = (ColorBgra*)src.GetRowPointer(y);
-        for (int x = 0; x < tw; x++)
-            row[x] = ColorBgra.FromBgr((byte)(x * 255 / tw), (byte)(y * 255 / th), 150);
-    }
-}
-var fx = new (string, IEffect)[] { ("posterize4", new PosterizeEffect(4)), ("noise40", new NoiseEffect(40)) };
-using var montage = new Surface(tw * 3, th);
-void Blit(Surface s, int c) { for (int y = 0; y < th; y++) for (int x = 0; x < tw; x++) montage[c * tw + x, y] = s[x, y]; }
-Blit(src, 0);
-for (int i = 0; i < fx.Length; i++) { using var cp = src.Clone(); fx[i].Item2.Apply(cp); Blit(cp, i + 1); Console.WriteLine($"applied {fx[i].Item1}"); }
-montage.Save(Path.Combine(AppContext.BaseDirectory, "posternoise_test.png"));
-Console.WriteLine("saved posternoise_test.png");
+using var doc = new Document(40, 20);
+var l = doc.AddLayer("a");
+l.Surface[0, 0] = ColorBgra.FromBgr(0, 0, 255);   // mark top-left red
+
+DocumentOps.FlipHorizontal(doc);
+Console.WriteLine($"after flipH: topRight(39,0)={l.Surface[39, 0]} (expect red), topLeft={l.Surface[0, 0]}");
+
+using var rot = DocumentOps.Rotate90(doc, clockwise: true);
+Console.WriteLine($"rotated dims = {rot.Width}x{rot.Height} (expect 20x40)");
+// red was at (39,0); CW rotation maps (x,y)->(H-1-y, x) = (19, 39)
+Console.WriteLine($"rot pixel(19,39)={rot.Layers[0].Surface[19, 39]} (expect red)");

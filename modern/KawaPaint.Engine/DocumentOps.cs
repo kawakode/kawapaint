@@ -37,6 +37,32 @@ public static class DocumentOps
         return result;
     }
 
+    public static void FlipHorizontal(Document doc)
+    {
+        foreach (var layer in doc.Layers) SurfaceOps.FlipHorizontal(layer.Surface);
+    }
+
+    public static void FlipVertical(Document doc)
+    {
+        foreach (var layer in doc.Layers) SurfaceOps.FlipVertical(layer.Surface);
+    }
+
+    /// <summary>Returns a new document rotated 90 degrees; canvas dimensions swap.</summary>
+    public static Document Rotate90(Document doc, bool clockwise)
+    {
+        var result = new Document(doc.Height, doc.Width);
+        foreach (var layer in doc.Layers)
+        {
+            result.AddLayer(new Layer(SurfaceOps.Rotate90(layer.Surface, clockwise), layer.Name)
+            {
+                Opacity = layer.Opacity,
+                Visible = layer.Visible,
+                BlendMode = layer.BlendMode
+            });
+        }
+        return result;
+    }
+
     /// <summary>Returns a new single-layer document with all layers composited together.</summary>
     public static Document Flatten(Document doc)
     {

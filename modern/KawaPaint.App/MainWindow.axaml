@@ -32,6 +32,12 @@
             <MenuItem Header="_Image">
                 <MenuItem Header="_Resize…" Click="OnResize" />
                 <MenuItem Header="_Crop to Selection" Click="OnCropToSelection" />
+                <Separator />
+                <MenuItem Header="Flip _Horizontal" Click="OnFlipH" />
+                <MenuItem Header="Flip _Vertical" Click="OnFlipV" />
+                <MenuItem Header="Rotate 90° C_W" Click="OnRotateCW" />
+                <MenuItem Header="Rotate 90° CC_W" Click="OnRotateCCW" />
+                <Separator />
                 <MenuItem Header="_Flatten Image" Click="OnFlatten" />
             </MenuItem>
             <MenuItem Header="Effe_cts">

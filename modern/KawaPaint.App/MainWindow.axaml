@@ -4,15 +4,26 @@
         x:Class="KawaPaint.App.MainWindow"
         Width="1100" Height="720"
         Title="KawaPaint">
+    <Window.Styles>
+        <!-- Color swatches. The Fluent button template repaints its content background on
+             hover/press, which would hide the very color the button exists to show, so the
+             templated background is re-asserted in those states. -->
+        <Style Selector="Button.swatch:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{TemplateBinding Background}" />
+        </Style>
+        <Style Selector="Button.swatch:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{TemplateBinding Background}" />
+        </Style>
+    </Window.Styles>
     <DockPanel x:Name="RootDock">
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="_File">
-                <MenuItem Header="_New" Click="OnNew" />
-                <MenuItem Header="_Open Image…" Click="OnOpen" />
-                <MenuItem Header="Open _Project…" Click="OnOpenProject" />
+                <MenuItem Header="_New" Click="OnNew" InputGesture="Ctrl+N" />
+                <MenuItem Header="_Open Image…" Click="OnOpen" InputGesture="Ctrl+O" />
+                <MenuItem Header="Open _Project…" Click="OnOpenProject" InputGesture="Ctrl+Shift+O" />
                 <Separator />
-                <MenuItem Header="Save _Project…" Click="OnSaveProject" />
-                <MenuItem Header="_Export Flattened…" Click="OnSaveAs" />
+                <MenuItem Header="Save _Project…" Click="OnSaveProject" InputGesture="Ctrl+S" />
+                <MenuItem Header="_Export Flattened…" Click="OnSaveAs" InputGesture="Ctrl+Shift+S" />
                 <Separator />
                 <MenuItem Header="E_xit" Click="OnExit" />
             </MenuItem>
@@ -26,10 +37,12 @@
                 <MenuItem Header="Deselect (Select _None)" Click="OnSelectNone" InputGesture="Ctrl+D" />
             </MenuItem>
             <MenuItem Header="_View">
-                <MenuItem Header="Zoom _In" Click="OnZoomIn" />
-                <MenuItem Header="Zoom _Out" Click="OnZoomOut" />
-                <MenuItem Header="_Fit to Window" Click="OnZoomFit" />
-                <MenuItem Header="_Actual Size (100%)" Click="OnZoomActual" />
+                <!-- These are spelled into the header rather than set as an InputGesture: a
+                     KeyGesture for +/-/0/1 stringifies as "OemPlus"/"D0" in the menu. -->
+                <MenuItem Header="Zoom _In   (Ctrl +)" Click="OnZoomIn" />
+                <MenuItem Header="Zoom _Out   (Ctrl -)" Click="OnZoomOut" />
+                <MenuItem Header="_Fit to Window   (Ctrl 0)" Click="OnZoomFit" />
+                <MenuItem Header="_Actual Size 100%   (Ctrl 1)" Click="OnZoomActual" />
                 <Separator />
                 <MenuItem Header="_Panels">
                     <MenuItem Header="Tools">
@@ -109,28 +122,37 @@
                 </WrapPanel.Styles>
                 <StackPanel Classes="group">
                     <TextBlock Text="Fg:" />
-                    <Button Tag="#000000" Click="OnColor" Background="Black" Width="22" Height="22" />
-                    <Button Tag="#FFFFFF" Click="OnColor" Background="White" Width="22" Height="22" />
-                    <Button Tag="#E01010" Click="OnColor" Background="#E01010" Width="22" Height="22" />
-                    <Button Tag="#20B020" Click="OnColor" Background="#20B020" Width="22" Height="22" />
-                    <Button Tag="#2050E0" Click="OnColor" Background="#2050E0" Width="22" Height="22" />
+                    <Button Classes="swatch" Tag="#000000" Click="OnColor" Background="Black" Width="22" Height="22" />
+                    <Button Classes="swatch" Tag="#FFFFFF" Click="OnColor" Background="White" Width="22" Height="22" />
+                    <Button Classes="swatch" Tag="#E01010" Click="OnColor" Background="#E01010" Width="22" Height="22" />
+                    <Button Classes="swatch" Tag="#20B020" Click="OnColor" Background="#20B020" Width="22" Height="22" />
+                    <Button Classes="swatch" Tag="#2050E0" Click="OnColor" Background="#2050E0" Width="22" Height="22" />
                 </StackPanel>
-                <StackPanel Classes="group">
+                <!-- Option groups are enabled/disabled per tool (see SelectTool) so the toolbar
+                     only offers what the active tool actually uses. -->
+                <StackPanel x:Name="SizeGroup" Classes="group">
                     <TextBlock Text="Size:" />
                     <Slider x:Name="SizeSlider" Minimum="1" Maximum="64" Value="3" Width="140"
-                            VerticalAlignment="Center" ValueChanged="OnSize" />
+                            VerticalAlignment="Center" ValueChanged="OnSize"
+                            ToolTip.Tip="Brush / outline thickness" />
                     <TextBlock x:Name="SizeLabel" Text="3 px" Width="42" />
                 </StackPanel>
-                <StackPanel Classes="group">
+                <StackPanel x:Name="ShapeGroup" Classes="group">
                     <CheckBox x:Name="AntialiasCheck" Content="AA" IsChecked="True"
-                              VerticalAlignment="Center" IsCheckedChanged="OnAntialias" />
+                              VerticalAlignment="Center" IsCheckedChanged="OnAntialias"
+                              ToolTip.Tip="Antialias strokes and outlines" />
                     <CheckBox x:Name="FillShapesCheck" Content="Fill"
-                              VerticalAlignment="Center" IsCheckedChanged="OnFillShapes" />
+                              VerticalAlignment="Center" IsCheckedChanged="OnFillShapes"
+                              ToolTip.Tip="Draw shapes filled instead of outlined" />
+                </StackPanel>
+                <StackPanel x:Name="BucketGroup" Classes="group">
                     <CheckBox x:Name="GlobalFillCheck" Content="Global"
-                              VerticalAlignment="Center" IsCheckedChanged="OnGlobalFill" />
+                              VerticalAlignment="Center" IsCheckedChanged="OnGlobalFill"
+                              ToolTip.Tip="Fill every matching pixel, not just the contiguous region" />
                     <TextBlock Text="Tol:" />
                     <Slider x:Name="ToleranceSlider" Minimum="0" Maximum="128" Value="32" Width="100"
-                            VerticalAlignment="Center" ValueChanged="OnTolerance" />
+                            VerticalAlignment="Center" ValueChanged="OnTolerance"
+                            ToolTip.Tip="How far a pixel's color may differ and still be filled" />
                     <TextBlock x:Name="ToleranceLabel" Text="32" Width="28" />
                 </StackPanel>
             </WrapPanel>

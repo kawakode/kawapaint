@@ -48,7 +48,7 @@ public sealed class TextDialog : Window
             Spacing = 8,
             Margin = new Thickness(0, 12, 0, 0)
         };
-        var cancel = new Button { Content = "Cancel" };
+        var cancel = new Button { Content = "Cancel", IsCancel = true };
         cancel.Click += (_, _) => Close(false);
         var ok = new Button { Content = "OK", IsDefault = true };
         ok.Click += (_, _) => Close(true);

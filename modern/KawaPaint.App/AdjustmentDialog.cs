@@ -79,7 +79,7 @@ public sealed class AdjustmentDialog : Window
         };
         var reset = new Button { Content = "Reset" };
         reset.Click += (_, _) => { for (int i = 0; i < specs.Length; i++) _sliders[i].Value = specs[i].Default; };
-        var cancel = new Button { Content = "Cancel" };
+        var cancel = new Button { Content = "Cancel", IsCancel = true };
         cancel.Click += (_, _) => Close();
         var ok = new Button { Content = "OK", IsDefault = true };
         ok.Click += (_, _) => { Commit(); Close(); };
@@ -116,6 +116,7 @@ public sealed class AdjustmentDialog : Window
             _canvas.History.Push(LayerSurfaceMemento.FromSnapshot(_layer, _snapshot, _effectName));
             _snapshot = null;
             _committed = true;
+            _canvas.NotifyLayersChanged();
         }
     }
 

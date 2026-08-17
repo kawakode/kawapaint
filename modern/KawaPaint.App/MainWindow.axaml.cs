@@ -47,7 +47,7 @@ public partial class MainWindow : Window
         Canvas.PrimaryColorPicked += OnColorPicked;
         Canvas.TextRequested += OnTextRequested;
         Canvas.ZoomChanged += z => { if (ZoomText is not null) ZoomText.Text = $"{z * 100:0}%"; };
-        Canvas.CursorMoved += (x, y) => { if (CoordText is not null) CoordText.Text = $"{x}, {y}"; };
+        Canvas.CursorMoved += OnCursorMoved;
         KeyDown += OnKeyDown;
 
         OpacitySlider.AddHandler(Avalonia.Input.InputElement.PointerPressedEvent,
@@ -321,7 +321,23 @@ public partial class MainWindow : Window
         Canvas.History.Push(LayerSurfaceMemento.FromSnapshot(layer, snapshot, fx.Name));
         Canvas.RenderComposite();
         Canvas.InvalidateVisual();
+        Canvas.NotifyLayersChanged();
         StatusText.Text = "Applied: " + fx.Name + " (to " + layer.Name + ")";
+    }
+
+    /// <summary>
+    /// Runs an operation that yields a whole new Document (crop/resize/rotate/flatten) and records
+    /// it as one undo step. The displaced document stays alive in history, so these are reversible
+    /// instead of silently wiping the undo stack.
+    /// </summary>
+    private void ApplyDocumentOp(string name, Func<Document, Document> transform)
+    {
+        var doc = Canvas.Document;
+        if (doc is null) return;
+
+        var replaced = Canvas.ReplaceDocument(transform(doc));
+        if (replaced is null) return;
+        Canvas.History.Push(new DocumentSwapMemento(name, replaced, d => Canvas.ReplaceDocument(d)));
     }
 
     private async void OnResize(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -333,8 +349,7 @@ public partial class MainWindow : Window
         {
             int w = dlg.ResultWidth, h = dlg.ResultHeight;
             if (w == doc.Width && h == doc.Height) return;
-            Canvas.SetDocument(DocumentOps.Resize(doc, w, h));
-            MarkDirty();
+            ApplyDocumentOp("Resize Image", d => DocumentOps.Resize(d, w, h));
             StatusText.Text = $"Resized to {w}×{h}";
         }
     }
@@ -346,7 +361,7 @@ public partial class MainWindow : Window
 
         var (x, y, w, h) = sel.GetBounds();
         if (w <= 0 || h <= 0) return;
-        Canvas.SetDocument(DocumentOps.Crop(doc, x, y, w, h));
+        ApplyDocumentOp("Crop to Selection", d => DocumentOps.Crop(d, x, y, w, h));
         StatusText.Text = $"Cropped to {w}×{h}";
     }
 
@@ -356,7 +371,7 @@ public partial class MainWindow : Window
         DocumentOps.FlipHorizontal(doc);
         Canvas.History.Push(new DelegateMemento("Flip Horizontal",
             () => DocumentOps.FlipHorizontal(doc), () => DocumentOps.FlipHorizontal(doc)));
-        Canvas.RenderComposite(); Canvas.InvalidateVisual();
+        RefreshDocument();
         StatusText.Text = "Flipped horizontally";
     }
 
@@ -366,7 +381,7 @@ public partial class MainWindow : Window
         DocumentOps.FlipVertical(doc);
         Canvas.History.Push(new DelegateMemento("Flip Vertical",
             () => DocumentOps.FlipVertical(doc), () => DocumentOps.FlipVertical(doc)));
-        Canvas.RenderComposite(); Canvas.InvalidateVisual();
+        RefreshDocument();
         StatusText.Text = "Flipped vertically";
     }
 
@@ -375,17 +390,17 @@ public partial class MainWindow : Window
 
     private void Rotate(bool cw)
     {
-        var doc = Canvas.Document; if (doc is null) return;
-        Canvas.SetDocument(DocumentOps.Rotate90(doc, cw));
-        MarkDirty();
+        string name = cw ? "Rotate 90° CW" : "Rotate 90° CCW";
+        ApplyDocumentOp(name, d => DocumentOps.Rotate90(d, cw));
         StatusText.Text = cw ? "Rotated 90° CW" : "Rotated 90° CCW";
     }
 
     private void OnFlatten(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         var doc = Canvas.Document;
-        if (doc is null || doc.LayerCount <= 1) return;
-        Canvas.SetDocument(DocumentOps.Flatten(doc));
+        if (doc is null) return;
+        if (doc.LayerCount <= 1) { StatusText.Text = "Already a single layer"; return; }
+        ApplyDocumentOp("Flatten Image", DocumentOps.Flatten);
         StatusText.Text = "Flattened";
     }
 
@@ -472,26 +487,30 @@ public partial class MainWindow : Window
 
     // ---- modular panel layout --------------------------------------------
 
+    // Panel + its docked-to-a-side width. Docked top/bottom the width is dropped so the panel
+    // spans the window instead of being pinned to a thin column.
+    private (Border Border, string Place, double SideWidth)[] Panels => new[]
+    {
+        (ToolsBorder, _layout.Tools, 70.0),
+        (ColorsBorder, _layout.Colors, double.NaN),
+        (ColorWheelBorder, _layout.ColorWheel, 190.0),
+        (LayersBorder, _layout.Layers, 220.0)
+    };
+
     private void ApplyLayout()
     {
-        var panels = new (Border Border, string Place)[]
-        {
-            (ToolsBorder, _layout.Tools), (ColorsBorder, _layout.Colors), (ColorWheelBorder, _layout.ColorWheel), (LayersBorder, _layout.Layers)
-        };
+        var panels = Panels;
 
-        foreach (var (b, _) in panels) RootDock.Children.Remove(b);
+        foreach (var (b, _, _) in panels) RootDock.Children.Remove(b);
         RootDock.Children.Remove(Canvas);
 
-        foreach (var (b, place) in panels)
+        foreach (var (b, place, sideWidth) in panels)
         {
             if (place == "Hidden") { b.IsVisible = false; continue; }
             b.IsVisible = true;
             var dock = ParseDock(place);
             DockPanel.SetDock(b, dock);
-            // A fixed Width only makes sense on a side dock; on top/bottom it would
-            // pin the panel to a thin column, so let it size to its content instead.
-            if (b == ColorWheelBorder)
-                b.Width = dock is Dock.Left or Dock.Right ? 190 : double.NaN;
+            b.Width = dock is Dock.Left or Dock.Right ? sideWidth : double.NaN;
             RootDock.Children.Add(b);
         }
         RootDock.Children.Add(Canvas);   // fill
@@ -542,7 +561,9 @@ public partial class MainWindow : Window
         byte r = Convert.ToByte(hex.Substring(1, 2), 16);
         byte g = Convert.ToByte(hex.Substring(3, 2), 16);
         byte bl = Convert.ToByte(hex.Substring(5, 2), 16);
-        SetActiveColor(Color.FromRgb(r, g, bl));
+        // These swatches are labelled "Fg", so they always set the foreground — regardless of
+        // which swatch the color wheel currently edits.
+        SetForeground(ColorBgra.FromBgra(bl, g, r, 255));
     }
 
     // ---- color wheel panel ------------------------------------------------
@@ -678,6 +699,7 @@ public partial class MainWindow : Window
                 Margin = new Thickness(1),
                 Padding = new Thickness(0),
                 Background = new SolidColorBrush(Color.FromArgb(color.A, color.R, color.G, color.B)),
+                Classes = { "swatch" },
                 Tag = e
             };
             ToolTip.SetTip(swatch, string.IsNullOrEmpty(e.Name) ? color.ToHexString() : $"{e.Name}  ({color.ToHexString()})");
@@ -770,10 +792,11 @@ public partial class MainWindow : Window
         ("Pick", "Color Picker", "K"), ("Line", "Line", "L"), ("Rect", "Rectangle", "R"),
         ("Ellipse", "Ellipse", "O"), ("Gradient", "Gradient", "G"), ("Text", "Text", "T"),
         ("Move", "Move", "M"), ("RectSel", "Rectangle Select", "S"),
-        ("EllipseSel", "Ellipse Select", ""), ("Lasso", "Lasso Select", "")
+        ("EllipseSel", "Ellipse Select", "S S"), ("Lasso", "Lasso Select", "S S S")
     };
 
     private readonly System.Collections.Generic.List<ToggleButton> _toolButtons = new();
+    private string _currentToolTag = "Pencil";
 
     private void BuildToolPalette()
     {
@@ -797,6 +820,7 @@ public partial class MainWindow : Window
 
     private void SelectTool(string tag)
     {
+        _currentToolTag = tag;
         foreach (var b in _toolButtons)
             b.IsChecked = (b.Tag as string) == tag;
 
@@ -817,28 +841,77 @@ public partial class MainWindow : Window
             _ => new PencilTool()
         };
         Canvas.CurrentTool = tool;
+        UpdateToolOptions(tag);
         StatusText.Text = "Tool: " + tool.Name;
+    }
+
+    /// <summary>Greys out toolbar options the active tool ignores.</summary>
+    private void UpdateToolOptions(string tag)
+    {
+        SizeGroup.IsEnabled = tag is "Pencil" or "Eraser" or "Line" or "Rect" or "Ellipse";
+        ShapeGroup.IsEnabled = tag is "Pencil" or "Line" or "Rect" or "Ellipse";
+        FillShapesCheck.IsEnabled = tag is "Rect" or "Ellipse";
+        BucketGroup.IsEnabled = tag == "Fill";
     }
 
     private void OnKeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
     {
-        if (e.KeyModifiers == Avalonia.Input.KeyModifiers.Control)
+        var empty = new Avalonia.Interactivity.RoutedEventArgs();
+        // Ctrl, optionally with Shift — and nothing else, so AltGr (= Ctrl+Alt on many layouts)
+        // does not fire menu commands while typing.
+        bool ctrl = (e.KeyModifiers & ~Avalonia.Input.KeyModifiers.Shift) == Avalonia.Input.KeyModifiers.Control;
+        bool shift = e.KeyModifiers.HasFlag(Avalonia.Input.KeyModifiers.Shift);
+        bool inTextBox = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox;
+
+        // Avalonia's MenuItem.InputGesture only *renders* the shortcut text — it never handles the
+        // key — so every menu accelerator has to be dispatched here or it does nothing.
+        if (ctrl)
         {
             switch (e.Key)
             {
+                // Editing shortcuts stay with a focused text field (undo/select-all in the box).
+                case Avalonia.Input.Key.Z when !inTextBox:
+                    if (shift) Canvas.Redo(); else Canvas.Undo(); break;
+                case Avalonia.Input.Key.Y when !inTextBox: Canvas.Redo(); break;
+                case Avalonia.Input.Key.A when !inTextBox: OnSelectAll(sender, empty); break;
+
+                case Avalonia.Input.Key.I: OnInvertSelection(sender, empty); break;
+                case Avalonia.Input.Key.D: OnSelectNone(sender, empty); break;
+
+                case Avalonia.Input.Key.N: OnNew(sender, empty); break;
+                case Avalonia.Input.Key.O:
+                    if (shift) OnOpenProject(sender, empty); else OnOpen(sender, empty); break;
+                case Avalonia.Input.Key.S:
+                    if (shift) OnSaveAs(sender, empty); else OnSaveProject(sender, empty); break;
+
                 case Avalonia.Input.Key.OemPlus:
-                case Avalonia.Input.Key.Add: Canvas.ZoomIn(); e.Handled = true; break;
+                case Avalonia.Input.Key.Add: Canvas.ZoomIn(); break;
                 case Avalonia.Input.Key.OemMinus:
-                case Avalonia.Input.Key.Subtract: Canvas.ZoomOut(); e.Handled = true; break;
-                case Avalonia.Input.Key.D0: Canvas.ZoomToFit(); e.Handled = true; break;
-                case Avalonia.Input.Key.D1: Canvas.ZoomActual(); e.Handled = true; break;
+                case Avalonia.Input.Key.Subtract: Canvas.ZoomOut(); break;
+                case Avalonia.Input.Key.D0: Canvas.ZoomToFit(); break;
+                case Avalonia.Input.Key.D1: Canvas.ZoomActual(); break;
+
+                default: return;
             }
+            e.Handled = true;
             return;
         }
 
         // Ignore when typing into a control (e.g. a text field gets focus).
-        if (e.KeyModifiers != Avalonia.Input.KeyModifiers.None) return;
-        if (TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox) return;
+        if (e.KeyModifiers != Avalonia.Input.KeyModifiers.None || inTextBox) return;
+
+        // The three selection tools share one key and cycle through it.
+        if (e.Key == Avalonia.Input.Key.S)
+        {
+            SelectTool(_currentToolTag switch
+            {
+                "RectSel" => "EllipseSel",
+                "EllipseSel" => "Lasso",
+                _ => "RectSel"
+            });
+            e.Handled = true;
+            return;
+        }
 
         string? tag = e.Key switch
         {
@@ -852,7 +925,6 @@ public partial class MainWindow : Window
             Avalonia.Input.Key.G => "Gradient",
             Avalonia.Input.Key.T => "Text",
             Avalonia.Input.Key.M => "Move",
-            Avalonia.Input.Key.S => "RectSel",
             _ => null
         };
         if (tag is not null) { SelectTool(tag); e.Handled = true; }
@@ -873,6 +945,7 @@ public partial class MainWindow : Window
         Canvas.History.Push(LayerSurfaceMemento.FromSnapshot(layer, snapshot, "Text"));
         Canvas.RenderComposite();
         Canvas.InvalidateVisual();
+        Canvas.NotifyLayersChanged();
         StatusText.Text = "Added text";
     }
 
@@ -882,6 +955,15 @@ public partial class MainWindow : Window
         if (!_editingSecondary) SyncWheelToActiveColor();
         RefreshSwatches();
         StatusText.Text = $"Picked {c}";
+    }
+
+    /// <summary>Status-bar readout; blank while the pointer is off the canvas.</summary>
+    private void OnCursorMoved(int x, int y)
+    {
+        if (CoordText is null) return;
+        var doc = Canvas.Document;
+        bool inside = doc is not null && (uint)x < (uint)doc.Width && (uint)y < (uint)doc.Height;
+        CoordText.Text = inside ? $"{x}, {y}" : "";
     }
 
     private void OnSize(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)

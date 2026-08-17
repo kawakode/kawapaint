@@ -7,7 +7,9 @@ using Avalonia.Media;
 
 namespace KawaPaint.App;
 
-public enum SaveChoice { Save, Discard, Cancel }
+/// <summary>Cancel is first so that dismissing the dialog (window close button) — which yields
+/// default(SaveChoice) — is treated as "cancel", not as a silent save.</summary>
+public enum SaveChoice { Cancel, Save, Discard }
 
 public sealed class ConfirmSaveDialog : Window
 {

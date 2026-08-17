@@ -222,6 +222,7 @@ public sealed class CurvesDialog : Window
             _canvas.History.Push(LayerSurfaceMemento.FromSnapshot(_layer, _snapshot, "Curves"));
             _snapshot = null;
             _committed = true;
+            _canvas.NotifyLayersChanged();
         }
     }
 

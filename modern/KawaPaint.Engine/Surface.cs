@@ -218,6 +218,7 @@ public sealed unsafe class Surface : IDisposable
             GC.RemoveMemoryPressure((long)Stride * Height);
             scan0 = IntPtr.Zero;
         }
+        GC.SuppressFinalize(this);   // Surfaces churn (one per stroke); keep them off the finalizer queue
     }
 
     ~Surface() => Dispose();

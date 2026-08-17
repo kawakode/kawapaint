@@ -125,14 +125,16 @@ public sealed class PosterizeEffect : PerPixelEffect
 /// <summary>Adds uniform random noise (+/- amount) to each channel.</summary>
 public sealed class NoiseEffect : PerPixelEffect
 {
-    private readonly Random _rng = new();
     private readonly int _amount;
     public NoiseEffect(int amount) => _amount = Math.Max(0, amount);
     public override string Name => "Add Noise";
 
     protected override ColorBgra Transform(ColorBgra c)
     {
-        int n = _rng.Next(-_amount, _amount + 1);
+        // Random.Shared, not a private Random: PerPixelEffect runs Transform on every worker
+        // thread at once, and a plain Random shared across threads corrupts its own state and
+        // starts returning zeros (i.e. bands of un-noised pixels).
+        int n = Random.Shared.Next(-_amount, _amount + 1);
         return ColorBgra.FromBgra(Clamp.B(c.B + n), Clamp.B(c.G + n), Clamp.B(c.R + n), c.A);
     }
 }
@@ -333,7 +335,7 @@ public sealed class EmbossEffect : IEffect
     {
         using var src = s.Clone();
         int w = s.Width, h = s.Height;
-        for (int y = 0; y < h; y++)
+        System.Threading.Tasks.Parallel.For(0, h, y =>
         {
             ColorBgra* d = (ColorBgra*)s.GetRowPointer(y);
             for (int x = 0; x < w; x++)
@@ -352,7 +354,7 @@ public sealed class EmbossEffect : IEffect
                 byte a = ((ColorBgra*)src.GetRowPointer(y))[x].A;
                 d[x] = ColorBgra.FromBgra(Clamp.B(sb + 128), Clamp.B(sg + 128), Clamp.B(sr + 128), a);
             }
-        }
+        });
     }
 }
 

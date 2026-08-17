@@ -78,6 +78,38 @@ public sealed class LayerSurfaceMemento : HistoryMemento
     }
 }
 
+/// <summary>
+/// Reverses a whole-document replacement (crop / resize / rotate / flatten), where the edit
+/// produced a new Document rather than mutating layers in place. The document that is currently
+/// out of the editor is owned by the memento and disposed with it, so dropping history frees it.
+/// </summary>
+public sealed class DocumentSwapMemento : HistoryMemento
+{
+    private readonly Func<Document, Document?> _swap;   // installs a document, returns the displaced one
+    private Document? _detached;
+
+    public DocumentSwapMemento(string name, Document detached, Func<Document, Document?> swap) : base(name)
+    {
+        _detached = detached;
+        _swap = swap;
+    }
+
+    public override HistoryMemento Undo()
+    {
+        var incoming = _detached ?? throw new ObjectDisposedException(nameof(DocumentSwapMemento));
+        _detached = null;
+        var displaced = _swap(incoming)
+            ?? throw new InvalidOperationException("document swap produced no displaced document");
+        return new DocumentSwapMemento(Name, displaced, _swap);
+    }
+
+    public override void Dispose()
+    {
+        _detached?.Dispose();
+        _detached = null;
+    }
+}
+
 /// <summary>Undo/redo stacks over HistoryMementos.</summary>
 public sealed class HistoryStack
 {

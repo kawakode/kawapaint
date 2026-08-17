@@ -71,9 +71,24 @@ public sealed class SurfaceView : Control
 
     public double Zoom => _zoom;
 
+    /// <summary>Loads a document as a fresh editing session: the old one is disposed and undo history is dropped.</summary>
     public void SetDocument(Document document)
     {
-        _document?.Dispose();
+        Document? old = Adopt(document);
+        old?.Dispose();
+        History.Clear();
+    }
+
+    /// <summary>
+    /// Swaps in a document produced by a canvas-level operation (crop/resize/rotate/flatten),
+    /// keeping undo history. The outgoing document is returned, NOT disposed, so a memento can
+    /// put it back.
+    /// </summary>
+    public Document? ReplaceDocument(Document document) => Adopt(document);
+
+    private Document? Adopt(Document document)
+    {
+        Document? old = _document;
         _composite?.Dispose();
         _bitmap?.Dispose();
 
@@ -87,12 +102,16 @@ public sealed class SurfaceView : Control
             PixelFormat.Bgra8888,
             AlphaFormat.Unpremul);
 
-        History.Clear();
+        NotifySelectionChanged();   // stops the marching-ants timer for the discarded selection
         _fitPending = true;
         RenderComposite();
         InvalidateVisual();
         DocumentChanged?.Invoke(this, EventArgs.Empty);
+        return old;
     }
+
+    /// <summary>Announces that layer pixels/order changed, so panels can refresh (thumbnails etc.).</summary>
+    public void NotifyLayersChanged() => DocumentChanged?.Invoke(this, EventArgs.Empty);
 
     public void SetActiveLayer(Layer layer)
     {
@@ -184,10 +203,20 @@ public sealed class SurfaceView : Control
         _origin = new Point((Bounds.Width - w) / 2, (Bounds.Height - h) / 2);
     }
 
+    // Render-time brushes/pens are fixed, so they are built once instead of per frame.
+    private static readonly IBrush Backdrop = new SolidColorBrush(Color.FromRgb(0x30, 0x30, 0x30));
+    private static readonly IBrush CheckLight = new SolidColorBrush(Color.FromRgb(0xC0, 0xC0, 0xC0));
+    private static readonly IBrush CheckDark = new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80));
+    private static readonly IBrush AntBlack = new SolidColorBrush(Colors.Black);
+    private static readonly IBrush AntWhite = new SolidColorBrush(Colors.White);
+    private static readonly IPen EdgePen = new Pen(Brushes.Black, 1);
+    private static readonly IPen CursorLight = new Pen(new SolidColorBrush(Color.FromArgb(200, 255, 255, 255)), 1);
+    private static readonly IPen CursorDark = new Pen(new SolidColorBrush(Color.FromArgb(200, 0, 0, 0)), 1);
+
     public override void Render(DrawingContext context)
     {
         base.Render(context);
-        context.FillRectangle(new SolidColorBrush(Color.FromRgb(0x30, 0x30, 0x30)), new Rect(Bounds.Size));
+        context.FillRectangle(Backdrop, new Rect(Bounds.Size));
 
         if (_composite is null || _bitmap is null) return;
 
@@ -195,25 +224,29 @@ public sealed class SurfaceView : Control
         {
             FitToView();
             _fitPending = false;
+            // The status bar's zoom readout is driven by this event; posted rather than raised
+            // inline so nothing mutates the visual tree during a render pass.
+            Dispatcher.UIThread.Post(() => ZoomChanged?.Invoke(_zoom));
         }
 
         double w = _composite.Width * _zoom;
         double h = _composite.Height * _zoom;
         var dest = new Rect(_origin.X, _origin.Y, w, h);
+        var viewport = new Rect(Bounds.Size);
 
-        DrawCheckerboard(context, dest);
+        DrawCheckerboard(context, dest, viewport);
         context.DrawImage(_bitmap, new Rect(0, 0, _composite.Width, _composite.Height), dest);
 
         if (Selection is { IsActive: true } sel)
             DrawMarchingAnts(context, sel);
 
-        context.DrawRectangle(null, new Pen(Brushes.Black, 1), dest);
+        context.DrawRectangle(null, EdgePen, dest);
 
         if (_cursorScreen is Point cs && ShowsBrushCursor && !_panning)
         {
             double r = Math.Max(1.0, BrushWidth / 2.0) * _zoom;
-            context.DrawEllipse(null, new Pen(new SolidColorBrush(Color.FromArgb(200, 255, 255, 255)), 1), cs, r + 1, r + 1);
-            context.DrawEllipse(null, new Pen(new SolidColorBrush(Color.FromArgb(200, 0, 0, 0)), 1), cs, r, r);
+            context.DrawEllipse(null, CursorLight, cs, r + 1, r + 1);
+            context.DrawEllipse(null, CursorDark, cs, r, r);
         }
     }
 
@@ -221,13 +254,21 @@ public sealed class SurfaceView : Control
     {
         var mask = sel.Mask;
         int w = sel.Width, h = sel.Height;
-        double size = Math.Max(1.0, _zoom);
-        var black = new SolidColorBrush(Colors.Black);
-        var white = new SolidColorBrush(Colors.White);
 
-        for (int y = 0; y < h; y++)
+        // Only walk the pixels currently on screen, and — when zoomed out far enough that many
+        // image pixels share one screen pixel — sample every Nth so the cost stays bound to the
+        // viewport instead of the image size.
+        int step = Math.Max(1, (int)Math.Ceiling(1.0 / _zoom));
+        double size = Math.Max(1.0, _zoom * step);
+
+        int xMin = Math.Max(0, (int)Math.Floor(-_origin.X / _zoom));
+        int xMax = Math.Min(w - 1, (int)Math.Ceiling((Bounds.Width - _origin.X) / _zoom));
+        int yMin = Math.Max(0, (int)Math.Floor(-_origin.Y / _zoom));
+        int yMax = Math.Min(h - 1, (int)Math.Ceiling((Bounds.Height - _origin.Y) / _zoom));
+
+        for (int y = yMin; y <= yMax; y += step)
         {
-            for (int x = 0; x < w; x++)
+            for (int x = xMin; x <= xMax; x += step)
             {
                 int idx = y * w + x;
                 if (mask[idx] == 0) continue;
@@ -238,24 +279,34 @@ public sealed class SurfaceView : Control
                     && mask[idx - w] != 0 && mask[idx + w] != 0;
                 if (interior) continue;
 
-                var brush = (((x + y + _antPhase) >> 2) & 1) == 0 ? black : white;
+                var brush = (((x + y + _antPhase) >> 2) & 1) == 0 ? AntBlack : AntWhite;
                 context.FillRectangle(brush, new Rect(_origin.X + x * _zoom, _origin.Y + y * _zoom, size, size));
             }
         }
     }
 
-    private static void DrawCheckerboard(DrawingContext context, Rect dest)
+    private static void DrawCheckerboard(DrawingContext context, Rect dest, Rect viewport)
     {
         const int cell = 8;
-        var light = new SolidColorBrush(Color.FromRgb(0xC0, 0xC0, 0xC0));
-        var dark = new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80));
-        context.FillRectangle(light, dest);
-        using (context.PushClip(dest))
+
+        // Cells are only emitted for the on-screen part of the canvas: at high zoom the canvas
+        // rect is far larger than the window, and tiling all of it would stall the render thread.
+        Rect vis = dest.Intersect(viewport);
+        if (vis.Width <= 0 || vis.Height <= 0) return;
+
+        context.FillRectangle(CheckLight, vis);
+
+        int x0 = (int)Math.Floor((vis.X - dest.X) / cell);
+        int x1 = (int)Math.Ceiling((vis.Right - dest.X) / cell);
+        int y0 = (int)Math.Floor((vis.Y - dest.Y) / cell);
+        int y1 = (int)Math.Ceiling((vis.Bottom - dest.Y) / cell);
+
+        using (context.PushClip(vis))
         {
-            for (int y = 0; y * cell < dest.Height; y++)
-                for (int x = 0; x * cell < dest.Width; x++)
+            for (int y = y0; y < y1; y++)
+                for (int x = x0; x < x1; x++)
                     if (((x + y) & 1) != 0)
-                        context.FillRectangle(dark, new Rect(dest.X + x * cell, dest.Y + y * cell, cell, cell));
+                        context.FillRectangle(CheckDark, new Rect(dest.X + x * cell, dest.Y + y * cell, cell, cell));
         }
     }
 
@@ -404,6 +455,7 @@ public sealed class SurfaceView : Control
             _toolCtx = null;
             _preStroke?.Dispose();
             _preStroke = null;
+            NotifyLayersChanged();   // the stroke is final: let the layer thumbnails catch up
         }
 
         if (_panning || _drawing)

@@ -104,7 +104,6 @@ public sealed class ColorPickerTool : ITool
 public sealed class PaintBucketTool : ITool
 {
     public string Name => "Paint Bucket";
-    public int Tolerance { get; set; } = 32;
 
     public void PointerDown(ToolContext c)
     {
@@ -124,16 +123,22 @@ public sealed class PaintBucketTool : ITool
 public abstract class ShapeToolBase : ITool
 {
     private double _sx, _sy;
+    private bool _pushed;
     public abstract string Name { get; }
 
     public void PointerDown(ToolContext c)
     {
-        c.PushHistory();
         _sx = c.X; _sy = c.Y;
+        _pushed = false;
     }
 
     public void PointerMove(ToolContext c)
     {
+        // History is taken on the first drag rather than on the press: a click that never moves
+        // draws nothing, and would otherwise leave an undo step that reverses nothing. The layer
+        // is still untouched at this point, so the snapshot is the true pre-shape state.
+        if (!_pushed) { c.PushHistory(); _pushed = true; }
+
         c.Layer.Surface.CopyFrom(c.PreStroke);   // discard previous preview
         Draw(c, _sx, _sy, c.X, c.Y);
         c.Composite();
@@ -181,14 +186,18 @@ public sealed class TextTool : ITool
 public sealed class MoveTool : ITool
 {
     private double _sx, _sy;
+    private bool _pushed;
     public string Name => "Move";
 
-    public void PointerDown(ToolContext c) { c.PushHistory(); _sx = c.X; _sy = c.Y; }
+    public void PointerDown(ToolContext c) { _sx = c.X; _sy = c.Y; _pushed = false; }
 
     public void PointerMove(ToolContext c)
     {
         int dx = (int)Math.Round(c.X - _sx);
         int dy = (int)Math.Round(c.Y - _sy);
+        if (dx == 0 && dy == 0) return;          // nothing moved yet: no edit, no undo step
+        if (!_pushed) { c.PushHistory(); _pushed = true; }
+
         SurfaceOps.ShiftInto(c.Layer.Surface, c.PreStroke, dx, dy);
         c.Composite();
     }

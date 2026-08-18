@@ -221,7 +221,7 @@
         <!-- Colors palette strip -->
         <Border x:Name="ColorsBorder" DockPanel.Dock="Bottom" Background="#282828" BorderBrush="#404040" BorderThickness="0,1,0,0" Padding="6,4">
             <StackPanel Orientation="Horizontal" Spacing="8">
-                <TextBlock Text="Colors" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
+                <TextBlock x:Name="ColorsTitle" Text="Colors" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
                 <WrapPanel x:Name="PaletteStrip" VerticalAlignment="Center" MaxWidth="640" />
                 <Border Width="1" Background="#505050" Margin="4,2" />
                 <Button Click="OnAddPaletteColor" ToolTip.Tip="Add current foreground color">
@@ -242,9 +242,11 @@
                         <TextBlock Text="Load…" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
-                <ToggleButton x:Name="FloatColorsBtn" Padding="4,0" Tag="Colors" Click="OnPanelFloatToggle" />
-                <Button Content="{app:Icon Close}" Padding="6,0" Tag="Colors:Hidden" Click="OnPanelPlace"
-                        ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                <StackPanel x:Name="ColorsHeader" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                    <ToggleButton x:Name="FloatColorsBtn" Padding="4,0" Tag="Colors" Click="OnPanelFloatToggle" />
+                    <Button Content="{app:Icon Close}" Padding="6,0" Tag="Colors:Hidden" Click="OnPanelPlace"
+                            ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                </StackPanel>
             </StackPanel>
         </Border>
 
@@ -252,7 +254,7 @@
         <Border x:Name="ColorWheelBorder" DockPanel.Dock="Right" Width="190" Background="#262626" BorderBrush="#404040" BorderThickness="1,0,0,0">
             <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8" Spacing="8">
-                    <Grid ColumnDefinitions="*,Auto,Auto">
+                    <Grid x:Name="ColorWheelHeader" ColumnDefinitions="*,Auto,Auto">
                         <TextBlock Text="Color" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
                         <ToggleButton x:Name="FloatColorWheelBtn" Grid.Column="1" Padding="4,0" Tag="ColorWheel" Click="OnPanelFloatToggle" />
                         <Button Grid.Column="2" Content="{app:Icon Close}" Padding="4,0" Tag="ColorWheel:Hidden" Click="OnPanelPlace"
@@ -300,7 +302,7 @@
         <!-- Layers panel -->
         <Border x:Name="LayersBorder" DockPanel.Dock="Right" Width="220" Background="#262626" BorderBrush="#404040" BorderThickness="1,0,0,0">
             <DockPanel Margin="6">
-                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="2,2,2,6">
+                <Grid x:Name="LayersHeader" DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="2,2,2,6">
                     <TextBlock Text="Layers" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
                     <ToggleButton x:Name="FloatLayersBtn" Grid.Column="1" Padding="4,0" Tag="Layers" Click="OnPanelFloatToggle" />
                     <Button Grid.Column="2" Content="{app:Icon Close}" Padding="4,0" Tag="Layers:Hidden" Click="OnPanelPlace"
@@ -344,7 +346,7 @@
         <Border x:Name="ToolsBorder" DockPanel.Dock="Left" Width="70" Background="#262626"
                 BorderBrush="#404040" BorderThickness="0,0,1,0">
             <DockPanel>
-                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" HorizontalAlignment="Right" Margin="2">
+                <StackPanel x:Name="ToolsHeader" DockPanel.Dock="Top" Orientation="Horizontal" HorizontalAlignment="Right" Margin="2">
                     <ToggleButton x:Name="FloatToolsBtn" Padding="4,0" Tag="Tools" Click="OnPanelFloatToggle" />
                     <Button Content="{app:Icon Close}" Padding="4,0" Tag="Tools:Hidden" Click="OnPanelPlace"
                             ToolTip.Tip="Hide (View ▸ Panels to restore)" />

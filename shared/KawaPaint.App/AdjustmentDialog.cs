@@ -113,7 +113,7 @@ public sealed class AdjustmentDialog : Window
     {
         if (_snapshot is not null && _layer is not null)
         {
-            _canvas.History.Push(LayerSurfaceMemento.FromSnapshot(_layer, _snapshot, _effectName));
+            _canvas.History.Push(TileDeltaMemento.Consume(_layer, _snapshot, _effectName));
             _snapshot = null;
             _committed = true;
             _canvas.NotifyLayersChanged();

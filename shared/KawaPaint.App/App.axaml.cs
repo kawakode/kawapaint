@@ -13,6 +13,10 @@ public partial class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+        // Whatever is still in the undo spill cache belongs to a previous run whose history died
+        // with it, so it is pure waste on disk.
+        Core.AppPaths.ClearHistoryCache();
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.MainWindow = new MainWindow();

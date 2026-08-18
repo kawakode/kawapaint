@@ -55,6 +55,12 @@ public sealed class SurfaceView : Control
     private Surface? _preStroke;
     private ToolContext? _toolCtx;
 
+    // A tool asks for history at the start of its gesture, before it has touched a pixel.
+    // The step is only built at pointer-up, when the changed region is known and can be
+    // captured as a tile delta rather than a whole-surface clone.
+    private Layer? _pendingHistoryLayer;
+    private string _pendingHistoryName = "Edit";
+
     public HistoryStack History { get; } = new();
     public Document? Document => _document;
     public Layer? ActiveLayer { get; private set; }
@@ -398,7 +404,11 @@ public sealed class SurfaceView : Control
                 FillShapes = FillShapes,
                 X = img.X,
                 Y = img.Y,
-                PushHistory = () => History.Push(new LayerSurfaceMemento(layer, CurrentTool.Name)),
+                PushHistory = () =>
+                {
+                    _pendingHistoryLayer = layer;
+                    _pendingHistoryName = CurrentTool.Name;
+                },
                 Composite = () => { ClipToSelection(); RenderComposite(); InvalidateVisual(); },
                 SampleComposite = (x, y) =>
                     (uint)x < (uint)_composite.Width && (uint)y < (uint)_composite.Height
@@ -446,6 +456,28 @@ public sealed class SurfaceView : Control
         }
     }
 
+    /// <summary>
+    /// Turns the pre-stroke snapshot and the layer's current state into one undo step. Push
+    /// ignores a null delta, so a gesture that ended up changing nothing leaves no step behind.
+    /// </summary>
+    private void CommitPendingHistory()
+    {
+        if (_pendingHistoryLayer is null || _preStroke is null) return;
+
+        var layer = _pendingHistoryLayer;
+        _pendingHistoryLayer = null;
+
+        // A tool that resized the layer (none do today) would invalidate the tile comparison, so
+        // fall back to the whole-surface snapshot rather than throwing.
+        if (layer.Surface.Width != _preStroke.Width || layer.Surface.Height != _preStroke.Height)
+        {
+            History.Push(LayerSurfaceMemento.FromSnapshot(layer, _preStroke.Clone(), _pendingHistoryName));
+            return;
+        }
+
+        History.Push(TileDeltaMemento.Create(layer, _preStroke, _pendingHistoryName));
+    }
+
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
@@ -453,6 +485,7 @@ public sealed class SurfaceView : Control
         {
             if (_toolCtx is not null) CurrentTool.PointerUp(_toolCtx);
             _toolCtx = null;
+            CommitPendingHistory();
             _preStroke?.Dispose();
             _preStroke = null;
             NotifyLayersChanged();   // the stroke is final: let the layer thumbnails catch up

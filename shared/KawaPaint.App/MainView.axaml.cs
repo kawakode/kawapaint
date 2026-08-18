@@ -4,12 +4,15 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Platform.Storage;
+using KawaPaint.App.Core;
 using KawaPaint.Engine;
+using KawaPaint.Engine.Codecs;
 
 namespace KawaPaint.App;
 
@@ -17,7 +20,6 @@ public partial class MainView : UserControl
 {
     private bool _suppress;   // guards programmatic updates to layer-panel controls
     private byte? _opacityBefore;
-    private bool _dirty;
     private Layer? _dragLayer;     // row being dragged, null when no drag is in flight
     private int _dragFromIndex;    // its index at pointer-down, for a single undo entry
     private double _dragStartY;
@@ -29,32 +31,15 @@ public partial class MainView : UserControl
     private double _alpha = 1;        // alpha, owned by AlphaSlider
 
     private Palette _palette = new();
-    // TODO(web): backed by a real path only on desktop (Environment.SpecialFolder isn't a real,
-    // persistent filesystem under the browser sandbox) — palette/layout don't survive a page
-    // reload in the browser build. Needs a localStorage-backed store to fix.
-    private readonly string? _palettePath = TryGetAppDataPath("palette.kwpal");
 
-    private UiLayout _layout = new();
-    private readonly string? _layoutPath = TryGetAppDataPath("layout.json");
+    // Under the app directory rather than a path of its own, so enabling git tracking later
+    // covers the palette along with everything else. Null on the browser build (no filesystem).
+    private readonly string? _palettePath =
+        AppPaths.Root is null ? null : System.IO.Path.Combine(AppPaths.Root, "palette.kwpal");
 
-    // Remembers each panel's last non-Hidden placement so the top-right toggle icons can restore
-    // it (rather than always falling back to the default dock side) after hiding it.
-    private readonly System.Collections.Generic.Dictionary<string, string> _lastShownPlace = new()
-    {
-        ["Tools"] = "Left", ["Colors"] = "Bottom", ["ColorWheel"] = "Right", ["Layers"] = "Right"
-    };
-
-    // Remembers each panel's last *docked* side (never Floating/Hidden), so the per-panel float
-    // button has somewhere sensible to return a floating panel to.
-    private readonly System.Collections.Generic.Dictionary<string, string> _lastDockPlace = new()
-    {
-        ["Tools"] = "Left", ["Colors"] = "Bottom", ["ColorWheel"] = "Right", ["Layers"] = "Right"
-    };
-
-    // Floating panels are hosted as absolutely-positioned overlay windows inside FloatingLayer
-    // rather than real OS windows: the browser build has no Window/popup support at all (see
-    // MainWindow.axaml.cs), so an in-canvas overlay is the only approach that works everywhere.
-    private readonly System.Collections.Generic.Dictionary<string, Border> _floatHosts = new();
+    private readonly SettingsService _settings = SettingsService.Instance;
+    private PanelManager _panels = null!;   // built in the constructor, once the AXAML tree exists
+    private readonly CommandRegistry _commands = new();
 
     public static readonly int[] BrushSizePresets = { 1, 2, 3, 5, 8, 10, 15, 20, 25, 30, 40, 50, 64, 75, 100, 150, 200 };
     private const int MinBrushSize = 1;
@@ -70,20 +55,16 @@ public partial class MainView : UserControl
 
     private IStorageProvider StorageProvider => TopLevel.GetTopLevel(this)!.StorageProvider;
 
-    public bool IsDirty => _dirty;
+    public bool IsDirty => _session?.IsDirty ?? false;
     public event Action<string>? TitleChanged;
 
-    private IStorageFile? _currentFile;   // set once a .kwp file handle is known
+    /// <summary>
+    /// Save state for the open document: path, dirty flag and edit counter. Autosave, crash
+    /// recovery and git tracking all read from here rather than keeping their own flags.
+    /// </summary>
+    private DocumentSession? _session;
 
-    private static string? TryGetAppDataPath(string fileName)
-    {
-        try
-        {
-            return System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "KawaPaint", fileName);
-        }
-        catch { return null; }
-    }
+    private IStorageFile? _currentFile;   // set once a .kwp file handle is known
 
     public MainView()
     {
@@ -135,8 +116,9 @@ public partial class MainView : UserControl
             Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
         ApplyTolerance(Canvas.FillTolerance);
 
-        _layout = _layoutPath is null ? new UiLayout() : UiLayout.LoadOrDefault(_layoutPath);
-        ApplyLayout();
+        BuildPanelManager();
+        BuildCommands();
+        ApplyHistorySettings();
         SyncWheelToActiveColor();
         RefreshSwatches();
         LoadDemoDocument();
@@ -147,21 +129,50 @@ public partial class MainView : UserControl
 
     // ---- unsaved-changes tracking ----------------------------------------
 
-    private void MarkDirty() { _dirty = true; UpdateTitle(); }
+    private void MarkDirty()
+    {
+        _session?.MarkDirty();
+        UpdateTitle();
+    }
 
-    private void SetClean(IStorageFile? file) { _dirty = false; _currentFile = file; UpdateTitle(); }
+    /// <summary>
+    /// Records that the document on screen matches what is on disk. Starts a new session when the
+    /// document itself was replaced (New, Open), and marks the existing one saved otherwise.
+    /// </summary>
+    private void SetClean(IStorageFile? file)
+    {
+        _currentFile = file;
+
+        var document = Canvas.Document;
+        if (document is null) { UpdateTitle(); return; }
+
+        if (_session is null || !ReferenceEquals(_session.Document, document))
+            _session = new DocumentSession(document, LocalPathOf(file), file?.Name);
+        else
+            _session.MarkSaved(LocalPathOf(file), file?.Name);
+
+        UpdateTitle();
+    }
+
+    /// <summary>Real filesystem path behind a picker result, or null under the browser sandbox.</summary>
+    private static string? LocalPathOf(IStorageFile? file)
+    {
+        if (file is null) return null;
+        try { return file.Path.IsAbsoluteUri && file.Path.IsFile ? file.Path.LocalPath : null; }
+        catch { return null; }
+    }
 
     private void UpdateTitle()
     {
-        string name = _currentFile?.Name ?? "untitled";
-        TitleChanged?.Invoke((_dirty ? "* " : "") + name + " — KawaPaint");
+        string name = _session?.DisplayName ?? _currentFile?.Name ?? "untitled";
+        TitleChanged?.Invoke((IsDirty ? "* " : "") + name + " — KawaPaint");
     }
 
     /// <summary>Returns true if it's OK to proceed (saved or discarded); false if the user cancelled.
     /// Also used by MainWindow to gate the desktop close button.</summary>
     public async Task<bool> ConfirmDiscardAsync()
     {
-        if (!_dirty) return true;
+        if (!IsDirty) return true;
         if (OwnerWindow is not { } owner)
         {
             // TODO(web): no in-canvas confirm-discard overlay yet, so the browser build proceeds
@@ -238,11 +249,7 @@ public partial class MainView : UserControl
         {
             Title = "Open image",
             AllowMultiple = false,
-            FileTypeFilter = new[]
-            {
-                new FilePickerFileType("Images")
-                { Patterns = new[] { "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.gif", "*.webp" } }
-            }
+            FileTypeFilter = BuildOpenFilters()
         });
 
         var file = files.FirstOrDefault();
@@ -251,7 +258,7 @@ public partial class MainView : UserControl
         try
         {
             await using var stream = await file.OpenReadAsync();
-            using var loaded = Surface.Decode(stream);
+            using var loaded = CodecRegistry.Decode(stream, file.Name);
             var doc = new Document(loaded.Width, loaded.Height);
             var layer = doc.AddLayer(System.IO.Path.GetFileNameWithoutExtension(file.Name));
             layer.Surface.CopyFrom(loaded);
@@ -264,6 +271,36 @@ public partial class MainView : UserControl
             StatusText.Text = "Open failed: " + ex.Message;
         }
     }
+
+    /// <summary>
+    /// File-dialog filters for the formats this build can actually read. Generated rather than
+    /// hardcoded, because optional codecs (JPEG 2000, JPEG XL) are absent on some platforms and
+    /// offering a format the app cannot open would only produce a failure later.
+    /// </summary>
+    private static FilePickerFileType[] BuildOpenFilters()
+    {
+        var decoders = CodecRegistry.Decoders.ToList();
+        var everything = new FilePickerFileType("All supported images")
+        {
+            Patterns = decoders.SelectMany(c => c.Extensions).Select(ext => "*" + ext).ToArray()
+        };
+
+        return decoders
+            .Select(c => new FilePickerFileType(c.DisplayName)
+            {
+                Patterns = c.Extensions.Select(ext => "*" + ext).ToArray()
+            })
+            .Prepend(everything)
+            .ToArray();
+    }
+
+    private static FilePickerFileType[] BuildSaveFilters()
+        => CodecRegistry.Encoders
+            .Select(c => new FilePickerFileType(c.DisplayName)
+            {
+                Patterns = c.Extensions.Select(ext => "*" + ext).ToArray()
+            })
+            .ToArray();
 
     private async void OnOpenProject(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
@@ -339,26 +376,15 @@ public partial class MainView : UserControl
             Title = "Export flattened image",
             DefaultExtension = "png",
             SuggestedFileName = "untitled.png",
-            FileTypeChoices = new[]
-            {
-                new FilePickerFileType("PNG") { Patterns = new[] { "*.png" } },
-                new FilePickerFileType("JPEG") { Patterns = new[] { "*.jpg", "*.jpeg" } },
-                new FilePickerFileType("WebP") { Patterns = new[] { "*.webp" } }
-            }
+            FileTypeChoices = BuildSaveFilters()
         });
         if (file is null) return;
 
         try
         {
-            var format = System.IO.Path.GetExtension(file.Name).ToLowerInvariant() switch
-            {
-                ".jpg" or ".jpeg" => SkiaSharp.SKEncodedImageFormat.Jpeg,
-                ".webp" => SkiaSharp.SKEncodedImageFormat.Webp,
-                _ => SkiaSharp.SKEncodedImageFormat.Png
-            };
             using var flat = Canvas.Document.Flatten();
             await using var stream = await file.OpenWriteAsync();
-            flat.Encode(stream, format, 92);
+            CodecRegistry.Encode(flat, stream, file.Name);
             StatusText.Text = "Exported " + file.Name;
         }
         catch (Exception ex)
@@ -392,7 +418,7 @@ public partial class MainView : UserControl
         var snapshot = layer.Surface.Clone();
         fx.Apply(layer.Surface);
         if (Canvas.Selection is { IsActive: true }) Canvas.Selection.Clip(layer.Surface, snapshot);
-        Canvas.History.Push(LayerSurfaceMemento.FromSnapshot(layer, snapshot, fx.Name));
+        Canvas.History.Push(TileDeltaMemento.Consume(layer, snapshot, fx.Name));
         Canvas.RenderComposite();
         Canvas.InvalidateVisual();
         Canvas.NotifyLayersChanged();
@@ -579,127 +605,200 @@ public partial class MainView : UserControl
     private void OnZoomFit(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.ZoomToFit();
     private void OnZoomActual(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.ZoomActual();
 
+    // ---- commands ---------------------------------------------------------
+    //
+    // Every keyboard-reachable action is registered here rather than being switched on inside the
+    // key handler, so a shortcut can be rebound from settings and the customizable dock has a
+    // list of actions to offer.
+
+    private void BuildCommands()
+    {
+        var empty = new Avalonia.Interactivity.RoutedEventArgs();
+
+        void Add(string id, string label, string category, Action run, KeyGesture? gesture = null,
+                 bool suppressInTextInput = false, string? icon = null)
+            => _commands.Register(id, label, run, category, icon, gesture,
+                                  canExecute: null, suppressInTextInput: suppressInTextInput);
+
+        KeyGesture Ctrl(Key key) => new(key, KeyModifiers.Control);
+        KeyGesture CtrlShift(Key key) => new(key, KeyModifiers.Control | KeyModifiers.Shift);
+        KeyGesture Bare(Key key) => new(key);
+
+        // File
+        Add("file.new", "New", "File", () => OnNew(this, empty), Ctrl(Key.N));
+        Add("file.open", "Open Image", "File", () => OnOpen(this, empty), Ctrl(Key.O));
+        Add("file.openProject", "Open Project", "File", () => OnOpenProject(this, empty), CtrlShift(Key.O));
+        Add("file.saveProject", "Save Project", "File", () => OnSaveProject(this, empty), Ctrl(Key.S));
+        Add("file.export", "Export Flattened", "File", () => OnSaveAs(this, empty), CtrlShift(Key.S));
+
+        // Edit — these stay with a focused text field, which has its own undo and select-all.
+        Add("edit.undo", "Undo", "Edit", () => Canvas.Undo(), Ctrl(Key.Z), suppressInTextInput: true);
+        Add("edit.redo", "Redo", "Edit", () => Canvas.Redo(), CtrlShift(Key.Z), suppressInTextInput: true);
+        Add("edit.redoAlt", "Redo", "Edit", () => Canvas.Redo(), Ctrl(Key.Y), suppressInTextInput: true);
+
+        // Select
+        Add("select.all", "Select All", "Select", () => OnSelectAll(this, empty), Ctrl(Key.A), suppressInTextInput: true);
+        Add("select.none", "Deselect", "Select", () => OnSelectNone(this, empty), Ctrl(Key.D));
+        Add("select.invert", "Invert Selection", "Select", () => OnInvertSelection(this, empty), Ctrl(Key.I));
+
+        // View
+        Add("view.zoomIn", "Zoom In", "View", () => Canvas.ZoomIn(), Ctrl(Key.OemPlus));
+        Add("view.zoomInNumpad", "Zoom In", "View", () => Canvas.ZoomIn(), Ctrl(Key.Add));
+        Add("view.zoomOut", "Zoom Out", "View", () => Canvas.ZoomOut(), Ctrl(Key.OemMinus));
+        Add("view.zoomOutNumpad", "Zoom Out", "View", () => Canvas.ZoomOut(), Ctrl(Key.Subtract));
+        Add("view.zoomFit", "Fit to Window", "View", () => Canvas.ZoomToFit(), Ctrl(Key.D0));
+        Add("view.zoomActual", "Actual Size", "View", () => Canvas.ZoomActual(), Ctrl(Key.D1));
+
+        // Panels
+        foreach (var panel in _panels.Panels)
+        {
+            var id = panel.Id;
+            Add($"panel.toggle.{id}", $"Toggle {panel.Title} Panel", "Panels",
+                () => _panels.ToggleVisible(id), icon: panel.IconName);
+            Add($"panel.float.{id}", $"Float {panel.Title} Panel", "Panels",
+                () => _panels.ToggleFloat(id));
+        }
+
+        // Tools. Bare letters, so they must not fire while a text field has focus.
+        foreach (var (key, tag, label) in new (Key, string, string)[]
+        {
+            (Key.P, "Pencil", "Pencil"), (Key.E, "Eraser", "Eraser"), (Key.F, "Fill", "Paint Bucket"),
+            (Key.K, "Pick", "Color Picker"), (Key.L, "Line", "Line"), (Key.R, "Rect", "Rectangle"),
+            (Key.O, "Ellipse", "Ellipse"), (Key.G, "Gradient", "Gradient"), (Key.T, "Text", "Text"),
+            (Key.M, "Move", "Move")
+        })
+        {
+            string toolTag = tag;
+            Add($"tool.{toolTag}", label, "Tools", () => SelectTool(toolTag), Bare(key), suppressInTextInput: true);
+        }
+
+        // One key cycles the three selection tools, as in Paint.NET.
+        Add("tool.selectCycle", "Selection Tool", "Tools", () => SelectTool(_currentToolTag switch
+        {
+            "RectSel" => "EllipseSel",
+            "EllipseSel" => "Lasso",
+            _ => "RectSel"
+        }), Bare(Key.S), suppressInTextInput: true);
+
+        _commands.ReloadBindings(_settings.Settings.Workspace);
+    }
+
+    /// <summary>Points the undo stack at the configured limits and its on-disk spill cache.</summary>
+    private void ApplyHistorySettings()
+    {
+        var history = _settings.Settings.History;
+        Canvas.History.MaxSteps = Math.Max(0, history.MaxSteps);
+        Canvas.History.MemoryBudgetBytes = Math.Max(0L, history.MemoryBudgetMegabytes) * 1024 * 1024;
+        Canvas.History.SpillDirectory = history.SpillToDisk ? AppPaths.HistorySpillDirectory : null;
+    }
+
     // ---- modular panel layout --------------------------------------------
+    //
+    // Placement, dragging, resizing and persistence all live in PanelManager; this section only
+    // declares which panels exist and forwards the AXAML button clicks.
 
-    // Panel + its docked-to-a-side width + display title (used on the floating title bar).
-    // Docked top/bottom the width is dropped so the panel spans the window instead of being
-    // pinned to a thin column.
-    private sealed record PanelSpec(Border Border, string Key, string Title, double SideWidth);
-
-    private PanelSpec[] Panels => new[]
+    private void BuildPanelManager()
     {
-        new PanelSpec(ToolsBorder, "Tools", "Tools", 70.0),
-        new PanelSpec(ColorsBorder, "Colors", "Colors", double.NaN),
-        new PanelSpec(ColorWheelBorder, "ColorWheel", "Color", 190.0),
-        new PanelSpec(LayersBorder, "Layers", "Layers", 220.0)
-    };
-
-    private void ApplyLayout()
-    {
-        var panels = Panels;
-
-        // Detach every panel Border from wherever it currently lives — RootDock, or a floating
-        // host's content slot — before re-placing it, since a control can only have one parent.
-        foreach (var p in panels)
+        var workspace = _settings.Settings.Workspace;
+        if (!workspace.Layouts.TryGetValue(workspace.ActiveLayout, out var layout))
         {
-            RootDock.Children.Remove(p.Border);
-            if (_floatHosts.TryGetValue(p.Key, out var host) && host.Child is DockPanel hostDock)
-                hostDock.Children.Remove(p.Border);
+            layout = new WorkspaceLayout();
+            workspace.Layouts[workspace.ActiveLayout] = layout;
         }
-        RootDock.Children.Remove(Canvas);
-        foreach (var host in _floatHosts.Values) FloatingLayer.Children.Remove(host);
 
-        foreach (var p in panels)
+        _panels = new PanelManager(RootDock, FloatingLayer, Canvas, layout);
+
+        _panels.Register(new PanelDescriptor("Tools", "Tools", ToolsBorder)
         {
-            string place = _layout.GetPlace(p.Key);
+            IconName = "PanelTools",
+            DockedChrome = new Control[] { ToolsHeader },
+            DefaultPlace = PanelPlace.Left,
+            DefaultDockSize = 70,
+            DefaultFloatX = 90,
+            DefaultFloatY = 60,
+            MinWidth = 60,
+            MinHeight = 120
+        });
+        _panels.Register(new PanelDescriptor("Colors", "Colors", ColorsBorder)
+        {
+            IconName = "PanelColors",
+            DockedChrome = new Control[] { ColorsTitle, ColorsHeader },
+            DefaultPlace = PanelPlace.Bottom,
+            DefaultFloatX = 90,
+            DefaultFloatY = 420,
+            MinWidth = 220,
+            MinHeight = 60
+        });
+        _panels.Register(new PanelDescriptor("ColorWheel", "Color", ColorWheelBorder)
+        {
+            IconName = "PanelColorWheel",
+            DockedChrome = new Control[] { ColorWheelHeader },
+            DefaultPlace = PanelPlace.Right,
+            DefaultDockSize = 190,
+            DefaultFloatX = 520,
+            DefaultFloatY = 60,
+            MinWidth = 170,
+            MinHeight = 240
+        });
+        _panels.Register(new PanelDescriptor("Layers", "Layers", LayersBorder)
+        {
+            IconName = "PanelLayers",
+            DockedChrome = new Control[] { LayersHeader },
+            DefaultPlace = PanelPlace.Right,
+            DefaultDockSize = 220,
+            DefaultFloatX = 760,
+            DefaultFloatY = 60,
+            MinWidth = 180,
+            MinHeight = 200
+        });
 
-            if (place == "Hidden") { p.Border.IsVisible = false; continue; }
-            p.Border.IsVisible = true;
+        _panels.LayoutChanged += (_, _) =>
+        {
+            RefreshPanelToggleButtons();
+            PersistLayout();
+        };
 
-            if (place == "Floating")
-            {
-                var host = GetOrCreateFloatHost(p);
-                var (x, y) = _layout.GetFloatPos(p.Key);
-                host.Margin = new Thickness(Math.Max(0, x), Math.Max(0, y), 0, 0);
-                FloatingLayer.Children.Add(host);
-                continue;
-            }
-
-            var dock = ParseDock(place);
-            DockPanel.SetDock(p.Border, dock);
-            p.Border.Width = dock is Dock.Left or Dock.Right ? p.SideWidth : double.NaN;
-            RootDock.Children.Add(p.Border);
-        }
-        RootDock.Children.Add(Canvas);   // fill
-
+        _panels.Apply();
         RefreshPanelToggleButtons();
     }
 
-    private static Dock ParseDock(string s) => s switch
-    {
-        "Left" => Dock.Left,
-        "Right" => Dock.Right,
-        "Top" => Dock.Top,
-        _ => Dock.Bottom
-    };
-
     private void OnPanelPlace(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        string? tag = null;
-        if (sender is Button b) tag = b.Tag as string;
-        else if (sender is MenuItem m) tag = m.Tag as string;
+        string? tag = sender switch
+        {
+            Button b => b.Tag as string,
+            MenuItem m => m.Tag as string,
+            _ => null
+        };
         if (tag is null) return;
 
+        // Tag format is "<panelId>:<place>", e.g. "Layers:Floating".
         var parts = tag.Split(':');
         if (parts.Length != 2) return;
-        string key = parts[0], place = parts[1];
-        if (place != "Hidden") _lastShownPlace[key] = place;
-        if (place is "Left" or "Right" or "Top" or "Bottom") _lastDockPlace[key] = place;
-        _layout.SetPlace(key, place);
-        ApplyLayout();
-        PersistLayout();
+        if (!Enum.TryParse<PanelPlace>(parts[1], ignoreCase: true, out var place)) return;
+
+        _panels.SetPlace(parts[0], place);
     }
 
     /// <summary>Top-right icon toggle: hides a visible panel, or restores a hidden one to
     /// wherever it was last shown (its dock side, or Floating at its last position).</summary>
     private void OnPanelToggle(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (sender is not ToggleButton tb || tb.Tag is not string key) return;
-
-        string place = _layout.GetPlace(key);
-        if (place == "Hidden")
-            _layout.SetPlace(key, _lastShownPlace.TryGetValue(key, out var last) ? last : "Left");
-        else
-        {
-            _lastShownPlace[key] = place;
-            _layout.SetPlace(key, "Hidden");
-        }
-        ApplyLayout();
-        PersistLayout();
+        if (sender is ToggleButton { Tag: string id }) _panels.ToggleVisible(id);
     }
 
-    /// <summary>Per-panel float button: undocks a docked panel to Floating, or sends a floating
-    /// panel back to wherever it was last docked.</summary>
+    /// <summary>Per-panel float button: undocks a docked panel, or docks a floating one.</summary>
     private void OnPanelFloatToggle(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (sender is not ToggleButton tb || tb.Tag is not string key) return;
-
-        string place = _layout.GetPlace(key);
-        string next = place == "Floating"
-            ? (_lastDockPlace.TryGetValue(key, out var dock) ? dock : "Left")
-            : "Floating";
-        _lastShownPlace[key] = next;
-        _layout.SetPlace(key, next);
-        ApplyLayout();
-        PersistLayout();
+        if (sender is ToggleButton { Tag: string id }) _panels.ToggleFloat(id);
     }
 
     private void RefreshPanelToggleButtons()
     {
-        ToggleTools.IsChecked = _layout.GetPlace("Tools") != "Hidden";
-        ToggleColors.IsChecked = _layout.GetPlace("Colors") != "Hidden";
-        ToggleColorWheel.IsChecked = _layout.GetPlace("ColorWheel") != "Hidden";
-        ToggleLayers.IsChecked = _layout.GetPlace("Layers") != "Hidden";
+        ToggleTools.IsChecked = _panels.IsVisible("Tools");
+        ToggleColors.IsChecked = _panels.IsVisible("Colors");
+        ToggleColorWheel.IsChecked = _panels.IsVisible("ColorWheel");
+        ToggleLayers.IsChecked = _panels.IsVisible("Layers");
 
         RefreshFloatButton(FloatToolsBtn, "Tools");
         RefreshFloatButton(FloatColorsBtn, "Colors");
@@ -707,141 +806,31 @@ public partial class MainView : UserControl
         RefreshFloatButton(FloatLayersBtn, "Layers");
     }
 
-    private void RefreshFloatButton(ToggleButton btn, string key)
+    private void RefreshFloatButton(ToggleButton btn, string id)
     {
-        bool floating = _layout.GetPlace(key) == "Floating";
+        bool floating = _panels.IsFloating(id);
         btn.IsChecked = floating;
         ToolTip.SetTip(btn, floating ? "Dock this panel" : "Float this panel");
     }
 
     private void OnResetLayout(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        _layout = new UiLayout();
-        ApplyLayout();
+        var fresh = new WorkspaceLayout();
+        _settings.Settings.Workspace.Layouts[_settings.Settings.Workspace.ActiveLayout] = fresh;
+        _panels.SetLayout(fresh);
+        RefreshPanelToggleButtons();
         PersistLayout();
     }
 
+    /// <summary>
+    /// Panel geometry changes arrive one per pointer move during a drag, so the write is
+    /// coalesced onto the next dispatcher pass rather than hitting the disk on every frame.
+    /// </summary>
     private void PersistLayout()
     {
-        if (_layoutPath is null) return;
-        try { _layout.Save(_layoutPath); } catch { /* ignore */ }
-    }
-
-    // ---- floating panels ---------------------------------------------------
-    //
-    // A floating panel is the same Border used when docked, reparented into a small window-like
-    // frame (title bar + close button) absolutely positioned within FloatingLayer via Margin.
-    // Hosts are created once and cached, so drag handlers are wired exactly once per panel.
-
-    private Border GetOrCreateFloatHost(PanelSpec spec)
-    {
-        if (_floatHosts.TryGetValue(spec.Key, out var existing))
-        {
-            // ApplyLayout unconditionally detaches spec.Border from the host's DockPanel before
-            // re-placing every panel (see the top of ApplyLayout), so a reused host always needs
-            // its content put back — otherwise a second float placement leaves only the title bar.
-            if (existing.Child is DockPanel existingDock && !existingDock.Children.Contains(spec.Border))
-                existingDock.Children.Add(spec.Border);
-            return existing;
-        }
-
-        spec.Border.Width = spec.SideWidth;
-
-        var titleText = new TextBlock
-        {
-            Text = spec.Title,
-            Foreground = new SolidColorBrush(Color.FromRgb(0xE0, 0xE0, 0xE0)),
-            FontWeight = FontWeight.Bold,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        var closeBtn = new Button { Content = "✕", Padding = new Thickness(6, 0) };
-        ToolTip.SetTip(closeBtn, "Hide (View ▸ Panels to restore)");
-        closeBtn.Click += (_, _) =>
-        {
-            _layout.SetPlace(spec.Key, "Hidden");
-            ApplyLayout();
-            PersistLayout();
-        };
-
-        var titleGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
-        titleGrid.Children.Add(titleText);
-        Grid.SetColumn(closeBtn, 1);
-        titleGrid.Children.Add(closeBtn);
-
-        var titleBar = new Border
-        {
-            Background = new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33)),
-            Padding = new Thickness(8, 4),
-            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeAll),
-            Child = titleGrid
-        };
-        DockPanel.SetDock(titleBar, Dock.Top);
-
-        var hostDock = new DockPanel { LastChildFill = true };
-        hostDock.Children.Add(titleBar);
-        hostDock.Children.Add(spec.Border);
-
-        var host = new Border
-        {
-            Background = new SolidColorBrush(Color.FromRgb(0x26, 0x26, 0x26)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x50, 0x50, 0x50)),
-            BorderThickness = new Thickness(1),
-            BoxShadow = BoxShadows.Parse("0 4 16 0 #A0000000"),
-            HorizontalAlignment = HorizontalAlignment.Left,
-            VerticalAlignment = VerticalAlignment.Top,
-            Child = hostDock
-        };
-
-        WireFloatDrag(titleBar, host, spec.Key);
-        host.PointerPressed += (_, _) => BringToFront(host);
-
-        _floatHosts[spec.Key] = host;
-        return host;
-    }
-
-    private void WireFloatDrag(Border titleBar, Border host, string key)
-    {
-        Point dragStart = default;
-        Point marginStart = default;
-        bool dragging = false;
-
-        titleBar.PointerPressed += (_, e) =>
-        {
-            if (!e.GetCurrentPoint(titleBar).Properties.IsLeftButtonPressed) return;
-            // Reordering FloatingLayer.Children detaches/reattaches host's visual subtree, which
-            // silently drops pointer capture — so this must happen *before* Capture is requested,
-            // never after.
-            BringToFront(host);
-            dragging = true;
-            dragStart = e.GetPosition(FloatingLayer);
-            marginStart = new Point(host.Margin.Left, host.Margin.Top);
-            e.Pointer.Capture(titleBar);
-        };
-        titleBar.PointerMoved += (_, e) =>
-        {
-            if (!dragging) return;
-            var p = e.GetPosition(FloatingLayer);
-            double nx = Math.Max(0, marginStart.X + (p.X - dragStart.X));
-            double ny = Math.Max(0, marginStart.Y + (p.Y - dragStart.Y));
-            host.Margin = new Thickness(nx, ny, 0, 0);
-        };
-        titleBar.PointerReleased += (_, e) =>
-        {
-            if (!dragging) return;
-            dragging = false;
-            e.Pointer.Capture(null);
-            _layout.SetFloatPos(key, host.Margin.Left, host.Margin.Top);
-            PersistLayout();
-        };
-    }
-
-    private void BringToFront(Border host)
-    {
-        // No-op when already topmost: reordering detaches/reattaches host's visual subtree, which
-        // would drop pointer capture if this ran again mid-drag (see WireFloatDrag).
-        if (FloatingLayer.Children.Count > 0 && ReferenceEquals(FloatingLayer.Children[^1], host)) return;
-        FloatingLayer.Children.Remove(host);
-        FloatingLayer.Children.Add(host);
+        var workspace = _settings.Settings.Workspace;
+        workspace.Layouts[workspace.ActiveLayout] = _panels.Layout;
+        _settings.SaveDeferred();
     }
 
     // No-op under the browser single-view host (no desktop window to close).
@@ -1164,78 +1153,10 @@ public partial class MainView : UserControl
 
     private void OnKeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
     {
-        var empty = new Avalonia.Interactivity.RoutedEventArgs();
-        // Ctrl, optionally with Shift — and nothing else, so AltGr (= Ctrl+Alt on many layouts)
-        // does not fire menu commands while typing.
-        bool ctrl = (e.KeyModifiers & ~Avalonia.Input.KeyModifiers.Shift) == Avalonia.Input.KeyModifiers.Control;
-        bool shift = e.KeyModifiers.HasFlag(Avalonia.Input.KeyModifiers.Shift);
-        bool inTextBox = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox;
-
         // Avalonia's MenuItem.InputGesture only *renders* the shortcut text — it never handles the
-        // key — so every menu accelerator has to be dispatched here or it does nothing.
-        if (ctrl)
-        {
-            switch (e.Key)
-            {
-                // Editing shortcuts stay with a focused text field (undo/select-all in the box).
-                case Avalonia.Input.Key.Z when !inTextBox:
-                    if (shift) Canvas.Redo(); else Canvas.Undo(); break;
-                case Avalonia.Input.Key.Y when !inTextBox: Canvas.Redo(); break;
-                case Avalonia.Input.Key.A when !inTextBox: OnSelectAll(sender, empty); break;
-
-                case Avalonia.Input.Key.I: OnInvertSelection(sender, empty); break;
-                case Avalonia.Input.Key.D: OnSelectNone(sender, empty); break;
-
-                case Avalonia.Input.Key.N: OnNew(sender, empty); break;
-                case Avalonia.Input.Key.O:
-                    if (shift) OnOpenProject(sender, empty); else OnOpen(sender, empty); break;
-                case Avalonia.Input.Key.S:
-                    if (shift) OnSaveAs(sender, empty); else OnSaveProject(sender, empty); break;
-
-                case Avalonia.Input.Key.OemPlus:
-                case Avalonia.Input.Key.Add: Canvas.ZoomIn(); break;
-                case Avalonia.Input.Key.OemMinus:
-                case Avalonia.Input.Key.Subtract: Canvas.ZoomOut(); break;
-                case Avalonia.Input.Key.D0: Canvas.ZoomToFit(); break;
-                case Avalonia.Input.Key.D1: Canvas.ZoomActual(); break;
-
-                default: return;
-            }
-            e.Handled = true;
-            return;
-        }
-
-        // Ignore when typing into a control (e.g. a text field gets focus).
-        if (e.KeyModifiers != Avalonia.Input.KeyModifiers.None || inTextBox) return;
-
-        // The three selection tools share one key and cycle through it.
-        if (e.Key == Avalonia.Input.Key.S)
-        {
-            SelectTool(_currentToolTag switch
-            {
-                "RectSel" => "EllipseSel",
-                "EllipseSel" => "Lasso",
-                _ => "RectSel"
-            });
-            e.Handled = true;
-            return;
-        }
-
-        string? tag = e.Key switch
-        {
-            Avalonia.Input.Key.P => "Pencil",
-            Avalonia.Input.Key.E => "Eraser",
-            Avalonia.Input.Key.F => "Fill",
-            Avalonia.Input.Key.K => "Pick",
-            Avalonia.Input.Key.L => "Line",
-            Avalonia.Input.Key.R => "Rect",
-            Avalonia.Input.Key.O => "Ellipse",
-            Avalonia.Input.Key.G => "Gradient",
-            Avalonia.Input.Key.T => "Text",
-            Avalonia.Input.Key.M => "Move",
-            _ => null
-        };
-        if (tag is not null) { SelectTool(tag); e.Handled = true; }
+        // key — so every accelerator in the app is dispatched from here through the registry.
+        bool inTextBox = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox;
+        if (_commands.HandleKey(e, inTextBox)) e.Handled = true;
     }
 
     private async void OnTextRequested(int x, int y)
@@ -1257,7 +1178,7 @@ public partial class MainView : UserControl
         var snapshot = layer.Surface.Clone();
         TextOps.DrawText(layer.Surface, dlg.ResultText, x, y, dlg.ResultSize, Canvas.BrushColor);
         if (Canvas.Selection is { IsActive: true }) Canvas.Selection.Clip(layer.Surface, snapshot);
-        Canvas.History.Push(LayerSurfaceMemento.FromSnapshot(layer, snapshot, "Text"));
+        Canvas.History.Push(TileDeltaMemento.Consume(layer, snapshot, "Text"));
         Canvas.RenderComposite();
         Canvas.InvalidateVisual();
         Canvas.NotifyLayersChanged();

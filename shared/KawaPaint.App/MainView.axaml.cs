@@ -451,11 +451,20 @@ public partial class MainView : UserControl
         });
         if (file is null) return;
 
+        var options = EncodeOptions.Default;
+        string? codecId = CodecRegistry.FindByExtension(file.Name)?.Id;
+        if (codecId is "jpeg" or "webp" && OwnerWindow is { } owner)
+        {
+            var dlg = new SaveOptionsDialog(codecId);
+            if (!await dlg.ShowDialog<bool>(owner)) return;
+            options = dlg.ResultOptions;
+        }
+
         try
         {
             using var flat = Canvas.Document.Flatten();
             await using var stream = await file.OpenWriteAsync();
-            CodecRegistry.Encode(flat, stream, file.Name);
+            CodecRegistry.Encode(flat, stream, file.Name, options);
             StatusText.Text = "Exported " + file.Name;
         }
         catch (Exception ex)

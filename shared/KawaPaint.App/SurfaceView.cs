@@ -78,6 +78,14 @@ public sealed class SurfaceView : Control
 
     public double Zoom => _zoom;
 
+    /// <summary>Screen-space position of image pixel (0,0). Combined with Zoom this is the whole
+    /// image-to-screen transform; RulerBar uses it to place its ticks.</summary>
+    public Point Origin => _origin;
+
+    /// <summary>Raised whenever Zoom or Origin changes (fit, zoom in/out/actual, wheel-zoom, pan
+    /// drag) — a ruler bar redraws on this rather than polling every frame.</summary>
+    public event Action? ViewChanged;
+
     /// <summary>Loads a document as a fresh editing session: the old one is disposed and undo history is dropped.</summary>
     public void SetDocument(Document document)
     {
@@ -256,7 +264,7 @@ public sealed class SurfaceView : Control
             _fitPending = false;
             // The status bar's zoom readout is driven by this event; posted rather than raised
             // inline so nothing mutates the visual tree during a render pass.
-            Dispatcher.UIThread.Post(() => ZoomChanged?.Invoke(_zoom));
+            Dispatcher.UIThread.Post(() => { ZoomChanged?.Invoke(_zoom); ViewChanged?.Invoke(); });
         }
 
         double w = _composite.Width * _zoom;
@@ -353,6 +361,7 @@ public sealed class SurfaceView : Control
         _origin = new Point(p.X - ix * _zoom, p.Y - iy * _zoom);
         InvalidateVisual();
         ZoomChanged?.Invoke(_zoom);
+        ViewChanged?.Invoke();
         e.Handled = true;
     }
 
@@ -378,6 +387,7 @@ public sealed class SurfaceView : Control
         _origin = new Point(anchor.X - ix * _zoom, anchor.Y - iy * _zoom);
         InvalidateVisual();
         ZoomChanged?.Invoke(_zoom);
+        ViewChanged?.Invoke();
     }
 
     private Point ViewportCenter => new(Bounds.Width / 2, Bounds.Height / 2);
@@ -391,6 +401,7 @@ public sealed class SurfaceView : Control
         FitToView();
         InvalidateVisual();
         ZoomChanged?.Invoke(_zoom);
+        ViewChanged?.Invoke();
     }
 
     public void ZoomActual() => ZoomAround(ViewportCenter, 1.0 / _zoom);
@@ -471,6 +482,7 @@ public sealed class SurfaceView : Control
             _origin += p - _lastPointer;
             _lastPointer = p;
             InvalidateVisual();
+            ViewChanged?.Invoke();
         }
         else if (_drawing && _toolCtx is not null)
         {

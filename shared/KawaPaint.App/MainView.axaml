@@ -85,6 +85,13 @@
                 <MenuItem Header="_Fit to Window   (Ctrl 0)" Click="OnZoomFit" Icon="{app:Icon ZoomFit}" />
                 <MenuItem Header="_Actual Size 100%   (Ctrl 1)" Click="OnZoomActual" Icon="{app:Icon ZoomActual}" />
                 <Separator />
+                <MenuItem x:Name="ToggleRulersItem" Header="_Rulers" Click="OnToggleRulers" ToggleType="CheckBox" />
+                <MenuItem Header="Ruler _Units">
+                    <MenuItem Header="Pixels" Tag="Pixels" Click="OnSetRulerUnit" />
+                    <MenuItem Header="Inches" Tag="Inches" Click="OnSetRulerUnit" />
+                    <MenuItem Header="Centimeters" Tag="Centimeters" Click="OnSetRulerUnit" />
+                </MenuItem>
+                <Separator />
                 <MenuItem Header="_Panels">
                     <MenuItem Header="Tools">
                         <MenuItem Header="Left" Tag="Tools:Left" Click="OnPanelPlace" />
@@ -422,7 +429,14 @@
             </DockPanel>
         </Border>
 
-        <app:SurfaceView x:Name="Canvas" />
+        <Grid x:Name="CanvasArea" RowDefinitions="18,*" ColumnDefinitions="18,*">
+            <Button x:Name="RulerCornerBtn" Grid.Row="0" Grid.Column="0" Content="px" Padding="0"
+                    FontSize="9" Background="#202020" BorderThickness="0" Click="OnRulerCornerClick"
+                    ToolTip.Tip="Click to change ruler units" />
+            <app:RulerBar x:Name="HRuler" Grid.Row="0" Grid.Column="1" Orientation="Horizontal" />
+            <app:RulerBar x:Name="VRuler" Grid.Row="1" Grid.Column="0" Orientation="Vertical" />
+            <app:SurfaceView x:Name="Canvas" Grid.Row="1" Grid.Column="1" />
+        </Grid>
     </DockPanel>
     <Panel x:Name="FloatingLayer" />
     </Panel>

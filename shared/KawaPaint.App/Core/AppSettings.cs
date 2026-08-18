@@ -4,6 +4,8 @@
 // than from its own ad-hoc file, so that enabling git tracking later means tracking one directory.
 
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
+using KawaPaint.Engine;
 
 namespace KawaPaint.App.Core;
 
@@ -100,6 +102,11 @@ public sealed class WorkspaceSettings
 
     /// <summary>Command id to key gesture, overriding the default gesture declared on the command.</summary>
     public Dictionary<string, string> KeyBindings { get; set; } = new();
+
+    public bool ShowRulers { get; set; } = true;
+
+    [JsonConverter(typeof(JsonStringEnumConverter<RulerUnit>))]
+    public RulerUnit RulerUnit { get; set; } = RulerUnit.Pixels;
 }
 
 public sealed class PluginSettings

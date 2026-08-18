@@ -14,6 +14,10 @@ public sealed class Document : IDisposable
     public IReadOnlyList<Layer> Layers => _layers;
     public int LayerCount => _layers.Count;
 
+    /// <summary>Pixels per inch, for the ruler and any future print-size math. Purely metadata —
+    /// nothing here rescales pixels based on it.</summary>
+    public double Dpi { get; set; } = 96;
+
     public Document(int width, int height)
     {
         if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException();

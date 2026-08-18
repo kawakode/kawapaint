@@ -15,7 +15,7 @@ public static class DocumentOps
     /// <summary>Returns a new document cropped to the (x,y,w,h) region; every layer is cropped in place.</summary>
     public static Document Crop(Document doc, int x, int y, int w, int h)
     {
-        var result = new Document(w, h);
+        var result = new Document(w, h) { Dpi = doc.Dpi };
         foreach (var layer in doc.Layers)
         {
             var cropped = layer.Surface.Crop(x, y, w, h);
@@ -32,7 +32,7 @@ public static class DocumentOps
     /// <summary>Returns a new document scaled to (w,h); every layer is resampled.</summary>
     public static Document Resize(Document doc, int w, int h)
     {
-        var result = new Document(w, h);
+        var result = new Document(w, h) { Dpi = doc.Dpi };
         foreach (var layer in doc.Layers)
         {
             result.AddLayer(new Layer(layer.Surface.Resized(w, h), layer.Name)
@@ -54,7 +54,7 @@ public static class DocumentOps
     {
         var (dx, dy) = AnchorOffset(doc.Width, doc.Height, w, h, anchor);
 
-        var result = new Document(w, h);
+        var result = new Document(w, h) { Dpi = doc.Dpi };
         foreach (var layer in doc.Layers)
         {
             var placed = new Surface(w, h);
@@ -99,7 +99,7 @@ public static class DocumentOps
     /// <summary>Returns a new document rotated 90 degrees; canvas dimensions swap.</summary>
     public static Document Rotate90(Document doc, bool clockwise)
     {
-        var result = new Document(doc.Height, doc.Width);
+        var result = new Document(doc.Height, doc.Width) { Dpi = doc.Dpi };
         foreach (var layer in doc.Layers)
         {
             result.AddLayer(new Layer(SurfaceOps.Rotate90(layer.Surface, clockwise), layer.Name)
@@ -115,7 +115,7 @@ public static class DocumentOps
     /// <summary>Returns a new single-layer document with all layers composited together.</summary>
     public static Document Flatten(Document doc)
     {
-        var result = new Document(doc.Width, doc.Height);
+        var result = new Document(doc.Width, doc.Height) { Dpi = doc.Dpi };
         result.AddLayer(new Layer(doc.Flatten(), "Flattened"));
         return result;
     }

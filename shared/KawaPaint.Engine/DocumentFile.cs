@@ -17,6 +17,7 @@ public static class DocumentFile
         public int Version { get; set; } = FormatVersion;
         public int Width { get; set; }
         public int Height { get; set; }
+        public double Dpi { get; set; } = 96;
         public List<LayerInfo> Layers { get; set; } = new();
     }
 
@@ -36,7 +37,7 @@ public static class DocumentFile
 
     public static void Save(Document doc, Stream stream)
     {
-        var manifest = new Manifest { Width = doc.Width, Height = doc.Height };
+        var manifest = new Manifest { Width = doc.Width, Height = doc.Height, Dpi = doc.Dpi };
         foreach (var layer in doc.Layers)
         {
             manifest.Layers.Add(new LayerInfo
@@ -80,7 +81,7 @@ public static class DocumentFile
             manifest = JsonSerializer.Deserialize<Manifest>(ms)
                 ?? throw new InvalidDataException("corrupt manifest.json");
 
-        var doc = new Document(manifest.Width, manifest.Height);
+        var doc = new Document(manifest.Width, manifest.Height) { Dpi = manifest.Dpi };
         for (int i = 0; i < manifest.Layers.Count; i++)
         {
             var info = manifest.Layers[i];

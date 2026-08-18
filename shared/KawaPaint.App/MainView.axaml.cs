@@ -124,6 +124,7 @@ public partial class MainView : UserControl
         BuildPanelManager();
         RebuildLayoutPresetsMenu();
         RebuildRecentFilesMenu();
+        SetupRulers();
         BuildCommands();
         ApplyHistorySettings();
         SyncWheelToActiveColor();
@@ -292,20 +293,21 @@ public partial class MainView : UserControl
         if (!await ConfirmDiscardAsync()) return;
 
         int w, h;
+        double dpi;
         bool transparent;
         if (OwnerWindow is { } owner)
         {
             var dlg = new NewImageDialog();
             if (!await dlg.ShowDialog<bool>(owner)) return;
-            (w, h, transparent) = (dlg.ResultWidth, dlg.ResultHeight, dlg.Transparent);
+            (w, h, dpi, transparent) = (dlg.ResultWidth, dlg.ResultHeight, dlg.ResultDpi, dlg.Transparent);
         }
         else
         {
             // TODO(web): no New-Image size dialog yet — always creates a fixed 800x600 opaque canvas.
-            (w, h, transparent) = (800, 600, false);
+            (w, h, dpi, transparent) = (800, 600, 96, false);
         }
 
-        var doc = new Document(w, h);
+        var doc = new Document(w, h) { Dpi = dpi };
         var bg = doc.AddLayer("Background");
         if (!transparent) bg.Surface.Clear(ColorBgra.White);
         Canvas.SetDocument(doc);
@@ -820,7 +822,7 @@ public partial class MainView : UserControl
             workspace.Layouts[workspace.ActiveLayout] = layout;
         }
 
-        _panels = new PanelManager(RootDock, FloatingLayer, Canvas, layout);
+        _panels = new PanelManager(RootDock, FloatingLayer, CanvasArea, layout);
 
         _panels.Register(new PanelDescriptor("Tools", "Tools", ToolsBorder)
         {
@@ -938,6 +940,74 @@ public partial class MainView : UserControl
         bool floating = _panels.IsFloating(id);
         btn.IsChecked = floating;
         ToolTip.SetTip(btn, floating ? "Dock this panel" : "Float this panel");
+    }
+
+    // ---- rulers --------------------------------------------------------------
+
+    private void SetupRulers()
+    {
+        HRuler.Target = Canvas;
+        VRuler.Target = Canvas;
+
+        var workspace = _settings.Settings.Workspace;
+        ApplyRulerUnit(workspace.RulerUnit);
+        ApplyRulerVisibility(workspace.ShowRulers);
+
+        Canvas.ViewChanged += () => { HRuler.InvalidateVisual(); VRuler.InvalidateVisual(); };
+        Canvas.DocumentChanged += (_, _) => { HRuler.InvalidateVisual(); VRuler.InvalidateVisual(); };
+        Canvas.CursorMoved += (x, y) =>
+        {
+            HRuler.CursorPosition = x;
+            VRuler.CursorPosition = y;
+            HRuler.InvalidateVisual();
+            VRuler.InvalidateVisual();
+        };
+    }
+
+    private void ApplyRulerUnit(RulerUnit unit)
+    {
+        HRuler.Unit = unit;
+        VRuler.Unit = unit;
+        RulerCornerBtn.Content = RulerMath.Abbreviation(unit);
+        HRuler.InvalidateVisual();
+        VRuler.InvalidateVisual();
+    }
+
+    private void ApplyRulerVisibility(bool visible)
+    {
+        var lengths = visible ? new GridLength(18) : new GridLength(0);
+        CanvasArea.RowDefinitions[0] = new RowDefinition(lengths);
+        CanvasArea.ColumnDefinitions[0] = new ColumnDefinition(lengths);
+        ToggleRulersItem.IsChecked = visible;
+    }
+
+    private void OnRulerCornerClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var workspace = _settings.Settings.Workspace;
+        workspace.RulerUnit = workspace.RulerUnit switch
+        {
+            RulerUnit.Pixels => RulerUnit.Inches,
+            RulerUnit.Inches => RulerUnit.Centimeters,
+            _ => RulerUnit.Pixels
+        };
+        ApplyRulerUnit(workspace.RulerUnit);
+        _settings.Save();
+    }
+
+    private void OnSetRulerUnit(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string tag } || !Enum.TryParse<RulerUnit>(tag, out var unit)) return;
+        _settings.Settings.Workspace.RulerUnit = unit;
+        ApplyRulerUnit(unit);
+        _settings.Save();
+    }
+
+    private void OnToggleRulers(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var workspace = _settings.Settings.Workspace;
+        workspace.ShowRulers = !workspace.ShowRulers;
+        ApplyRulerVisibility(workspace.ShowRulers);
+        _settings.Save();
     }
 
     private void OnResetLayout(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -681,6 +682,7 @@ public partial class MainView : UserControl
 
         KeyGesture Ctrl(Key key) => new(key, KeyModifiers.Control);
         KeyGesture CtrlShift(Key key) => new(key, KeyModifiers.Control | KeyModifiers.Shift);
+        KeyGesture CtrlAlt(Key key) => new(key, KeyModifiers.Control | KeyModifiers.Alt);
         KeyGesture Bare(Key key) => new(key);
 
         // File
@@ -694,6 +696,14 @@ public partial class MainView : UserControl
         Add("edit.undo", "Undo", "Edit", () => Canvas.Undo(), Ctrl(Key.Z), suppressInTextInput: true);
         Add("edit.redo", "Redo", "Edit", () => Canvas.Redo(), CtrlShift(Key.Z), suppressInTextInput: true);
         Add("edit.redoAlt", "Redo", "Edit", () => Canvas.Redo(), Ctrl(Key.Y), suppressInTextInput: true);
+
+        // Clipboard — cut/copy/paste stay with a focused text field the same way undo/redo do.
+        Add("edit.cut", "Cut", "Edit", () => OnCut(this, empty), Ctrl(Key.X), suppressInTextInput: true);
+        Add("edit.copy", "Copy", "Edit", () => OnCopy(this, empty), Ctrl(Key.C), suppressInTextInput: true);
+        Add("edit.copyMerged", "Copy Merged", "Edit", () => OnCopyMerged(this, empty), CtrlShift(Key.C), suppressInTextInput: true);
+        Add("edit.paste", "Paste", "Edit", () => OnPaste(this, empty), Ctrl(Key.V), suppressInTextInput: true);
+        Add("edit.pasteIntoNewLayer", "Paste Into New Layer", "Edit", () => OnPasteIntoNewLayer(this, empty), CtrlShift(Key.V), suppressInTextInput: true);
+        Add("edit.pasteIntoNewImage", "Paste Into New Image", "Edit", () => OnPasteIntoNewImage(this, empty), CtrlAlt(Key.V), suppressInTextInput: true);
 
         // Select
         Add("select.all", "Select All", "Select", () => OnSelectAll(this, empty), Ctrl(Key.A), suppressInTextInput: true);
@@ -1713,6 +1723,174 @@ public partial class MainView : UserControl
         Canvas.RenderComposite();
         Canvas.InvalidateVisual();
         RebuildLayerPanel();
+    }
+
+    // ---- clipboard ----------------------------------------------------------
+    //
+    // Cut/Copy act on the active layer within the current selection (or the whole canvas when
+    // nothing is selected, matching Paint.NET). Copy Merged reads the flattened composite instead
+    // of a single layer. Paste always alpha-composites rather than overwrites, so a pasted image's
+    // transparent pixels don't blank out what's underneath.
+
+    private (int X, int Y, int W, int H) SelectionOrCanvasBounds(Document doc)
+        => Canvas.Selection is { IsActive: true } sel ? sel.GetBounds() : (0, 0, doc.Width, doc.Height);
+
+    /// <summary>Crops to (x,y,w,h) and, if a selection is active, transparents whatever falls
+    /// outside its shape — so copying a non-rectangular selection copies its actual outline.</summary>
+    private static unsafe Surface ExtractRegion(Surface source, Selection? selection, int x, int y, int w, int h)
+    {
+        var region = source.Crop(x, y, w, h);
+        if (selection is not { IsActive: true } sel) return region;
+
+        for (int ry = 0; ry < h; ry++)
+        {
+            var row = (ColorBgra*)region.GetRowPointer(ry);
+            for (int rx = 0; rx < w; rx++)
+                if (!sel.IsSelected(x + rx, y + ry)) row[rx] = ColorBgra.Transparent;
+        }
+        return region;
+    }
+
+    private static Avalonia.Media.Imaging.Bitmap ToClipboardBitmap(Surface s)
+    {
+        using var stream = new System.IO.MemoryStream();
+        s.Encode(stream, SkiaSharp.SKEncodedImageFormat.Png);
+        stream.Position = 0;
+        return new Avalonia.Media.Imaging.Bitmap(stream);
+    }
+
+    /// <summary>Decoded through CodecRegistry (header-sniffed) rather than assuming PNG, since the
+    /// clipboard image may have come from another application in any format Skia can read.</summary>
+    private static Surface FromClipboardBitmap(Avalonia.Media.Imaging.Bitmap bitmap)
+    {
+        using var stream = new System.IO.MemoryStream();
+        bitmap.Save(stream, new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
+        stream.Position = 0;
+        return CodecRegistry.Decode(stream);
+    }
+
+    private async void OnCopy(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document;
+        var layer = Canvas.ActiveLayer;
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (doc is null || layer is null || clipboard is null) return;
+
+        var (x, y, w, h) = SelectionOrCanvasBounds(doc);
+        if (w <= 0 || h <= 0) return;
+
+        using var region = ExtractRegion(layer.Surface, Canvas.Selection, x, y, w, h);
+        using var bitmap = ToClipboardBitmap(region);
+        await clipboard.SetBitmapAsync(bitmap);
+        StatusText.Text = "Copied";
+    }
+
+    private async void OnCopyMerged(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document;
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (doc is null || clipboard is null) return;
+
+        var (x, y, w, h) = SelectionOrCanvasBounds(doc);
+        if (w <= 0 || h <= 0) return;
+
+        using var flat = doc.Flatten();
+        using var region = ExtractRegion(flat, Canvas.Selection, x, y, w, h);
+        using var bitmap = ToClipboardBitmap(region);
+        await clipboard.SetBitmapAsync(bitmap);
+        StatusText.Text = "Copied (merged)";
+    }
+
+    private async void OnCut(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document;
+        var layer = Canvas.ActiveLayer;
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (doc is null || layer is null || clipboard is null) return;
+
+        var (x, y, w, h) = SelectionOrCanvasBounds(doc);
+        if (w <= 0 || h <= 0) return;
+
+        using (var region = ExtractRegion(layer.Surface, Canvas.Selection, x, y, w, h))
+        using (var bitmap = ToClipboardBitmap(region))
+            await clipboard.SetBitmapAsync(bitmap);
+
+        var snapshot = layer.Surface.Clone();
+        var selection = Canvas.Selection;
+        unsafe
+        {
+            for (int ry = 0; ry < h; ry++)
+            {
+                var row = (ColorBgra*)layer.Surface.GetRowPointer(y + ry);
+                for (int rx = 0; rx < w; rx++)
+                    if (selection is not { IsActive: true } sel || sel.IsSelected(x + rx, y + ry))
+                        row[x + rx] = ColorBgra.Transparent;
+            }
+        }
+        Canvas.History.Push(TileDeltaMemento.Consume(layer, snapshot, "Cut"));
+        RefreshDocument();
+        StatusText.Text = "Cut";
+    }
+
+    private async void OnPaste(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document;
+        var layer = Canvas.ActiveLayer;
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (doc is null || layer is null || clipboard is null) return;
+
+        using var bitmap = await clipboard.TryGetBitmapAsync();
+        if (bitmap is null) { StatusText.Text = "Clipboard has no image"; return; }
+
+        using var pasted = FromClipboardBitmap(bitmap);
+        var (originX, originY, _, _) = SelectionOrCanvasBounds(doc);
+
+        var snapshot = layer.Surface.Clone();
+        SurfaceOps.CompositeOver(layer.Surface, pasted, originX, originY);
+        Canvas.History.Push(TileDeltaMemento.Consume(layer, snapshot, "Paste"));
+        RefreshDocument();
+        StatusText.Text = $"Pasted {pasted.Width}×{pasted.Height}";
+    }
+
+    private async void OnPasteIntoNewLayer(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document;
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (doc is null || clipboard is null) return;
+
+        using var bitmap = await clipboard.TryGetBitmapAsync();
+        if (bitmap is null) { StatusText.Text = "Clipboard has no image"; return; }
+
+        using var pasted = FromClipboardBitmap(bitmap);
+        var layer = doc.AddLayer("Pasted");
+        SurfaceOps.CompositeOver(layer.Surface, pasted, 0, 0);
+        Canvas.SetActiveLayer(layer);
+
+        Canvas.History.Push(new DelegateMemento("Paste Into New Layer",
+            undo: () => { doc.RemoveLayer(layer); Canvas.SetActiveLayer(doc.Layers[^1]); },
+            redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); }));
+
+        RefreshDocument();
+        StatusText.Text = $"Pasted {pasted.Width}×{pasted.Height} into a new layer";
+    }
+
+    private async void OnPasteIntoNewImage(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is null) return;
+
+        using var bitmap = await clipboard.TryGetBitmapAsync();
+        if (bitmap is null) { StatusText.Text = "Clipboard has no image"; return; }
+        if (!await ConfirmDiscardAsync()) return;
+
+        using var pasted = FromClipboardBitmap(bitmap);
+        var doc = new Document(pasted.Width, pasted.Height);
+        var layer = doc.AddLayer("Pasted");
+        layer.Surface.CopyFrom(pasted);
+
+        Canvas.SetDocument(doc);
+        SetClean(null);
+        StatusText.Text = $"New {pasted.Width}×{pasted.Height} document from clipboard";
     }
 
     private void OnAddLayer(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

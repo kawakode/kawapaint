@@ -62,4 +62,29 @@ public static class SurfaceOps
             }
         }
     }
+
+    /// <summary>
+    /// Alpha-composites <paramref name="src"/> onto <paramref name="dst"/> at (dx,dy), clipped to
+    /// dst's bounds. Unlike <see cref="ShiftInto"/> this blends rather than overwrites, so a
+    /// pasted image's transparent pixels don't blank out what's underneath.
+    /// </summary>
+    public static unsafe void CompositeOver(Surface dst, Surface src, int dx, int dy)
+    {
+        int w = src.Width, h = src.Height;
+
+        for (int sy = 0; sy < h; sy++)
+        {
+            int ty = sy + dy;
+            if ((uint)ty >= (uint)dst.Height) continue;
+
+            ColorBgra* srcRow = (ColorBgra*)src.GetRowPointer(sy);
+            ColorBgra* dstRow = (ColorBgra*)dst.GetRowPointer(ty);
+            for (int sx = 0; sx < w; sx++)
+            {
+                int tx = sx + dx;
+                if ((uint)tx < (uint)dst.Width)
+                    dstRow[tx] = Blending.Composite(BlendMode.Normal, dstRow[tx], srcRow[sx], 255);
+            }
+        }
+    }
 }

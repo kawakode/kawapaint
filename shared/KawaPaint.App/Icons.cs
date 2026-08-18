@@ -89,6 +89,8 @@ public static class Icons
         // Layers panel.
         ["Plus"]        = ("M12 5 L12 19 M5 12 L19 12", false),
         ["Copy"]        = ("M6 6 L16 6 L16 16 L6 16 Z M8 8 L18 8 L18 18 L8 18 Z", false),
+        ["Cut"]         = ("M9 9 L20 20 M20 9 L14 15 M9.5 14.5 L4 20 M6.5 6.5 a2.5 2.5 0 1 0 0.05 0 Z M6.5 17.5 a2.5 2.5 0 1 0 0.05 0 Z M9 9 L6.9 8 M9.5 14.5 L6.9 15.5", false),
+        ["Paste"]       = ("M9 4 L15 4 L15 6 L9 6 Z M6 6 L18 6 L18 21 L6 21 Z M9 11 L15 11 M9 15 L15 15", false),
         ["Trash"]       = ("M5 7 L19 7 M9 7 L9 4 L15 4 L15 7 M7 7 L7 20 L17 20 L17 7 M10 10 L10 17 M14 10 L14 17", false),
         ["MergeDown"]   = ("M8 4 L8 10 L12 14 L16 10 L16 4 M12 14 L12 20", false),
         ["ChevronUp"]   = ("M6 15 L12 9 L18 15", false),

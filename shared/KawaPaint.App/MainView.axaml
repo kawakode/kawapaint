@@ -58,6 +58,13 @@
             <MenuItem Header="_Edit" Classes="topbar">
                 <MenuItem Header="_Undo" Click="OnUndo" InputGesture="Ctrl+Z" Icon="{app:Icon Undo}" />
                 <MenuItem Header="_Redo" Click="OnRedo" InputGesture="Ctrl+Y" Icon="{app:Icon Redo}" />
+                <Separator />
+                <MenuItem Header="Cu_t" Click="OnCut" InputGesture="Ctrl+X" Icon="{app:Icon Cut}" />
+                <MenuItem Header="_Copy" Click="OnCopy" InputGesture="Ctrl+C" Icon="{app:Icon Copy}" />
+                <MenuItem Header="Copy _Merged" Click="OnCopyMerged" InputGesture="Ctrl+Shift+C" />
+                <MenuItem Header="_Paste" Click="OnPaste" InputGesture="Ctrl+V" Icon="{app:Icon Paste}" />
+                <MenuItem Header="Paste Into _New Layer" Click="OnPasteIntoNewLayer" InputGesture="Ctrl+Shift+V" />
+                <MenuItem Header="Paste Into New _Image" Click="OnPasteIntoNewImage" InputGesture="Ctrl+Alt+V" />
             </MenuItem>
             <MenuItem Header="_Select" Classes="topbar">
                 <MenuItem Header="Select _All" Click="OnSelectAll" InputGesture="Ctrl+A" Icon="{app:Icon SelectAll}" />

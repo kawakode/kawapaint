@@ -31,12 +31,14 @@ public sealed class CommandRegistry
 
     public AppCommand Register(string id, string label, Action execute, string category = "General",
                                string? iconName = null, KeyGesture? gesture = null,
-                               Func<bool>? canExecute = null, bool suppressInTextInput = false)
+                               Func<bool>? canExecute = null, bool suppressInTextInput = false,
+                               KeyGesture? alternateGesture = null)
         => Register(new AppCommand(id, label, execute)
         {
             Category = category,
             IconName = iconName,
             DefaultGesture = gesture,
+            AlternateGesture = alternateGesture,
             CanExecute = canExecute,
             SuppressInTextInput = suppressInTextInput
         });
@@ -84,7 +86,9 @@ public sealed class CommandRegistry
             if (isTextInputFocused && command.SuppressInTextInput) continue;
 
             var gesture = GestureFor(command);
-            if (gesture is null || !gesture.Matches(e)) continue;
+            bool matches = (gesture is not null && gesture.Matches(e))
+                || (command.AlternateGesture is not null && command.AlternateGesture.Matches(e));
+            if (!matches) continue;
             if (!command.IsEnabled) return false;
 
             command.Execute();

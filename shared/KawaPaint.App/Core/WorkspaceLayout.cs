@@ -70,7 +70,10 @@ public sealed class WorkspaceLayout
         var created = new PanelPlacement
         {
             Place = descriptor.DefaultPlace,
-            LastShown = descriptor.DefaultPlace,
+            // A panel that starts Hidden has no "shown" placement to remember yet — falling back
+            // to Hidden here would make its very first toggle-visible a permanent no-op, since
+            // ToggleVisible restores to LastShown. Floating is always a safe first placement.
+            LastShown = descriptor.DefaultPlace == PanelPlace.Hidden ? PanelPlace.Floating : descriptor.DefaultPlace,
             LastDock = descriptor.DefaultPlace is PanelPlace.Floating or PanelPlace.Hidden
                 ? PanelPlace.Left
                 : descriptor.DefaultPlace,

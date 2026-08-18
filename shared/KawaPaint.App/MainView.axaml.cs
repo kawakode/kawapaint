@@ -105,12 +105,14 @@ public partial class MainView : UserControl
         ToggleColorWheel.Content = Icons.Create("PanelColorWheel", 15);
         ToggleLayers.Content = Icons.Create("PanelLayers", 15);
         ToggleHistory.Content = Icons.Create("PanelHistory", 15);
+        ToggleDock.Content = Icons.Create("PanelDock", 15);
 
         FloatToolsBtn.Content = Icons.Create("Float", 13);
         FloatColorsBtn.Content = Icons.Create("Float", 13);
         FloatColorWheelBtn.Content = Icons.Create("Float", 13);
         FloatLayersBtn.Content = Icons.Create("Float", 13);
         FloatHistoryBtn.Content = Icons.Create("Float", 13);
+        FloatDockBtn.Content = Icons.Create("Float", 13);
 
         // handledEventsToo: ComboBox has its own built-in wheel behavior; this guarantees our step
         // logic always runs and has the final say over the box's value.
@@ -133,6 +135,7 @@ public partial class MainView : UserControl
         Canvas.History.Changed += (_, _) => MarkDirty();
         Canvas.History.Changed += (_, _) => RebuildHistoryPanel();
         RebuildHistoryPanel();
+        RebuildCustomDock();
         SetClean(null);
         SelectTool("Pencil");
 
@@ -720,9 +723,10 @@ public partial class MainView : UserControl
         var empty = new Avalonia.Interactivity.RoutedEventArgs();
 
         void Add(string id, string label, string category, Action run, KeyGesture? gesture = null,
-                 bool suppressInTextInput = false, string? icon = null)
+                 bool suppressInTextInput = false, string? icon = null, KeyGesture? altGesture = null)
             => _commands.Register(id, label, run, category, icon, gesture,
-                                  canExecute: null, suppressInTextInput: suppressInTextInput);
+                                  canExecute: null, suppressInTextInput: suppressInTextInput,
+                                  alternateGesture: altGesture);
 
         KeyGesture Ctrl(Key key) => new(key, KeyModifiers.Control);
         KeyGesture CtrlShift(Key key) => new(key, KeyModifiers.Control | KeyModifiers.Shift);
@@ -737,15 +741,15 @@ public partial class MainView : UserControl
         Add("file.export", "Export Flattened", "File", () => OnSaveAs(this, empty), CtrlShift(Key.S));
 
         // Edit — these stay with a focused text field, which has its own undo and select-all.
-        Add("edit.undo", "Undo", "Edit", () => Canvas.Undo(), Ctrl(Key.Z), suppressInTextInput: true);
-        Add("edit.redo", "Redo", "Edit", () => Canvas.Redo(), CtrlShift(Key.Z), suppressInTextInput: true);
-        Add("edit.redoAlt", "Redo", "Edit", () => Canvas.Redo(), Ctrl(Key.Y), suppressInTextInput: true);
+        Add("edit.undo", "Undo", "Edit", () => Canvas.Undo(), Ctrl(Key.Z), suppressInTextInput: true, icon: "Undo");
+        Add("edit.redo", "Redo", "Edit", () => Canvas.Redo(), CtrlShift(Key.Z),
+            suppressInTextInput: true, icon: "Redo", altGesture: Ctrl(Key.Y));
 
         // Clipboard — cut/copy/paste stay with a focused text field the same way undo/redo do.
-        Add("edit.cut", "Cut", "Edit", () => OnCut(this, empty), Ctrl(Key.X), suppressInTextInput: true);
-        Add("edit.copy", "Copy", "Edit", () => OnCopy(this, empty), Ctrl(Key.C), suppressInTextInput: true);
+        Add("edit.cut", "Cut", "Edit", () => OnCut(this, empty), Ctrl(Key.X), suppressInTextInput: true, icon: "Cut");
+        Add("edit.copy", "Copy", "Edit", () => OnCopy(this, empty), Ctrl(Key.C), suppressInTextInput: true, icon: "Copy");
         Add("edit.copyMerged", "Copy Merged", "Edit", () => OnCopyMerged(this, empty), CtrlShift(Key.C), suppressInTextInput: true);
-        Add("edit.paste", "Paste", "Edit", () => OnPaste(this, empty), Ctrl(Key.V), suppressInTextInput: true);
+        Add("edit.paste", "Paste", "Edit", () => OnPaste(this, empty), Ctrl(Key.V), suppressInTextInput: true, icon: "Paste");
         Add("edit.pasteIntoNewLayer", "Paste Into New Layer", "Edit", () => OnPasteIntoNewLayer(this, empty), CtrlShift(Key.V), suppressInTextInput: true);
         Add("edit.pasteIntoNewImage", "Paste Into New Image", "Edit", () => OnPasteIntoNewImage(this, empty), CtrlAlt(Key.V), suppressInTextInput: true);
 
@@ -768,8 +772,11 @@ public partial class MainView : UserControl
         foreach (var panel in _panels.Panels)
         {
             var id = panel.Id;
+            // The custom dock is meant to be summonable on demand, so it ships with a default
+            // key combo out of the box rather than requiring the user to bind one by hand.
+            var gesture = id == "Dock" ? Ctrl(Key.OemTilde) : null;
             Add($"panel.toggle.{id}", $"Toggle {panel.Title} Panel", "Panels",
-                () => _panels.ToggleVisible(id), icon: panel.IconName);
+                () => _panels.ToggleVisible(id), gesture, icon: panel.IconName);
             Add($"panel.float.{id}", $"Float {panel.Title} Panel", "Panels",
                 () => _panels.ToggleFloat(id));
         }
@@ -784,7 +791,8 @@ public partial class MainView : UserControl
         })
         {
             string toolTag = tag;
-            Add($"tool.{toolTag}", label, "Tools", () => SelectTool(toolTag), Bare(key), suppressInTextInput: true);
+            Add($"tool.{toolTag}", label, "Tools", () => SelectTool(toolTag), Bare(key),
+                suppressInTextInput: true, icon: toolTag);
         }
 
         // One key cycles the three selection tools, as in Paint.NET.
@@ -878,6 +886,20 @@ public partial class MainView : UserControl
             MinWidth = 180,
             MinHeight = 200
         });
+        _panels.Register(new PanelDescriptor("Dock", "Dock", DockBorder)
+        {
+            IconName = "PanelDock",
+            DockedChrome = new Control[] { DockHeader },
+            // Hidden until summoned (key combo / top-right icon); WorkspaceLayout.For then makes
+            // its first appearance Floating rather than docked to a side — see spec: "summoned...
+            // floating window by default".
+            DefaultPlace = PanelPlace.Hidden,
+            DefaultDockSize = 220,
+            DefaultFloatX = 400,
+            DefaultFloatY = 300,
+            MinWidth = 160,
+            MinHeight = 100
+        });
 
         _panels.LayoutChanged += (_, _) =>
         {
@@ -927,12 +949,14 @@ public partial class MainView : UserControl
         ToggleColorWheel.IsChecked = _panels.IsVisible("ColorWheel");
         ToggleLayers.IsChecked = _panels.IsVisible("Layers");
         ToggleHistory.IsChecked = _panels.IsVisible("History");
+        ToggleDock.IsChecked = _panels.IsVisible("Dock");
 
         RefreshFloatButton(FloatToolsBtn, "Tools");
         RefreshFloatButton(FloatColorsBtn, "Colors");
         RefreshFloatButton(FloatColorWheelBtn, "ColorWheel");
         RefreshFloatButton(FloatLayersBtn, "Layers");
         RefreshFloatButton(FloatHistoryBtn, "History");
+        RefreshFloatButton(FloatDockBtn, "Dock");
     }
 
     private void RefreshFloatButton(ToggleButton btn, string id)
@@ -1008,6 +1032,101 @@ public partial class MainView : UserControl
         workspace.ShowRulers = !workspace.ShowRulers;
         ApplyRulerVisibility(workspace.ShowRulers);
         _settings.Save();
+    }
+
+    // ---- customizable dock ----------------------------------------------------
+    //
+    // A user-assembled strip of command buttons and palette-color swatches, stored as plain
+    // strings in WorkspaceSettings.DockCommands (see DockEntry for the encoding) so the dock
+    // rides along with everything else settings already persists and, later, syncs.
+
+    private void RebuildCustomDock()
+    {
+        DockContent.Children.Clear();
+        var pinned = _settings.Settings.Workspace.DockCommands;
+
+        if (pinned.Count == 0)
+        {
+            DockContent.Children.Add(new TextBlock
+            {
+                Text = "Empty — click the gear to add tools or colors.",
+                Foreground = Brushes.Gray,
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                Width = 190
+            });
+            return;
+        }
+
+        foreach (string raw in pinned)
+        {
+            var entry = DockEntry.Parse(raw);
+            Control control = entry.Kind == DockEntryKind.Color
+                ? BuildDockColorButton(entry.Value)
+                : BuildDockCommandButton(entry.Value);
+            DockContent.Children.Add(control);
+        }
+    }
+
+    private Button BuildDockCommandButton(string commandId)
+    {
+        var command = _commands.Find(commandId);
+        var btn = new Button { Width = 32, Height = 32, Margin = new Thickness(2), Padding = new Thickness(2) };
+
+        if (command is null)
+        {
+            // The command was removed (e.g. a stale entry from an older build) — keep the slot
+            // visible but inert rather than silently dropping it, so the user can see and remove it.
+            btn.Content = "?";
+            btn.IsEnabled = false;
+            ToolTip.SetTip(btn, commandId + " (unknown command)");
+            return btn;
+        }
+
+        btn.Content = command.IconName is not null ? Icons.Create(command.IconName, 16) : new TextBlock
+        {
+            Text = command.Label.Length > 0 ? command.Label[..1] : "?",
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        ToolTip.SetTip(btn, command.Label);
+        btn.Click += (_, _) => _commands.Execute(commandId);
+        return btn;
+    }
+
+    private Button BuildDockColorButton(string hex)
+    {
+        byte r = Convert.ToByte(hex.Substring(1, 2), 16);
+        byte g = Convert.ToByte(hex.Substring(3, 2), 16);
+        byte b = Convert.ToByte(hex.Substring(5, 2), 16);
+        var color = ColorBgra.FromBgra(b, g, r, 255);
+
+        var btn = new Button
+        {
+            Width = 32,
+            Height = 32,
+            Margin = new Thickness(2),
+            Padding = new Thickness(0),
+            Background = new SolidColorBrush(Color.FromArgb(color.A, color.R, color.G, color.B)),
+            Classes = { "swatch" }
+        };
+        ToolTip.SetTip(btn, hex);
+        btn.Click += (_, _) => SetForeground(color);
+        return btn;
+    }
+
+    private async void OnCustomizeDock(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (OwnerWindow is not { } owner)
+        {
+            StatusText.Text = "Dock customization isn't available in the browser build yet";
+            return;
+        }
+
+        var dlg = new DockEditorDialog(_commands.All, _palette.Colors, _settings.Settings.Workspace.DockCommands);
+        if (!await dlg.ShowDialog<bool>(owner)) return;
+
+        _settings.Settings.Workspace.DockCommands = dlg.ResultEntries.ToList();
+        _settings.Save();
+        RebuildCustomDock();
     }
 
     private void OnResetLayout(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

@@ -35,6 +35,7 @@ public static class Icons
         ["PanelColorWheel"] = ("M12 4 a8 8 0 1 0 0.1 0 Z M12 4 L12 20 M4 12 L20 12", false),
         ["PanelLayers"]     = ("M12 3 L20 8 L12 13 L4 8 Z M4 12 L12 17 L20 12 M4 16 L12 21 L20 16", false),
         ["PanelHistory"]    = ("M12 4 a8 8 0 1 1-6.9 4 M5 3 L5 8 L10 8 M12 8 L12 12 L15 14", false),
+        ["PanelDock"]       = ("M4 4 L20 4 L20 20 L4 20 Z M4 9 L20 9 M8 9 L8 20", false),
 
         // Per-panel float/dock toggle.
         ["Float"] = ("M4 10 L4 20 L14 20 L14 14 M9 15 L20 4 M13 4 L20 4 L20 11", false),
@@ -94,6 +95,7 @@ public static class Icons
         ["Cut"]         = ("M9 9 L20 20 M20 9 L14 15 M9.5 14.5 L4 20 M6.5 6.5 a2.5 2.5 0 1 0 0.05 0 Z M6.5 17.5 a2.5 2.5 0 1 0 0.05 0 Z M9 9 L6.9 8 M9.5 14.5 L6.9 15.5", false),
         ["Paste"]       = ("M9 4 L15 4 L15 6 L9 6 Z M6 6 L18 6 L18 21 L6 21 Z M9 11 L15 11 M9 15 L15 15", false),
         ["Trash"]       = ("M5 7 L19 7 M9 7 L9 4 L15 4 L15 7 M7 7 L7 20 L17 20 L17 7 M10 10 L10 17 M14 10 L14 17", false),
+        ["Settings"]    = ("M12 8 a4 4 0 1 0 0.1 0 Z M12 2 L12 5 M12 19 L12 22 M2 12 L5 12 M19 12 L22 12 M4.9 4.9 L7 7 M17 17 L19.1 19.1 M19.1 4.9 L17 7 M7 17 L4.9 19.1", false),
         ["MergeDown"]   = ("M8 4 L8 10 L12 14 L16 10 L16 4 M12 14 L12 20", false),
         ["ChevronUp"]   = ("M6 15 L12 9 L18 15", false),
         ["ChevronDown"] = ("M6 9 L12 15 L18 9", false),

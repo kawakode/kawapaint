@@ -34,6 +34,13 @@ public sealed class AppCommand
     /// <summary>Shipped default. The user's override lives in <see cref="WorkspaceSettings.KeyBindings"/>.</summary>
     public KeyGesture? DefaultGesture { get; init; }
 
+    /// <summary>
+    /// A second shortcut some keyboards/muscle-memory expect for the same action (Redo's Ctrl+Y
+    /// alongside Ctrl+Shift+Z). Kept separate from DefaultGesture rather than as its own command,
+    /// so the command palette and dock picker show this action exactly once.
+    /// </summary>
+    public KeyGesture? AlternateGesture { get; init; }
+
     /// <summary>Longer text for tooltips; falls back to the label.</summary>
     public string? Description { get; init; }
 

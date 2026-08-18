@@ -133,6 +133,14 @@
                         <MenuItem Header="Floating" Tag="History:Floating" Click="OnPanelPlace" />
                         <MenuItem Header="Hidden" Tag="History:Hidden" Click="OnPanelPlace" />
                     </MenuItem>
+                    <MenuItem Header="Dock">
+                        <MenuItem Header="Left" Tag="Dock:Left" Click="OnPanelPlace" />
+                        <MenuItem Header="Right" Tag="Dock:Right" Click="OnPanelPlace" />
+                        <MenuItem Header="Top" Tag="Dock:Top" Click="OnPanelPlace" />
+                        <MenuItem Header="Bottom" Tag="Dock:Bottom" Click="OnPanelPlace" />
+                        <MenuItem Header="Floating   (Ctrl `)" Tag="Dock:Floating" Click="OnPanelPlace" />
+                        <MenuItem Header="Hidden" Tag="Dock:Hidden" Click="OnPanelPlace" />
+                    </MenuItem>
                     <Separator />
                     <MenuItem Header="Reset Layout" Click="OnResetLayout" />
                 </MenuItem>
@@ -194,6 +202,8 @@
                           ToolTip.Tip="Show/hide the Layers panel" />
             <ToggleButton x:Name="ToggleHistory" Classes="paneltoggle" Tag="History" Click="OnPanelToggle"
                           ToolTip.Tip="Show/hide the History panel" />
+            <ToggleButton x:Name="ToggleDock" Classes="paneltoggle" Tag="Dock" Click="OnPanelToggle"
+                          ToolTip.Tip="Show/hide the custom dock" />
         </StackPanel>
         </Grid>
         <Border DockPanel.Dock="Top" Background="#282828" Padding="8,5">
@@ -414,6 +424,21 @@
                     </StackPanel>
                 </Button>
                 <ListBox x:Name="HistoryList" Background="#1E1E1E" SelectionChanged="OnHistorySelected" />
+            </DockPanel>
+        </Border>
+
+        <!-- Custom dock: a user-assembled strip of tools/colors, floating by default. -->
+        <Border x:Name="DockBorder" DockPanel.Dock="Right" Width="220" Background="#262626" BorderBrush="#404040" BorderThickness="1,0,0,0">
+            <DockPanel Margin="6">
+                <Grid x:Name="DockHeader" DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto,Auto" Margin="2,2,2,6">
+                    <TextBlock Text="Dock" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Content="{app:Icon Settings}" Padding="4,0" Click="OnCustomizeDock"
+                            ToolTip.Tip="Customize dock contents" />
+                    <ToggleButton x:Name="FloatDockBtn" Grid.Column="2" Padding="4,0" Tag="Dock" Click="OnPanelFloatToggle" />
+                    <Button Grid.Column="3" Content="{app:Icon Close}" Padding="4,0" Tag="Dock:Hidden" Click="OnPanelPlace"
+                            ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                </Grid>
+                <WrapPanel x:Name="DockContent" Orientation="Horizontal" />
             </DockPanel>
         </Border>
 

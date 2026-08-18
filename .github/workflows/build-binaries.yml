@@ -3,11 +3,7 @@ name: Build Binaries
 on:
   workflow_dispatch:
   push:
-    branches: [ "master" ]
-    # Publish semver tags as releases.
-    tags: [ '*.*.*' ]
-  pull_request:
-    branches: [ "master" ]
+    tags: '*'
 
 jobs:
   build:

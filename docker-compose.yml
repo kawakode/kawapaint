@@ -1,7 +1,5 @@
 services:
   web:
-    build:
-      context: .
-      dockerfile: web/Dockerfile
+    image: ghcr.io/kawakode/kawapaint:latest
     ports:
       - "8080:80"

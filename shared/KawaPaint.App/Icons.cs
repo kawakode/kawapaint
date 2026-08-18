@@ -64,6 +64,7 @@ public static class Icons
 
         // Image menu.
         ["Resize"]    = ("M4 4 L20 4 L20 20 L4 20 Z M9 15 L15 9 M9 15 L9 11 M9 15 L13 15 M15 9 L15 13 M15 9 L11 9", false),
+        ["CanvasSize"] = ("M3 3 L21 3 L21 21 L3 21 Z M8 8 L16 8 L16 16 L8 16 Z", false),
         ["Crop"]      = ("M6 2 L6 18 L22 18 M2 6 L18 6 L18 22", false),
         ["FlipH"]     = ("M12 3 L12 21 M4 12 L8 8 L8 16 Z M20 12 L16 8 L16 16 Z", false),
         ["FlipV"]     = ("M3 12 L21 12 M12 4 L8 8 L16 8 Z M12 20 L8 16 L16 16 Z", false),

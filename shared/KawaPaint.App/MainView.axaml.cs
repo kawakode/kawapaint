@@ -520,6 +520,28 @@ public partial class MainView : UserControl
         }
     }
 
+    private async void OnCanvasSize(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document;
+        if (doc is null) return;
+        if (OwnerWindow is not { } owner)
+        {
+            // TODO(web): Canvas Size needs a dialog for the target size/anchor; not available in
+            // the browser build yet.
+            StatusText.Text = "Canvas Size isn't available in the browser build yet";
+            return;
+        }
+        var dlg = new CanvasSizeDialog(doc.Width, doc.Height);
+        if (await dlg.ShowDialog<bool>(owner))
+        {
+            int w = dlg.ResultWidth, h = dlg.ResultHeight;
+            if (w == doc.Width && h == doc.Height) return;
+            var anchor = dlg.ResultAnchor;
+            ApplyDocumentOp("Canvas Size", d => DocumentOps.ResizeCanvas(d, w, h, anchor));
+            StatusText.Text = $"Canvas resized to {w}×{h}";
+        }
+    }
+
     private void OnCropToSelection(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         var doc = Canvas.Document;
@@ -709,6 +731,8 @@ public partial class MainView : UserControl
         Add("select.all", "Select All", "Select", () => OnSelectAll(this, empty), Ctrl(Key.A), suppressInTextInput: true);
         Add("select.none", "Deselect", "Select", () => OnSelectNone(this, empty), Ctrl(Key.D));
         Add("select.invert", "Invert Selection", "Select", () => OnInvertSelection(this, empty), Ctrl(Key.I));
+        Add("select.fill", "Fill Selection", "Select", () => OnFillSelection(this, empty), Ctrl(Key.F));
+        Add("select.erase", "Erase Selection", "Select", () => OnEraseSelection(this, empty), Bare(Key.Delete), suppressInTextInput: true);
 
         // View
         Add("view.zoomIn", "Zoom In", "View", () => Canvas.ZoomIn(), Ctrl(Key.OemPlus));
@@ -1910,6 +1934,58 @@ public partial class MainView : UserControl
         Canvas.SetDocument(doc);
         SetClean(null);
         StatusText.Text = $"New {pasted.Width}×{pasted.Height} document from clipboard";
+    }
+
+    private void OnFillSelection(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document;
+        var layer = Canvas.ActiveLayer;
+        if (doc is null || layer is null) return;
+
+        var (x, y, w, h) = SelectionOrCanvasBounds(doc);
+        if (w <= 0 || h <= 0) return;
+
+        var snapshot = layer.Surface.Clone();
+        var selection = Canvas.Selection;
+        unsafe
+        {
+            for (int ry = 0; ry < h; ry++)
+            {
+                var row = (ColorBgra*)layer.Surface.GetRowPointer(y + ry);
+                for (int rx = 0; rx < w; rx++)
+                    if (selection is not { IsActive: true } sel || sel.IsSelected(x + rx, y + ry))
+                        row[x + rx] = Canvas.BrushColor;
+            }
+        }
+        Canvas.History.Push(TileDeltaMemento.Consume(layer, snapshot, "Fill Selection"));
+        RefreshDocument();
+        StatusText.Text = "Filled";
+    }
+
+    private void OnEraseSelection(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document;
+        var layer = Canvas.ActiveLayer;
+        if (doc is null || layer is null) return;
+
+        var (x, y, w, h) = SelectionOrCanvasBounds(doc);
+        if (w <= 0 || h <= 0) return;
+
+        var snapshot = layer.Surface.Clone();
+        var selection = Canvas.Selection;
+        unsafe
+        {
+            for (int ry = 0; ry < h; ry++)
+            {
+                var row = (ColorBgra*)layer.Surface.GetRowPointer(y + ry);
+                for (int rx = 0; rx < w; rx++)
+                    if (selection is not { IsActive: true } sel || sel.IsSelected(x + rx, y + ry))
+                        row[x + rx] = ColorBgra.Transparent;
+            }
+        }
+        Canvas.History.Push(TileDeltaMemento.Consume(layer, snapshot, "Erase Selection"));
+        RefreshDocument();
+        StatusText.Text = "Erased";
     }
 
     private void OnAddLayer(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

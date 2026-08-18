@@ -70,6 +70,9 @@
                 <MenuItem Header="Select _All" Click="OnSelectAll" InputGesture="Ctrl+A" Icon="{app:Icon SelectAll}" />
                 <MenuItem Header="_Invert" Click="OnInvertSelection" InputGesture="Ctrl+I" Icon="{app:Icon InvertSel}" />
                 <MenuItem Header="Deselect (Select _None)" Click="OnSelectNone" InputGesture="Ctrl+D" Icon="{app:Icon Deselect}" />
+                <Separator />
+                <MenuItem Header="_Fill Selection" Click="OnFillSelection" InputGesture="Ctrl+F" Icon="{app:Icon Fill}" />
+                <MenuItem Header="_Erase Selection" Click="OnEraseSelection" InputGesture="Delete" Icon="{app:Icon Trash}" />
             </MenuItem>
             <MenuItem Header="_View" Classes="topbar">
                 <!-- These are spelled into the header rather than set as an InputGesture: a
@@ -133,6 +136,7 @@
             </MenuItem>
             <MenuItem Header="_Image" Classes="topbar">
                 <MenuItem Header="_Resize…" Click="OnResize" Icon="{app:Icon Resize}" />
+                <MenuItem Header="_Canvas Size…" Click="OnCanvasSize" Icon="{app:Icon CanvasSize}" />
                 <MenuItem Header="_Crop to Selection" Click="OnCropToSelection" Icon="{app:Icon Crop}" />
                 <Separator />
                 <MenuItem Header="Flip _Horizontal" Click="OnFlipH" Icon="{app:Icon FlipH}" />

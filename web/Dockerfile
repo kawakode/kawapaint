@@ -5,6 +5,13 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
+# Emscripten (used to compile the WASM native runtime) shells out to python3, which the base
+# SDK image doesn't include.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
+    && rm -rf /var/lib/apt/lists/*
+
 # Restore from just the project files first, so this (slow) layer only re-runs when a .csproj
 # actually changes, not on every source edit.
 COPY shared/KawaPaint.Engine/KawaPaint.Engine.csproj shared/KawaPaint.Engine/

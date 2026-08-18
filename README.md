@@ -1,5 +1,5 @@
-KawaPaint
-=========
+# KawaPaint
+## Multiplatform PDN compatible image editor
 
 A modern, cross-platform rewrite of Paint.NET 3.36 (the last MIT-licensed release — see
 [FORK.TXT](FORK.TXT)), built on a shared C#/SkiaSharp engine and an Avalonia UI.

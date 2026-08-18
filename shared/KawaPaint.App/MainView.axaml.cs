@@ -11,6 +11,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using KawaPaint.App.Core;
 using KawaPaint.Engine;
 using KawaPaint.Engine.Codecs;
@@ -74,7 +75,12 @@ public partial class MainView : UserControl
         InitializeComponent();
 
         BlendCombo.ItemsSource = Enum.GetValues<BlendMode>();
-        Canvas.DocumentChanged += (_, _) => RebuildLayerPanel();
+        // Posted rather than called inline: DocumentChanged can fire from inside LayerList's own
+        // SelectionChanged dispatch (a row click -> OnLayerSelected -> SetActiveLayer ->
+        // DocumentChanged), and RebuildLayerPanel's Items.Clear() reentering that same dispatch
+        // crashes Avalonia's SelectionModel (ArgumentOutOfRangeException deep in its internals).
+        // Posting lets the click's own dispatch finish first.
+        Canvas.DocumentChanged += (_, _) => Dispatcher.UIThread.Post(RebuildLayerPanel);
         Canvas.PrimaryColorPicked += OnColorPicked;
         Canvas.TextRequested += OnTextRequested;
         Canvas.ZoomChanged += z => { if (ZoomText is not null) ZoomText.Text = $"{z * 100:0}%"; };
@@ -133,7 +139,13 @@ public partial class MainView : UserControl
         RefreshSwatches();
         LoadDemoDocument();
         Canvas.History.Changed += (_, _) => MarkDirty();
-        Canvas.History.Changed += (_, _) => RebuildHistoryPanel();
+        // Posted rather than called inline: History.Changed can fire from inside HistoryList's
+        // own SelectionChanged dispatch (a row click -> OnHistorySelected -> JumpToHistory ->
+        // History.Changed), and RebuildHistoryPanel's Items.Clear() reentering that same dispatch
+        // crashes Avalonia's SelectionModel (ArgumentOutOfRangeException deep in its internals —
+        // reproduced and confirmed via a live repro before this fix). Posting lets the click's
+        // own dispatch finish first. See the identical DocumentChanged/RebuildLayerPanel fix above.
+        Canvas.History.Changed += (_, _) => Dispatcher.UIThread.Post(RebuildHistoryPanel);
         RebuildHistoryPanel();
         RebuildCustomDock();
         SetClean(null);

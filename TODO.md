@@ -4,6 +4,26 @@ Status snapshot: 2026-08-18, branch `master`. Full roadmap/rationale lives in Cl
 (`feature-roadmap-tiers`) and the published plan:
 https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
 
+## Known bugs
+
+- **~~Crash on clicking in the History panel~~ — fixed 2026-08-19.** Root cause: a row click
+  (`OnHistorySelected` → `JumpToHistory` → `HistoryStack.JumpTo` → `History.Changed`) called
+  `RebuildHistoryPanel()` synchronously, which does `HistoryList.Items.Clear()` — reentering the
+  *same* `ListBox`'s own `SelectionChanged` dispatch, still on the same call stack as the click.
+  Avalonia's `SelectionModel` is mid-iteration at that point and throws
+  `ArgumentOutOfRangeException` deep in its internals (`SelectionModel.OnSelectionRemoved` →
+  `SelectedItems.GetEnumerator`). Reproduced live before fixing (temporary debug hook that
+  simulated the click, confirmed the exact exception + stack) — not a guess.
+  **Same bug also existed in the Layers panel** (row click → `SetActiveLayer` → `DocumentChanged`
+  → `RebuildLayerPanel` → `Items.Clear()`, identical shape) — previously undiscovered, found while
+  investigating this one, and fixed the same way. Fix: both `Canvas.History.Changed` and
+  `Canvas.DocumentChanged` subscriptions in `MainView`'s constructor now
+  `Dispatcher.UIThread.Post(...)` the rebuild instead of calling it inline, so it runs after the
+  originating click's own dispatch has finished. Verified: re-ran the same repro post-fix (history
+  row click on a genuinely populated list, and a layer row click) — both jump/select correctly
+  with no exception, and a screenshot confirms the Layers panel visually reflects the new
+  selection. Not yet committed — do that before anything else if resuming here.
+
 ## Done
 
 **Tier 0 (foundations):** `shared/KawaPaint.App/Core/` — `SettingsService`/`AppSettings`

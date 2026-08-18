@@ -105,6 +105,14 @@
                         <MenuItem Header="Floating" Tag="Layers:Floating" Click="OnPanelPlace" />
                         <MenuItem Header="Hidden" Tag="Layers:Hidden" Click="OnPanelPlace" />
                     </MenuItem>
+                    <MenuItem Header="History">
+                        <MenuItem Header="Left" Tag="History:Left" Click="OnPanelPlace" />
+                        <MenuItem Header="Right" Tag="History:Right" Click="OnPanelPlace" />
+                        <MenuItem Header="Top" Tag="History:Top" Click="OnPanelPlace" />
+                        <MenuItem Header="Bottom" Tag="History:Bottom" Click="OnPanelPlace" />
+                        <MenuItem Header="Floating" Tag="History:Floating" Click="OnPanelPlace" />
+                        <MenuItem Header="Hidden" Tag="History:Hidden" Click="OnPanelPlace" />
+                    </MenuItem>
                     <Separator />
                     <MenuItem Header="Reset Layout" Click="OnResetLayout" />
                 </MenuItem>
@@ -163,6 +171,8 @@
                           ToolTip.Tip="Show/hide the Color Wheel panel" />
             <ToggleButton x:Name="ToggleLayers" Classes="paneltoggle" Tag="Layers" Click="OnPanelToggle"
                           ToolTip.Tip="Show/hide the Layers panel" />
+            <ToggleButton x:Name="ToggleHistory" Classes="paneltoggle" Tag="History" Click="OnPanelToggle"
+                          ToolTip.Tip="Show/hide the History panel" />
         </StackPanel>
         </Grid>
         <Border DockPanel.Dock="Top" Background="#282828" Padding="8,5">
@@ -347,6 +357,28 @@
                 </StackPanel>
                 <ListBox x:Name="LayerList" Background="#1E1E1E"
                          SelectionChanged="OnLayerSelected" />
+            </DockPanel>
+        </Border>
+
+        <!-- History panel -->
+        <Border x:Name="HistoryBorder" DockPanel.Dock="Right" Width="220" Background="#262626" BorderBrush="#404040" BorderThickness="1,0,0,0">
+            <DockPanel Margin="6">
+                <Grid x:Name="HistoryHeader" DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="2,2,2,6">
+                    <TextBlock Text="History" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
+                    <ToggleButton x:Name="FloatHistoryBtn" Grid.Column="1" Padding="4,0" Tag="History" Click="OnPanelFloatToggle" />
+                    <Button Grid.Column="2" Content="{app:Icon Close}" Padding="4,0" Tag="History:Hidden" Click="OnPanelPlace"
+                            ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                </Grid>
+                <TextBlock x:Name="HistoryUsageText" DockPanel.Dock="Bottom" Foreground="#808080" FontSize="11"
+                           Margin="2,6,2,2" Text="0 steps" />
+                <Button x:Name="ClearHistoryBtn" DockPanel.Dock="Bottom" HorizontalAlignment="Stretch" Margin="0,6,0,0"
+                        Click="OnClearHistory" ToolTip.Tip="Discard the entire undo history">
+                    <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+                        <ContentControl Content="{app:Icon Trash}" />
+                        <TextBlock Text="Clear History" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <ListBox x:Name="HistoryList" Background="#1E1E1E" SelectionChanged="OnHistorySelected" />
             </DockPanel>
         </Border>
 

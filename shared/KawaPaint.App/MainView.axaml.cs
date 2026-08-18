@@ -19,6 +19,7 @@ namespace KawaPaint.App;
 public partial class MainView : UserControl
 {
     private bool _suppress;   // guards programmatic updates to layer-panel controls
+    private bool _suppressHistory;   // guards programmatic updates to the History panel's selection
     private byte? _opacityBefore;
     private Layer? _dragLayer;     // row being dragged, null when no drag is in flight
     private int _dragFromIndex;    // its index at pointer-down, for a single undo entry
@@ -102,11 +103,13 @@ public partial class MainView : UserControl
         ToggleColors.Content = Icons.Create("PanelColors", 15);
         ToggleColorWheel.Content = Icons.Create("PanelColorWheel", 15);
         ToggleLayers.Content = Icons.Create("PanelLayers", 15);
+        ToggleHistory.Content = Icons.Create("PanelHistory", 15);
 
         FloatToolsBtn.Content = Icons.Create("Float", 13);
         FloatColorsBtn.Content = Icons.Create("Float", 13);
         FloatColorWheelBtn.Content = Icons.Create("Float", 13);
         FloatLayersBtn.Content = Icons.Create("Float", 13);
+        FloatHistoryBtn.Content = Icons.Create("Float", 13);
 
         // handledEventsToo: ComboBox has its own built-in wheel behavior; this guarantees our step
         // logic always runs and has the final say over the box's value.
@@ -125,6 +128,8 @@ public partial class MainView : UserControl
         RefreshSwatches();
         LoadDemoDocument();
         Canvas.History.Changed += (_, _) => MarkDirty();
+        Canvas.History.Changed += (_, _) => RebuildHistoryPanel();
+        RebuildHistoryPanel();
         SetClean(null);
         SelectTool("Pencil");
 
@@ -805,6 +810,17 @@ public partial class MainView : UserControl
             MinWidth = 180,
             MinHeight = 200
         });
+        _panels.Register(new PanelDescriptor("History", "History", HistoryBorder)
+        {
+            IconName = "PanelHistory",
+            DockedChrome = new Control[] { HistoryHeader },
+            DefaultPlace = PanelPlace.Hidden,
+            DefaultDockSize = 220,
+            DefaultFloatX = 940,
+            DefaultFloatY = 60,
+            MinWidth = 180,
+            MinHeight = 200
+        });
 
         _panels.LayoutChanged += (_, _) =>
         {
@@ -853,11 +869,13 @@ public partial class MainView : UserControl
         ToggleColors.IsChecked = _panels.IsVisible("Colors");
         ToggleColorWheel.IsChecked = _panels.IsVisible("ColorWheel");
         ToggleLayers.IsChecked = _panels.IsVisible("Layers");
+        ToggleHistory.IsChecked = _panels.IsVisible("History");
 
         RefreshFloatButton(FloatToolsBtn, "Tools");
         RefreshFloatButton(FloatColorsBtn, "Colors");
         RefreshFloatButton(FloatColorWheelBtn, "ColorWheel");
         RefreshFloatButton(FloatLayersBtn, "Layers");
+        RefreshFloatButton(FloatHistoryBtn, "History");
     }
 
     private void RefreshFloatButton(ToggleButton btn, string id)
@@ -1562,6 +1580,52 @@ public partial class MainView : UserControl
                 System.Buffer.MemoryCopy(small.GetRowPointer(y), dst + (long)y * fb.RowBytes, fb.RowBytes, rowBytes);
         }
         return wb;
+    }
+
+    // ---- history panel ------------------------------------------------------
+    //
+    // A registered panel like Tools or Layers (see BuildPanelManager). Row 0 is a synthetic
+    // "Start" entry for position 0 (nothing applied yet) — HistoryStack.Steps() only enumerates
+    // actual edits, but the empty state is a valid, clickable position too.
+
+    private void RebuildHistoryPanel()
+    {
+        var history = Canvas.History;
+        _suppressHistory = true;
+
+        HistoryList.Items.Clear();
+
+        var start = new ListBoxItem { Content = "Start", Tag = 0 };
+        HistoryList.Items.Add(start);
+
+        foreach (var step in history.Steps())
+        {
+            var item = new ListBoxItem { Content = $"{step.Index + 1}. {step.Name}", Tag = step.Index + 1 };
+            if (!step.IsApplied) item.Opacity = 0.45;   // redoable but not currently applied
+            HistoryList.Items.Add(item);
+        }
+
+        HistoryList.SelectedIndex = history.Position;
+        if (HistoryList.SelectedItem is { } selected) HistoryList.ScrollIntoView(selected);
+
+        double residentMb = history.ResidentBytes / (1024.0 * 1024.0);
+        HistoryUsageText.Text = history.Count == 1
+            ? $"1 step · {residentMb:0.#} MB"
+            : $"{history.Count} steps · {residentMb:0.#} MB";
+
+        _suppressHistory = false;
+    }
+
+    private void OnHistorySelected(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressHistory) return;
+        if (HistoryList.SelectedItem is ListBoxItem { Tag: int position }) Canvas.JumpToHistory(position);
+    }
+
+    private void OnClearHistory(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Canvas.ClearHistory();
+        StatusText.Text = "History cleared";
     }
 
     private void OnLayerSelected(object? sender, SelectionChangedEventArgs e)

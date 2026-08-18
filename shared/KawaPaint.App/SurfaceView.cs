@@ -187,6 +187,29 @@ public sealed class SurfaceView : Control
         AfterHistoryChange();
     }
 
+    /// <summary>Moves the undo caret directly to a position — what clicking a History panel row does.</summary>
+    public void JumpToHistory(int position)
+    {
+        History.JumpTo(position);
+        AfterHistoryChange();
+    }
+
+    /// <summary>
+    /// Drops a step and everything after it (see HistoryStack.TruncateFrom for why this can't be
+    /// a single arbitrary item instead).
+    /// </summary>
+    public void TruncateHistoryFrom(int index)
+    {
+        History.TruncateFrom(index);
+        AfterHistoryChange();
+    }
+
+    public void ClearHistory()
+    {
+        History.Clear();
+        AfterHistoryChange();
+    }
+
     private void AfterHistoryChange()
     {
         // A structural memento may have added/removed/reordered layers, so re-sync the

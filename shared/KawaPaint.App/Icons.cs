@@ -33,6 +33,7 @@ public static class Icons
         ["PanelColors"]     = ("M12 3 C12 3 6 10.5 6 14.5 a6 6 0 0 0 12 0 C18 10.5 12 3 12 3 Z", false),
         ["PanelColorWheel"] = ("M12 4 a8 8 0 1 0 0.1 0 Z M12 4 L12 20 M4 12 L20 12", false),
         ["PanelLayers"]     = ("M12 3 L20 8 L12 13 L4 8 Z M4 12 L12 17 L20 12 M4 16 L12 21 L20 16", false),
+        ["PanelHistory"]    = ("M12 4 a8 8 0 1 1-6.9 4 M5 3 L5 8 L10 8 M12 8 L12 12 L15 14", false),
 
         // Per-panel float/dock toggle.
         ["Float"] = ("M4 10 L4 20 L14 20 L14 14 M9 15 L20 4 M13 4 L20 4 L20 11", false),

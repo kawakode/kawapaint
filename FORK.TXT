@@ -8,7 +8,7 @@ The main author of this great piece of software, Rick Brewster, decided
 to change the licence for all further releases of Paint.NET [1] making 
 this version the last one to licensed under MIT Licence (with exceptions 
 for Artwork and the GPC library, limiting the whole software to 
-non-commercial distribution, see src/Resources/Files/License.txt).
+non-commercial distribution, see Resources/Files/License.txt on the 3.36pdn branch).
 Any further releases include the restrictive clause
 "You may not modify, adapt, rent, lease, loan, sell, or create 
 derivative works based upon the Software or any part thereof."

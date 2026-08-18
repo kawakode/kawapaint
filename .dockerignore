@@ -1,0 +1,6 @@
+**/bin/
+**/obj/
+.git/
+shared/KawaPaint.Sandbox/
+win/
+linux/

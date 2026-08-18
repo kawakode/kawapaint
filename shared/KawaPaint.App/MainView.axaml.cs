@@ -746,6 +746,7 @@ public partial class MainView : UserControl
         {
             "RectSel" => "EllipseSel",
             "EllipseSel" => "Lasso",
+            "Lasso" => "Wand",
             _ => "RectSel"
         }), Bare(Key.S), suppressInTextInput: true);
 
@@ -1274,7 +1275,8 @@ public partial class MainView : UserControl
         ("Pick", "Color Picker", "K"), ("Line", "Line", "L"), ("Rect", "Rectangle", "R"),
         ("Ellipse", "Ellipse", "O"), ("Gradient", "Gradient", "G"), ("Text", "Text", "T"),
         ("Move", "Move", "M"), ("RectSel", "Rectangle Select", "S"),
-        ("EllipseSel", "Ellipse Select", "S S"), ("Lasso", "Lasso Select", "S S S")
+        ("EllipseSel", "Ellipse Select", "S S"), ("Lasso", "Lasso Select", "S S S"),
+        ("Wand", "Magic Wand", "S S S S")
     };
 
     private readonly System.Collections.Generic.List<ToggleButton> _toolButtons = new();
@@ -1320,6 +1322,7 @@ public partial class MainView : UserControl
             "RectSel" => new RectSelectTool(),
             "EllipseSel" => new EllipseSelectTool(),
             "Lasso" => new LassoSelectTool(),
+            "Wand" => new MagicWandTool(),
             _ => new PencilTool()
         };
         Canvas.CurrentTool = tool;
@@ -1333,7 +1336,23 @@ public partial class MainView : UserControl
         SizeGroup.IsEnabled = tag is "Pencil" or "Eraser" or "Line" or "Rect" or "Ellipse";
         ShapeGroup.IsEnabled = tag is "Pencil" or "Line" or "Rect" or "Ellipse";
         FillShapesCheck.IsEnabled = tag is "Rect" or "Ellipse";
-        BucketGroup.IsEnabled = tag == "Fill";
+        BucketGroup.IsEnabled = tag is "Fill" or "Wand";
+        SelectGroup.IsEnabled = tag is "RectSel" or "EllipseSel" or "Lasso" or "Wand";
+    }
+
+    private void OnSelectionCombineMode(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is not ToggleButton { Tag: string tag }) return;
+        if (!Enum.TryParse<SelectionCombineMode>(tag, out var mode)) return;
+
+        Canvas.SelectionCombineMode = mode;
+
+        // These four act as a radio group; Avalonia's ToggleButton has no built-in GroupName
+        // radio behaviour (that's MenuItem-only), so it's kept in sync by hand here.
+        CombineReplaceBtn.IsChecked = mode == SelectionCombineMode.Replace;
+        CombineAddBtn.IsChecked = mode == SelectionCombineMode.Add;
+        CombineSubtractBtn.IsChecked = mode == SelectionCombineMode.Subtract;
+        CombineIntersectBtn.IsChecked = mode == SelectionCombineMode.Intersect;
     }
 
     private void OnKeyDown(object? sender, Avalonia.Input.KeyEventArgs e)

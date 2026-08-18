@@ -68,6 +68,66 @@ public static class FloodFill
         }
     }
 
+    /// <summary>Selects the contiguous region matching the seed pixel (within tolerance) — the
+    /// Magic Wand tool. Shares the scanline walk with <see cref="Fill"/>, marking the selection
+    /// mask instead of writing pixel colors.</summary>
+    public static unsafe void Select(Surface s, int seedX, int seedY, Selection selection, int tolerance = 0)
+    {
+        if ((uint)seedX >= (uint)s.Width || (uint)seedY >= (uint)s.Height) return;
+
+        ColorBgra target = s[seedX, seedY];
+        int w = s.Width, h = s.Height;
+        var visited = new bool[w * h];
+        var stack = new Stack<(int x, int y)>();
+        stack.Push((seedX, seedY));
+
+        while (stack.Count > 0)
+        {
+            var (x, y) = stack.Pop();
+
+            int xl = x;
+            while (xl >= 0 && !visited[y * w + xl] && Match(((ColorBgra*)s.GetRowPointer(y))[xl], target, tolerance))
+                xl--;
+            xl++;
+
+            bool spanAbove = false, spanBelow = false;
+            ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
+
+            for (int xr = xl; xr < w; xr++)
+            {
+                if (visited[y * w + xr] || !Match(row[xr], target, tolerance)) break;
+
+                selection.Select(xr, y);
+                visited[y * w + xr] = true;
+
+                if (y > 0)
+                {
+                    bool m = Match(((ColorBgra*)s.GetRowPointer(y - 1))[xr], target, tolerance) && !visited[(y - 1) * w + xr];
+                    if (m && !spanAbove) { stack.Push((xr, y - 1)); spanAbove = true; }
+                    else if (!m) spanAbove = false;
+                }
+                if (y < h - 1)
+                {
+                    bool m = Match(((ColorBgra*)s.GetRowPointer(y + 1))[xr], target, tolerance) && !visited[(y + 1) * w + xr];
+                    if (m && !spanBelow) { stack.Push((xr, y + 1)); spanBelow = true; }
+                    else if (!m) spanBelow = false;
+                }
+            }
+        }
+    }
+
+    /// <summary>Selects every pixel matching the seed color anywhere on the surface, ignoring contiguity.</summary>
+    public static void SelectGlobal(Surface s, int seedX, int seedY, Selection selection, int tolerance = 0)
+    {
+        if ((uint)seedX >= (uint)s.Width || (uint)seedY >= (uint)s.Height) return;
+        ColorBgra target = s[seedX, seedY];
+
+        for (int y = 0; y < s.Height; y++)
+            for (int x = 0; x < s.Width; x++)
+                if (Match(s[x, y], target, tolerance))
+                    selection.Select(x, y);
+    }
+
     private static bool Match(ColorBgra a, ColorBgra b, int tol)
     {
         if (tol <= 0) return a.Bgra == b.Bgra;

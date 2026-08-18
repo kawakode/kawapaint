@@ -33,6 +33,7 @@ public sealed class ToolContext
     public required Selection Selection { get; init; }
     public required Action SelectionChanged { get; init; }
     public required Action<int, int> RequestText { get; init; }
+    public required SelectionCombineMode CombineMode { get; init; }
 }
 
 public interface ITool
@@ -113,6 +114,29 @@ public sealed class PaintBucketTool : ITool
         else
             FloodFill.Fill(c.Layer.Surface, c.IX, c.IY, c.PrimaryColor, c.FillTolerance);
         c.Composite();
+    }
+
+    public void PointerMove(ToolContext c) { }
+    public void PointerUp(ToolContext c) { }
+}
+
+/// <summary>Selects the contiguous (or, with GlobalFill on, the whole-canvas) region matching the
+/// clicked pixel — reuses the paint bucket's tolerance and global-fill toolbar controls, and
+/// combines with the existing selection the same way the drag-select tools do.</summary>
+public sealed class MagicWandTool : ITool
+{
+    public string Name => "Magic Wand";
+
+    public void PointerDown(ToolContext c)
+    {
+        var shape = new Selection(c.Selection.Width, c.Selection.Height);
+        if (c.GlobalFill)
+            FloodFill.SelectGlobal(c.Layer.Surface, c.IX, c.IY, shape, c.FillTolerance);
+        else
+            FloodFill.Select(c.Layer.Surface, c.IX, c.IY, shape, c.FillTolerance);
+
+        c.Selection.Combine(c.CombineMode, shape);
+        c.SelectionChanged();
     }
 
     public void PointerMove(ToolContext c) { }
@@ -216,25 +240,52 @@ public sealed class EllipseTool : ShapeToolBase
 }
 
 /// <summary>Base for drag-out selection tools (rectangle / ellipse).</summary>
+/// <summary>
+/// Shared drag-to-select behaviour for the rectangle/ellipse tools. A click-and-drag rasterizes
+/// the shape into a scratch selection and combines it with whatever was selected when the drag
+/// started (per ToolContext.CombineMode), so Add/Subtract/Intersect preview live while dragging
+/// instead of only applying once the pointer is released.
+/// </summary>
 public abstract class SelectToolBase : ITool
 {
     private double _sx, _sy;
+    private Selection? _base;    // selection as it was before this drag
+    private Selection? _shape;   // scratch: just the shape being dragged out
     public abstract string Name { get; }
 
-    public void PointerDown(ToolContext c) { _sx = c.X; _sy = c.Y; }
-
-    public void PointerMove(ToolContext c)
+    public void PointerDown(ToolContext c)
     {
-        Select(c.Selection, _sx, _sy, c.X, c.Y);
-        c.SelectionChanged();
+        _sx = c.X;
+        _sy = c.Y;
+        _base = c.Selection.Clone();
+        _shape = new Selection(c.Selection.Width, c.Selection.Height);
     }
+
+    public void PointerMove(ToolContext c) => Apply(c, _sx, _sy, c.X, c.Y);
 
     public void PointerUp(ToolContext c)
     {
-        if (Math.Abs(c.X - _sx) < 1 && Math.Abs(c.Y - _sy) < 1)
-            c.Selection.SelectNone();     // a click clears the selection
-        else
-            Select(c.Selection, _sx, _sy, c.X, c.Y);
+        bool zeroSize = Math.Abs(c.X - _sx) < 1 && Math.Abs(c.Y - _sy) < 1;
+        if (zeroSize && c.CombineMode == SelectionCombineMode.Replace)
+            c.Selection.SelectNone();     // a plain click clears the selection
+        else if (!zeroSize)
+            Apply(c, _sx, _sy, c.X, c.Y);
+        // A zero-size drag in Add/Subtract/Intersect mode changes nothing — leave the base as is.
+
+        c.SelectionChanged();
+        _base = null;
+        _shape = null;
+    }
+
+    private void Apply(ToolContext c, double x0, double y0, double x1, double y1)
+    {
+        if (_base is null || _shape is null) return;
+
+        _shape.SelectNone();
+        Select(_shape, x0, y0, x1, y1);
+
+        c.Selection.CopyFrom(_base);
+        c.Selection.Combine(c.CombineMode, _shape);
         c.SelectionChanged();
     }
 
@@ -255,28 +306,50 @@ public sealed class EllipseSelectTool : SelectToolBase
         => sel.ReplaceWithEllipse(x0, y0, x1, y1);
 }
 
-/// <summary>Freehand lasso selection.</summary>
+/// <summary>Freehand lasso selection. Combines against the pre-drag selection the same way the
+/// rectangle/ellipse tools do (see SelectToolBase).</summary>
 public sealed class LassoSelectTool : ITool
 {
     private readonly List<(double X, double Y)> _points = new();
+    private Selection? _base;
+    private Selection? _shape;
     public string Name => "Lasso Select";
 
-    public void PointerDown(ToolContext c) { _points.Clear(); _points.Add((c.X, c.Y)); }
+    public void PointerDown(ToolContext c)
+    {
+        _points.Clear();
+        _points.Add((c.X, c.Y));
+        _base = c.Selection.Clone();
+        _shape = new Selection(c.Selection.Width, c.Selection.Height);
+    }
 
     public void PointerMove(ToolContext c)
     {
         _points.Add((c.X, c.Y));
-        if (_points.Count >= 3)
-        {
-            c.Selection.ReplaceWithPolygon(_points);
-            c.SelectionChanged();
-        }
+        if (_points.Count >= 3) Apply(c);
     }
 
     public void PointerUp(ToolContext c)
     {
-        if (_points.Count < 3) c.Selection.SelectNone();
-        else c.Selection.ReplaceWithPolygon(_points);
+        if (_points.Count < 3 && c.CombineMode == SelectionCombineMode.Replace)
+            c.Selection.SelectNone();
+        else if (_points.Count >= 3)
+            Apply(c);
+
+        c.SelectionChanged();
+        _base = null;
+        _shape = null;
+    }
+
+    private void Apply(ToolContext c)
+    {
+        if (_base is null || _shape is null) return;
+
+        _shape.SelectNone();
+        _shape.ReplaceWithPolygon(_points);
+
+        c.Selection.CopyFrom(_base);
+        c.Selection.Combine(c.CombineMode, _shape);
         c.SelectionChanged();
     }
 }

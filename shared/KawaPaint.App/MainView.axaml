@@ -232,6 +232,17 @@
                               KeyDown="OnToleranceKeyDown" LostFocus="OnToleranceTextCommit"
                               ToolTip.Tip="How far a pixel's color may differ and still be filled — pick a value or type your own; scroll to nudge it" />
                 </StackPanel>
+                <StackPanel x:Name="SelectGroup" Classes="group">
+                    <TextBlock Text="Selection:" />
+                    <ToggleButton x:Name="CombineReplaceBtn" Content="New" Tag="Replace" Click="OnSelectionCombineMode"
+                                  IsChecked="True" ToolTip.Tip="Replace the current selection (S)" />
+                    <ToggleButton x:Name="CombineAddBtn" Content="+" Tag="Add" Click="OnSelectionCombineMode"
+                                  ToolTip.Tip="Add to the current selection" />
+                    <ToggleButton x:Name="CombineSubtractBtn" Content="−" Tag="Subtract" Click="OnSelectionCombineMode"
+                                  ToolTip.Tip="Subtract from the current selection" />
+                    <ToggleButton x:Name="CombineIntersectBtn" Content="∩" Tag="Intersect" Click="OnSelectionCombineMode"
+                                  ToolTip.Tip="Keep only the overlap with the current selection" />
+                </StackPanel>
             </WrapPanel>
         </Border>
         <Border DockPanel.Dock="Bottom" Background="#202020" Padding="8,3">

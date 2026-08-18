@@ -27,6 +27,7 @@ public static class Icons
         ["RectSel"]    = ("M4 6 L20 6 L20 18 L4 18 Z", false),   // dashed applied via stroke
         ["EllipseSel"] = ("M12 6 a8 6 0 1 0 0.1 0 Z", false),    // dashed
         ["Lasso"]      = ("M6 16 a6 5 0 1 1 8 3 L12 22", false),
+        ["Wand"]       = ("M4 20 L13 11 L16 14 L7 20 M13 11 L16 14 M17 4 L17 7 M17 9 L17 12 M13.5 5.5 L15.5 7.5 M18.5 8.5 L20.5 10.5 M20.5 5.5 L18.5 7.5 M15.5 8.5 L13.5 10.5", false),
 
         // Top-right panel-visibility toggles.
         ["PanelTools"]      = ("M4 4 L10 4 L10 10 L4 10 Z M14 4 L20 4 L20 10 L14 10 Z M4 14 L10 14 L10 20 L4 20 Z M14 14 L20 14 L20 20 L14 20 Z", false),

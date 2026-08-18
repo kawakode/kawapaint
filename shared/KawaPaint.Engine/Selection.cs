@@ -4,6 +4,15 @@
 
 namespace KawaPaint.Engine;
 
+/// <summary>How a newly drawn shape combines with whatever is already selected.</summary>
+public enum SelectionCombineMode
+{
+    Replace,
+    Add,
+    Subtract,
+    Intersect
+}
+
 public sealed class Selection
 {
     private readonly byte[] _mask;
@@ -44,8 +53,63 @@ public sealed class Selection
     public bool IsSelected(int x, int y)
         => !IsActive || ((uint)x < (uint)Width && (uint)y < (uint)Height && _mask[y * Width + x] != 0);
 
+    /// <summary>Marks a single pixel selected. Used by algorithms that build a mask pixel-by-pixel
+    /// (Magic Wand) rather than rasterizing a closed shape.</summary>
+    public void Select(int x, int y)
+    {
+        if ((uint)x >= (uint)Width || (uint)y >= (uint)Height) return;
+        _mask[y * Width + x] = 255;
+        IsActive = true;
+    }
+
     /// <summary>Read-only view of the raw mask (255 = selected). Length = Width*Height.</summary>
     public ReadOnlySpan<byte> Mask => _mask;
+
+    public Selection Clone()
+    {
+        var copy = new Selection(Width, Height) { IsActive = IsActive };
+        _mask.CopyTo(copy._mask, 0);
+        return copy;
+    }
+
+    public void CopyFrom(Selection other)
+    {
+        other._mask.CopyTo(_mask, 0);
+        IsActive = other.IsActive;
+    }
+
+    /// <summary>
+    /// Combines <paramref name="shape"/> into this selection per <paramref name="mode"/>. Used by
+    /// the select tools to add/subtract/intersect a freshly drawn shape against whatever was
+    /// already selected, rather than always replacing it outright.
+    /// </summary>
+    public void Combine(SelectionCombineMode mode, Selection shape)
+    {
+        if (shape.Width != Width || shape.Height != Height)
+            throw new ArgumentException("Shape selection must match this selection's dimensions.", nameof(shape));
+
+        switch (mode)
+        {
+            case SelectionCombineMode.Replace:
+                CopyFrom(shape);
+                return;
+            case SelectionCombineMode.Add:
+                for (int i = 0; i < _mask.Length; i++)
+                    if (shape._mask[i] != 0) _mask[i] = 255;
+                break;
+            case SelectionCombineMode.Subtract:
+                for (int i = 0; i < _mask.Length; i++)
+                    if (shape._mask[i] != 0) _mask[i] = 0;
+                break;
+            case SelectionCombineMode.Intersect:
+                for (int i = 0; i < _mask.Length; i++)
+                    if (shape._mask[i] == 0) _mask[i] = 0;
+                break;
+        }
+
+        IsActive = false;
+        foreach (byte b in _mask) { if (b != 0) { IsActive = true; break; } }
+    }
 
     public void ReplaceWithRectangle(double x0, double y0, double x1, double y1)
     {

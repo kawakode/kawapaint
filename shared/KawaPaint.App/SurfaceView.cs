@@ -40,6 +40,7 @@ public sealed class SurfaceView : Control
     public int FillTolerance { get; set; } = 32;
     public bool GlobalFill { get; set; }
     public bool FillShapes { get; set; }
+    public SelectionCombineMode SelectionCombineMode { get; set; } = SelectionCombineMode.Replace;
 
     public ITool CurrentTool { get; set; } = new PencilTool();
 
@@ -439,7 +440,8 @@ public sealed class SurfaceView : Control
                 SetPrimaryColor = c => { BrushColor = c; PrimaryColorPicked?.Invoke(c); },
                 Selection = Selection!,
                 SelectionChanged = NotifySelectionChanged,
-                RequestText = (x, y) => TextRequested?.Invoke(x, y)
+                RequestText = (x, y) => TextRequested?.Invoke(x, y),
+                CombineMode = SelectionCombineMode
             };
 
             CurrentTool.PointerDown(_toolCtx);

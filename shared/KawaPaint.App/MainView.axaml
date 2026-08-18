@@ -369,6 +369,9 @@
                     <Button Classes="layerbtn" Click="OnMergeDown" Margin="0,0,4,4" ToolTip.Tip="Merge into the layer below">
                         <StackPanel><ContentControl Content="{app:Icon MergeDown}" /><TextBlock Text="Merge" VerticalAlignment="Center" /></StackPanel>
                     </Button>
+                    <Button Classes="layerbtn" Click="OnImportLayer" Margin="0,0,4,4" ToolTip.Tip="Import an image file as a new layer">
+                        <StackPanel><ContentControl Content="{app:Icon Open}" /><TextBlock Text="Import" VerticalAlignment="Center" /></StackPanel>
+                    </Button>
                     <Button Content="{app:Icon ChevronUp}" Click="OnLayerUp" Margin="0,0,4,4" ToolTip.Tip="Move layer up" />
                     <Button Content="{app:Icon ChevronDown}" Click="OnLayerDown" Margin="0,0,4,4" ToolTip.Tip="Move layer down" />
                 </WrapPanel>

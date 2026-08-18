@@ -2004,6 +2004,42 @@ public partial class MainView : UserControl
         StatusText.Text = $"Pasted {pasted.Width}×{pasted.Height} into a new layer";
     }
 
+    private async void OnImportLayer(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document;
+        if (doc is null) return;
+
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Import layer from image",
+            AllowMultiple = false,
+            FileTypeFilter = BuildOpenFilters()
+        });
+        var file = files.FirstOrDefault();
+        if (file is null) return;
+
+        try
+        {
+            await using var stream = await file.OpenReadAsync();
+            using var imported = CodecRegistry.Decode(stream, file.Name);
+
+            var layer = doc.AddLayer(System.IO.Path.GetFileNameWithoutExtension(file.Name));
+            SurfaceOps.CompositeOver(layer.Surface, imported, 0, 0);
+            Canvas.SetActiveLayer(layer);
+
+            Canvas.History.Push(new DelegateMemento("Import Layer",
+                undo: () => { doc.RemoveLayer(layer); Canvas.SetActiveLayer(doc.Layers[^1]); },
+                redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); }));
+
+            RefreshDocument();
+            StatusText.Text = $"Imported {imported.Width}×{imported.Height} as a new layer";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Import failed: " + ex.Message;
+        }
+    }
+
     private async void OnPasteIntoNewImage(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;

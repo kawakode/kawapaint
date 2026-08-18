@@ -99,4 +99,24 @@ public sealed class SettingsService
         Settings = new AppSettings();
         Save();
     }
+
+    private const int MaxRecentFiles = 10;
+
+    /// <summary>Moves <paramref name="path"/> to the front of the recent-files list, deduping and
+    /// capping it, and persists. Call on every successful project open or save.</summary>
+    public void AddRecentFile(string path)
+    {
+        var recent = Settings.RecentFiles;
+        recent.RemoveAll(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
+        recent.Insert(0, path);
+        while (recent.Count > MaxRecentFiles) recent.RemoveAt(recent.Count - 1);
+        Save();
+    }
+
+    /// <summary>Drops a path that turned out to be missing/unopenable.</summary>
+    public void RemoveRecentFile(string path)
+    {
+        if (Settings.RecentFiles.RemoveAll(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase)) > 0)
+            Save();
+    }
 }

@@ -123,6 +123,7 @@ public partial class MainView : UserControl
 
         BuildPanelManager();
         RebuildLayoutPresetsMenu();
+        RebuildRecentFilesMenu();
         BuildCommands();
         ApplyHistorySettings();
         SyncWheelToActiveColor();
@@ -198,17 +199,27 @@ public partial class MainView : UserControl
         var document = Canvas.Document;
         if (document is null) { UpdateTitle(); return; }
 
+        string? localPath = LocalPathOf(file);
+
         if (_session is null || !ReferenceEquals(_session.Document, document))
         {
             // A previous session's recovery snapshots are now moot: either its document is the
             // one just opened cleanly (this branch fires on New/Open too), or it was abandoned.
             if (_session is not null) AutosaveRecovery.Discard(_session.SessionId);
-            _session = new DocumentSession(document, LocalPathOf(file), file?.Name);
+            _session = new DocumentSession(document, localPath, file?.Name);
         }
         else
         {
-            _session.MarkSaved(LocalPathOf(file), file?.Name);
+            _session.MarkSaved(localPath, file?.Name);
             AutosaveRecovery.Discard(_session.SessionId);
+        }
+
+        // Only real project files on a real filesystem are worth remembering — an exported PNG
+        // or a browser-sandboxed handle has nothing a "recent files" entry could reopen.
+        if (localPath is not null && localPath.EndsWith(DocumentFile.Extension, StringComparison.OrdinalIgnoreCase))
+        {
+            _settings.AddRecentFile(localPath);
+            RebuildRecentFilesMenu();
         }
 
         UpdateTitle();
@@ -938,6 +949,73 @@ public partial class MainView : UserControl
         var workspace = _settings.Settings.Workspace;
         workspace.Layouts[workspace.ActiveLayout] = _panels.Layout;
         _settings.SaveDeferred();
+    }
+
+    // ---- recent files --------------------------------------------------------
+    //
+    // Desktop only: the MRU list is built from real filesystem paths (see SetClean), which the
+    // browser sandbox never has. Reopening goes through StorageProvider.TryGetFileFromPathAsync
+    // so it lands back on the exact same OnOpenProject code path as picking the file by hand.
+
+    private void RebuildRecentFilesMenu()
+    {
+        var recent = _settings.Settings.RecentFiles;
+        RecentFilesMenu.Items.Clear();
+
+        if (recent.Count == 0)
+        {
+            RecentFilesMenu.Items.Add(new MenuItem { Header = "(none yet)", IsEnabled = false });
+            return;
+        }
+
+        foreach (string path in recent)
+        {
+            var item = new MenuItem { Header = System.IO.Path.GetFileName(path), Tag = path };
+            ToolTip.SetTip(item, path);
+            item.Click += OnRecentFile;
+            RecentFilesMenu.Items.Add(item);
+        }
+
+        RecentFilesMenu.Items.Add(new Separator());
+        var clear = new MenuItem { Header = "Clear Recent Files" };
+        clear.Click += (_, _) =>
+        {
+            _settings.Settings.RecentFiles.Clear();
+            _settings.Save();
+            RebuildRecentFilesMenu();
+        };
+        RecentFilesMenu.Items.Add(clear);
+    }
+
+    private async void OnRecentFile(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string path }) return;
+        if (!await ConfirmDiscardAsync()) return;
+
+        if (!System.IO.File.Exists(path))
+        {
+            StatusText.Text = "File not found: " + path;
+            _settings.RemoveRecentFile(path);
+            RebuildRecentFilesMenu();
+            return;
+        }
+
+        try
+        {
+            var file = await StorageProvider.TryGetFileFromPathAsync(new Uri(path));
+            if (file is null) { StatusText.Text = "Couldn't reopen: " + path; return; }
+
+            Document doc;
+            await using (var stream = await file.OpenReadAsync())
+                doc = DocumentFile.Load(stream);
+            Canvas.SetDocument(doc);
+            SetClean(file);
+            StatusText.Text = $"{file.Name} — {doc.LayerCount} layer(s)";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Open failed: " + ex.Message;
+        }
     }
 
     // ---- saveable layout presets -------------------------------------------

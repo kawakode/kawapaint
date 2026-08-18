@@ -19,6 +19,9 @@ public sealed class AppSettings
     public GitSettings Git { get; set; } = new();
     public WorkspaceSettings Workspace { get; set; } = new();
     public PluginSettings Plugins { get; set; } = new();
+
+    /// <summary>Most-recently-opened project paths, newest first. See SettingsService.AddRecentFile.</summary>
+    public List<string> RecentFiles { get; set; } = new();
 }
 
 public sealed class AutosaveSettings

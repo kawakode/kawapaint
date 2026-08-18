@@ -3,6 +3,34 @@
         xmlns:app="clr-namespace:KawaPaint.App"
         x:Class="KawaPaint.App.MainView">
     <UserControl.Styles>
+        <!-- Every panel background here is hardcoded dark regardless of the OS theme, but Button/
+             ToggleButton text otherwise falls back to Fluent's theme-default foreground, which
+             follows the OS setting — on a light system theme that's dark text on a dark panel.
+             Force it light so button labels stay legible no matter the system theme. -->
+        <Style Selector="Button, ToggleButton, MenuItem">
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+        <!-- CheckBox's Fluent template sets its label's Foreground directly on the inner
+             ContentPresenter rather than passing the control's own Foreground through, so a plain
+             "CheckBox" selector setter never reaches it — the template part has to be targeted. -->
+        <Style Selector="CheckBox /template/ ContentPresenter">
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+        <!-- Same story for MenuItem's header text: the Fluent template binds it to the
+             MenuFlyoutItemForeground theme resource rather than the control's own Foreground, and
+             that resource resolves inconsistently once an Icon is set on some (but not all) items
+             in this popup-heavy menu bar — some items render with washed-out, low-contrast text.
+             Pin the header text part directly so every item is legible regardless. This only
+             targets dropdown/submenu items (their popups render on a light background); the
+             top-level bar items below are handled separately since they sit on the dark bar. -->
+        <Style Selector="MenuItem MenuItem /template/ ContentPresenter#PART_HeaderPresenter">
+            <Setter Property="Foreground" Value="#1A1A1A" />
+        </Style>
+        <!-- Top-level bar items (File/Edit/Select/…) always sit on the hardcoded dark bar
+             background, so unlike their dropdown contents they need light text, not dark. -->
+        <Style Selector="MenuItem.topbar /template/ ContentPresenter#PART_HeaderPresenter">
+            <Setter Property="Foreground" Value="White" />
+        </Style>
         <!-- Color swatches. The Fluent button template repaints its content background on
              hover/press, which would hide the very color the button exists to show, so the
              templated background is re-asserted in those states. -->
@@ -13,34 +41,36 @@
             <Setter Property="Background" Value="{TemplateBinding Background}" />
         </Style>
     </UserControl.Styles>
+    <Panel>
     <DockPanel x:Name="RootDock">
-        <Menu DockPanel.Dock="Top">
-            <MenuItem Header="_File">
-                <MenuItem Header="_New" Click="OnNew" InputGesture="Ctrl+N" />
-                <MenuItem Header="_Open Image…" Click="OnOpen" InputGesture="Ctrl+O" />
-                <MenuItem Header="Open _Project…" Click="OnOpenProject" InputGesture="Ctrl+Shift+O" />
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Background="#282828">
+        <Menu Grid.Column="0">
+            <MenuItem Header="_File" Classes="topbar">
+                <MenuItem Header="_New" Click="OnNew" InputGesture="Ctrl+N" Icon="{app:Icon New}" />
+                <MenuItem Header="_Open Image…" Click="OnOpen" InputGesture="Ctrl+O" Icon="{app:Icon Open}" />
+                <MenuItem Header="Open _Project…" Click="OnOpenProject" InputGesture="Ctrl+Shift+O" Icon="{app:Icon OpenProject}" />
                 <Separator />
-                <MenuItem Header="Save _Project…" Click="OnSaveProject" InputGesture="Ctrl+S" />
-                <MenuItem Header="_Export Flattened…" Click="OnSaveAs" InputGesture="Ctrl+Shift+S" />
+                <MenuItem Header="Save _Project…" Click="OnSaveProject" InputGesture="Ctrl+S" Icon="{app:Icon Save}" />
+                <MenuItem Header="_Export Flattened…" Click="OnSaveAs" InputGesture="Ctrl+Shift+S" Icon="{app:Icon Export}" />
                 <Separator />
-                <MenuItem Header="E_xit" Click="OnExit" />
+                <MenuItem Header="E_xit" Click="OnExit" Icon="{app:Icon Exit}" />
             </MenuItem>
-            <MenuItem Header="_Edit">
-                <MenuItem Header="_Undo" Click="OnUndo" InputGesture="Ctrl+Z" />
-                <MenuItem Header="_Redo" Click="OnRedo" InputGesture="Ctrl+Y" />
+            <MenuItem Header="_Edit" Classes="topbar">
+                <MenuItem Header="_Undo" Click="OnUndo" InputGesture="Ctrl+Z" Icon="{app:Icon Undo}" />
+                <MenuItem Header="_Redo" Click="OnRedo" InputGesture="Ctrl+Y" Icon="{app:Icon Redo}" />
             </MenuItem>
-            <MenuItem Header="_Select">
-                <MenuItem Header="Select _All" Click="OnSelectAll" InputGesture="Ctrl+A" />
-                <MenuItem Header="_Invert" Click="OnInvertSelection" InputGesture="Ctrl+I" />
-                <MenuItem Header="Deselect (Select _None)" Click="OnSelectNone" InputGesture="Ctrl+D" />
+            <MenuItem Header="_Select" Classes="topbar">
+                <MenuItem Header="Select _All" Click="OnSelectAll" InputGesture="Ctrl+A" Icon="{app:Icon SelectAll}" />
+                <MenuItem Header="_Invert" Click="OnInvertSelection" InputGesture="Ctrl+I" Icon="{app:Icon InvertSel}" />
+                <MenuItem Header="Deselect (Select _None)" Click="OnSelectNone" InputGesture="Ctrl+D" Icon="{app:Icon Deselect}" />
             </MenuItem>
-            <MenuItem Header="_View">
+            <MenuItem Header="_View" Classes="topbar">
                 <!-- These are spelled into the header rather than set as an InputGesture: a
                      KeyGesture for +/-/0/1 stringifies as "OemPlus"/"D0" in the menu. -->
-                <MenuItem Header="Zoom _In   (Ctrl +)" Click="OnZoomIn" />
-                <MenuItem Header="Zoom _Out   (Ctrl -)" Click="OnZoomOut" />
-                <MenuItem Header="_Fit to Window   (Ctrl 0)" Click="OnZoomFit" />
-                <MenuItem Header="_Actual Size 100%   (Ctrl 1)" Click="OnZoomActual" />
+                <MenuItem Header="Zoom _In   (Ctrl +)" Click="OnZoomIn" Icon="{app:Icon ZoomIn}" />
+                <MenuItem Header="Zoom _Out   (Ctrl -)" Click="OnZoomOut" Icon="{app:Icon ZoomOut}" />
+                <MenuItem Header="_Fit to Window   (Ctrl 0)" Click="OnZoomFit" Icon="{app:Icon ZoomFit}" />
+                <MenuItem Header="_Actual Size 100%   (Ctrl 1)" Click="OnZoomActual" Icon="{app:Icon ZoomActual}" />
                 <Separator />
                 <MenuItem Header="_Panels">
                     <MenuItem Header="Tools">
@@ -48,6 +78,7 @@
                         <MenuItem Header="Right" Tag="Tools:Right" Click="OnPanelPlace" />
                         <MenuItem Header="Top" Tag="Tools:Top" Click="OnPanelPlace" />
                         <MenuItem Header="Bottom" Tag="Tools:Bottom" Click="OnPanelPlace" />
+                        <MenuItem Header="Floating" Tag="Tools:Floating" Click="OnPanelPlace" />
                         <MenuItem Header="Hidden" Tag="Tools:Hidden" Click="OnPanelPlace" />
                     </MenuItem>
                     <MenuItem Header="Colors">
@@ -55,6 +86,7 @@
                         <MenuItem Header="Right" Tag="Colors:Right" Click="OnPanelPlace" />
                         <MenuItem Header="Top" Tag="Colors:Top" Click="OnPanelPlace" />
                         <MenuItem Header="Bottom" Tag="Colors:Bottom" Click="OnPanelPlace" />
+                        <MenuItem Header="Floating" Tag="Colors:Floating" Click="OnPanelPlace" />
                         <MenuItem Header="Hidden" Tag="Colors:Hidden" Click="OnPanelPlace" />
                     </MenuItem>
                     <MenuItem Header="Color Wheel">
@@ -62,6 +94,7 @@
                         <MenuItem Header="Right" Tag="ColorWheel:Right" Click="OnPanelPlace" />
                         <MenuItem Header="Top" Tag="ColorWheel:Top" Click="OnPanelPlace" />
                         <MenuItem Header="Bottom" Tag="ColorWheel:Bottom" Click="OnPanelPlace" />
+                        <MenuItem Header="Floating" Tag="ColorWheel:Floating" Click="OnPanelPlace" />
                         <MenuItem Header="Hidden" Tag="ColorWheel:Hidden" Click="OnPanelPlace" />
                     </MenuItem>
                     <MenuItem Header="Layers">
@@ -69,42 +102,62 @@
                         <MenuItem Header="Right" Tag="Layers:Right" Click="OnPanelPlace" />
                         <MenuItem Header="Top" Tag="Layers:Top" Click="OnPanelPlace" />
                         <MenuItem Header="Bottom" Tag="Layers:Bottom" Click="OnPanelPlace" />
+                        <MenuItem Header="Floating" Tag="Layers:Floating" Click="OnPanelPlace" />
                         <MenuItem Header="Hidden" Tag="Layers:Hidden" Click="OnPanelPlace" />
                     </MenuItem>
                     <Separator />
                     <MenuItem Header="Reset Layout" Click="OnResetLayout" />
                 </MenuItem>
             </MenuItem>
-            <MenuItem Header="_Image">
-                <MenuItem Header="_Resize…" Click="OnResize" />
-                <MenuItem Header="_Crop to Selection" Click="OnCropToSelection" />
+            <MenuItem Header="_Image" Classes="topbar">
+                <MenuItem Header="_Resize…" Click="OnResize" Icon="{app:Icon Resize}" />
+                <MenuItem Header="_Crop to Selection" Click="OnCropToSelection" Icon="{app:Icon Crop}" />
                 <Separator />
-                <MenuItem Header="Flip _Horizontal" Click="OnFlipH" />
-                <MenuItem Header="Flip _Vertical" Click="OnFlipV" />
-                <MenuItem Header="Rotate 90° C_W" Click="OnRotateCW" />
-                <MenuItem Header="Rotate 90° CC_W" Click="OnRotateCCW" />
+                <MenuItem Header="Flip _Horizontal" Click="OnFlipH" Icon="{app:Icon FlipH}" />
+                <MenuItem Header="Flip _Vertical" Click="OnFlipV" Icon="{app:Icon FlipV}" />
+                <MenuItem Header="Rotate 90° C_W" Click="OnRotateCW" Icon="{app:Icon RotateCW}" />
+                <MenuItem Header="Rotate 90° CC_W" Click="OnRotateCCW" Icon="{app:Icon RotateCCW}" />
                 <Separator />
-                <MenuItem Header="_Flatten Image" Click="OnFlatten" />
+                <MenuItem Header="_Flatten Image" Click="OnFlatten" Icon="{app:Icon Flatten}" />
             </MenuItem>
-            <MenuItem Header="Effe_cts">
-                <MenuItem Header="_Invert Colors" Tag="invert" Click="OnEffect" />
-                <MenuItem Header="_Black &amp; White" Tag="gray" Click="OnEffect" />
-                <MenuItem Header="_Sepia" Tag="sepia" Click="OnEffect" />
+            <MenuItem Header="Effe_cts" Classes="topbar">
+                <MenuItem Header="_Invert Colors" Tag="invert" Click="OnEffect" Icon="{app:Icon EffectInvert}" />
+                <MenuItem Header="_Black &amp; White" Tag="gray" Click="OnEffect" Icon="{app:Icon EffectGray}" />
+                <MenuItem Header="_Sepia" Tag="sepia" Click="OnEffect" Icon="{app:Icon EffectSepia}" />
                 <Separator />
-                <MenuItem Header="Brightness / Contrast…" Tag="bc" Click="OnAdjust" />
-                <MenuItem Header="Hue / Saturation…" Tag="hsl" Click="OnAdjust" />
-                <MenuItem Header="_Levels…" Tag="levels" Click="OnAdjust" />
-                <MenuItem Header="Cur_ves…" Click="OnCurves" />
-                <MenuItem Header="_Auto Levels" Tag="autolevels" Click="OnEffect" />
+                <MenuItem Header="Brightness / Contrast…" Tag="bc" Click="OnAdjust" Icon="{app:Icon Adjust}" />
+                <MenuItem Header="Hue / Saturation…" Tag="hsl" Click="OnAdjust" Icon="{app:Icon HueSat}" />
+                <MenuItem Header="_Levels…" Tag="levels" Click="OnAdjust" Icon="{app:Icon Levels}" />
+                <MenuItem Header="Cur_ves…" Click="OnCurves" Icon="{app:Icon Curves}" />
+                <MenuItem Header="_Auto Levels" Tag="autolevels" Click="OnEffect" Icon="{app:Icon AutoLevels}" />
                 <Separator />
-                <MenuItem Header="Gaussian _Blur…" Tag="blur" Click="OnAdjust" />
-                <MenuItem Header="Sharpe_n" Tag="sharpen" Click="OnEffect" />
-                <MenuItem Header="_Emboss" Tag="emboss" Click="OnEffect" />
-                <MenuItem Header="Edge _Detect" Tag="edge" Click="OnEffect" />
-                <MenuItem Header="_Posterize…" Tag="posterize" Click="OnAdjust" />
-                <MenuItem Header="Add _Noise…" Tag="noise" Click="OnAdjust" />
+                <MenuItem Header="Gaussian _Blur…" Tag="blur" Click="OnAdjust" Icon="{app:Icon Blur}" />
+                <MenuItem Header="Sharpe_n" Tag="sharpen" Click="OnEffect" Icon="{app:Icon Sharpen}" />
+                <MenuItem Header="_Emboss" Tag="emboss" Click="OnEffect" Icon="{app:Icon Emboss}" />
+                <MenuItem Header="Edge _Detect" Tag="edge" Click="OnEffect" Icon="{app:Icon EdgeDetect}" />
+                <MenuItem Header="_Posterize…" Tag="posterize" Click="OnAdjust" Icon="{app:Icon Posterize}" />
+                <MenuItem Header="Add _Noise…" Tag="noise" Click="OnAdjust" Icon="{app:Icon Noise}" />
             </MenuItem>
         </Menu>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" Margin="6,0" VerticalAlignment="Center">
+            <StackPanel.Styles>
+                <Style Selector="ToggleButton.paneltoggle">
+                    <Setter Property="Width" Value="26" />
+                    <Setter Property="Height" Value="26" />
+                    <Setter Property="Padding" Value="3" />
+                    <Setter Property="Margin" Value="1" />
+                </Style>
+            </StackPanel.Styles>
+            <ToggleButton x:Name="ToggleTools" Classes="paneltoggle" Tag="Tools" Click="OnPanelToggle"
+                          ToolTip.Tip="Show/hide the Tools panel" />
+            <ToggleButton x:Name="ToggleColors" Classes="paneltoggle" Tag="Colors" Click="OnPanelToggle"
+                          ToolTip.Tip="Show/hide the Colors panel" />
+            <ToggleButton x:Name="ToggleColorWheel" Classes="paneltoggle" Tag="ColorWheel" Click="OnPanelToggle"
+                          ToolTip.Tip="Show/hide the Color Wheel panel" />
+            <ToggleButton x:Name="ToggleLayers" Classes="paneltoggle" Tag="Layers" Click="OnPanelToggle"
+                          ToolTip.Tip="Show/hide the Layers panel" />
+        </StackPanel>
+        </Grid>
         <Border DockPanel.Dock="Top" Background="#282828" Padding="8,5">
             <WrapPanel Orientation="Horizontal">
                 <WrapPanel.Styles>
@@ -130,10 +183,11 @@
                      only offers what the active tool actually uses. -->
                 <StackPanel x:Name="SizeGroup" Classes="group">
                     <TextBlock Text="Size:" />
-                    <Slider x:Name="SizeSlider" Minimum="1" Maximum="64" Value="3" Width="140"
-                            VerticalAlignment="Center" ValueChanged="OnSize"
-                            ToolTip.Tip="Brush / outline thickness" />
-                    <TextBlock x:Name="SizeLabel" Text="3 px" Width="42" />
+                    <ComboBox x:Name="SizeBox" Width="86" IsEditable="True" VerticalAlignment="Center"
+                              ItemsSource="{x:Static app:MainView.BrushSizePresets}"
+                              SelectionChanged="OnSizePresetSelected"
+                              KeyDown="OnSizeKeyDown" LostFocus="OnSizeTextCommit"
+                              ToolTip.Tip="Brush / outline thickness — pick a size or type your own; scroll to nudge it" />
                 </StackPanel>
                 <StackPanel x:Name="ShapeGroup" Classes="group">
                     <CheckBox x:Name="AntialiasCheck" Content="AA" IsChecked="True"
@@ -148,10 +202,11 @@
                               VerticalAlignment="Center" IsCheckedChanged="OnGlobalFill"
                               ToolTip.Tip="Fill every matching pixel, not just the contiguous region" />
                     <TextBlock Text="Tol:" />
-                    <Slider x:Name="ToleranceSlider" Minimum="0" Maximum="128" Value="32" Width="100"
-                            VerticalAlignment="Center" ValueChanged="OnTolerance"
-                            ToolTip.Tip="How far a pixel's color may differ and still be filled" />
-                    <TextBlock x:Name="ToleranceLabel" Text="32" Width="28" />
+                    <ComboBox x:Name="ToleranceBox" Width="86" IsEditable="True" VerticalAlignment="Center"
+                              ItemsSource="{x:Static app:MainView.TolerancePresets}"
+                              SelectionChanged="OnTolerancePresetSelected"
+                              KeyDown="OnToleranceKeyDown" LostFocus="OnToleranceTextCommit"
+                              ToolTip.Tip="How far a pixel's color may differ and still be filled — pick a value or type your own; scroll to nudge it" />
                 </StackPanel>
             </WrapPanel>
         </Border>
@@ -169,10 +224,26 @@
                 <TextBlock Text="Colors" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
                 <WrapPanel x:Name="PaletteStrip" VerticalAlignment="Center" MaxWidth="640" />
                 <Border Width="1" Background="#505050" Margin="4,2" />
-                <Button Content="+ Add" Click="OnAddPaletteColor" ToolTip.Tip="Add current foreground color" />
-                <Button Content="Save…" Click="OnSavePalette" />
-                <Button Content="Load…" Click="OnLoadPalette" />
-                <Button Content="✕" Padding="6,0" Tag="Colors:Hidden" Click="OnPanelPlace"
+                <Button Click="OnAddPaletteColor" ToolTip.Tip="Add current foreground color">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <ContentControl Content="{app:Icon Plus}" />
+                        <TextBlock Text="Add" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button Click="OnSavePalette" ToolTip.Tip="Save palette to file">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <ContentControl Content="{app:Icon Save}" />
+                        <TextBlock Text="Save…" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button Click="OnLoadPalette" ToolTip.Tip="Load palette from file">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <ContentControl Content="{app:Icon Open}" />
+                        <TextBlock Text="Load…" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <ToggleButton x:Name="FloatColorsBtn" Padding="4,0" Tag="Colors" Click="OnPanelFloatToggle" />
+                <Button Content="{app:Icon Close}" Padding="6,0" Tag="Colors:Hidden" Click="OnPanelPlace"
                         ToolTip.Tip="Hide (View ▸ Panels to restore)" />
             </StackPanel>
         </Border>
@@ -181,9 +252,10 @@
         <Border x:Name="ColorWheelBorder" DockPanel.Dock="Right" Width="190" Background="#262626" BorderBrush="#404040" BorderThickness="1,0,0,0">
             <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8" Spacing="8">
-                    <Grid ColumnDefinitions="*,Auto">
+                    <Grid ColumnDefinitions="*,Auto,Auto">
                         <TextBlock Text="Color" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
-                        <Button Grid.Column="1" Content="✕" Padding="4,0" Tag="ColorWheel:Hidden" Click="OnPanelPlace"
+                        <ToggleButton x:Name="FloatColorWheelBtn" Grid.Column="1" Padding="4,0" Tag="ColorWheel" Click="OnPanelFloatToggle" />
+                        <Button Grid.Column="2" Content="{app:Icon Close}" Padding="4,0" Tag="ColorWheel:Hidden" Click="OnPanelPlace"
                                 ToolTip.Tip="Hide (View ▸ Panels to restore)" />
                     </Grid>
 
@@ -195,7 +267,7 @@
                                 HorizontalAlignment="Stretch" Cursor="Hand"
                                 BorderBrush="#8CB4FF" BorderThickness="2" CornerRadius="3"
                                 PointerPressed="OnSelectFg" ToolTip.Tip="Foreground (click to edit)" />
-                        <Button Grid.Column="1" Content="⇄" Padding="8,0" Click="OnSwapColors"
+                        <Button Grid.Column="1" Content="{app:Icon Swap}" Padding="8,0" Click="OnSwapColors"
                                 VerticalAlignment="Stretch" ToolTip.Tip="Swap foreground / background" />
                         <Border x:Name="BgSwatch" Grid.Column="2" Height="30" MinWidth="40"
                                 HorizontalAlignment="Stretch" Cursor="Hand"
@@ -228,18 +300,33 @@
         <!-- Layers panel -->
         <Border x:Name="LayersBorder" DockPanel.Dock="Right" Width="220" Background="#262626" BorderBrush="#404040" BorderThickness="1,0,0,0">
             <DockPanel Margin="6">
-                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="2,2,2,6">
+                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="2,2,2,6">
                     <TextBlock Text="Layers" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
-                    <Button Grid.Column="1" Content="✕" Padding="4,0" Tag="Layers:Hidden" Click="OnPanelPlace"
+                    <ToggleButton x:Name="FloatLayersBtn" Grid.Column="1" Padding="4,0" Tag="Layers" Click="OnPanelFloatToggle" />
+                    <Button Grid.Column="2" Content="{app:Icon Close}" Padding="4,0" Tag="Layers:Hidden" Click="OnPanelPlace"
                             ToolTip.Tip="Hide (View ▸ Panels to restore)" />
                 </Grid>
                 <WrapPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
-                    <Button Content="Add" Click="OnAddLayer" Margin="0,0,4,4" />
-                    <Button Content="Dup" Click="OnDuplicateLayer" Margin="0,0,4,4" />
-                    <Button Content="Del" Click="OnDeleteLayer" Margin="0,0,4,4" />
-                    <Button Content="Merge" Click="OnMergeDown" Margin="0,0,4,4" />
-                    <Button Content="↑" Click="OnLayerUp" Margin="0,0,4,4" />
-                    <Button Content="↓" Click="OnLayerDown" Margin="0,0,4,4" />
+                    <WrapPanel.Styles>
+                        <Style Selector="Button.layerbtn > StackPanel">
+                            <Setter Property="Orientation" Value="Horizontal" />
+                            <Setter Property="Spacing" Value="4" />
+                        </Style>
+                    </WrapPanel.Styles>
+                    <Button Classes="layerbtn" Click="OnAddLayer" Margin="0,0,4,4" ToolTip.Tip="Add a new layer">
+                        <StackPanel><ContentControl Content="{app:Icon Plus}" /><TextBlock Text="Add" VerticalAlignment="Center" /></StackPanel>
+                    </Button>
+                    <Button Classes="layerbtn" Click="OnDuplicateLayer" Margin="0,0,4,4" ToolTip.Tip="Duplicate the active layer">
+                        <StackPanel><ContentControl Content="{app:Icon Copy}" /><TextBlock Text="Dup" VerticalAlignment="Center" /></StackPanel>
+                    </Button>
+                    <Button Classes="layerbtn" Click="OnDeleteLayer" Margin="0,0,4,4" ToolTip.Tip="Delete the active layer">
+                        <StackPanel><ContentControl Content="{app:Icon Trash}" /><TextBlock Text="Del" VerticalAlignment="Center" /></StackPanel>
+                    </Button>
+                    <Button Classes="layerbtn" Click="OnMergeDown" Margin="0,0,4,4" ToolTip.Tip="Merge into the layer below">
+                        <StackPanel><ContentControl Content="{app:Icon MergeDown}" /><TextBlock Text="Merge" VerticalAlignment="Center" /></StackPanel>
+                    </Button>
+                    <Button Content="{app:Icon ChevronUp}" Click="OnLayerUp" Margin="0,0,4,4" ToolTip.Tip="Move layer up" />
+                    <Button Content="{app:Icon ChevronDown}" Click="OnLayerDown" Margin="0,0,4,4" ToolTip.Tip="Move layer down" />
                 </WrapPanel>
                 <StackPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
                     <TextBlock Text="Blend mode" Foreground="#A0A0A0" Margin="2,0" />
@@ -257,12 +344,17 @@
         <Border x:Name="ToolsBorder" DockPanel.Dock="Left" Width="70" Background="#262626"
                 BorderBrush="#404040" BorderThickness="0,0,1,0">
             <DockPanel>
-                <Button DockPanel.Dock="Top" Content="✕" HorizontalAlignment="Right" Padding="4,0" Margin="2"
-                        Tag="Tools:Hidden" Click="OnPanelPlace" ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" HorizontalAlignment="Right" Margin="2">
+                    <ToggleButton x:Name="FloatToolsBtn" Padding="4,0" Tag="Tools" Click="OnPanelFloatToggle" />
+                    <Button Content="{app:Icon Close}" Padding="4,0" Tag="Tools:Hidden" Click="OnPanelPlace"
+                            ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                </StackPanel>
                 <WrapPanel x:Name="ToolPalette" Orientation="Horizontal" Margin="4" />
             </DockPanel>
         </Border>
 
         <app:SurfaceView x:Name="Canvas" />
     </DockPanel>
+    <Panel x:Name="FloatingLayer" />
+    </Panel>
 </UserControl>

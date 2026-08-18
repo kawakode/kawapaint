@@ -37,6 +37,33 @@ public partial class MainView : UserControl
     private UiLayout _layout = new();
     private readonly string? _layoutPath = TryGetAppDataPath("layout.json");
 
+    // Remembers each panel's last non-Hidden placement so the top-right toggle icons can restore
+    // it (rather than always falling back to the default dock side) after hiding it.
+    private readonly System.Collections.Generic.Dictionary<string, string> _lastShownPlace = new()
+    {
+        ["Tools"] = "Left", ["Colors"] = "Bottom", ["ColorWheel"] = "Right", ["Layers"] = "Right"
+    };
+
+    // Remembers each panel's last *docked* side (never Floating/Hidden), so the per-panel float
+    // button has somewhere sensible to return a floating panel to.
+    private readonly System.Collections.Generic.Dictionary<string, string> _lastDockPlace = new()
+    {
+        ["Tools"] = "Left", ["Colors"] = "Bottom", ["ColorWheel"] = "Right", ["Layers"] = "Right"
+    };
+
+    // Floating panels are hosted as absolutely-positioned overlay windows inside FloatingLayer
+    // rather than real OS windows: the browser build has no Window/popup support at all (see
+    // MainWindow.axaml.cs), so an in-canvas overlay is the only approach that works everywhere.
+    private readonly System.Collections.Generic.Dictionary<string, Border> _floatHosts = new();
+
+    public static readonly int[] BrushSizePresets = { 1, 2, 3, 5, 8, 10, 15, 20, 25, 30, 40, 50, 64, 75, 100, 150, 200 };
+    private const int MinBrushSize = 1;
+    private const int MaxBrushSize = 500;
+
+    public static readonly int[] TolerancePresets = { 0, 4, 8, 16, 24, 32, 48, 64, 96, 128, 160, 200, 255 };
+    private const int MinTolerance = 0;
+    private const int MaxTolerance = 255;
+
     /// <summary>The window that hosts this view, if any (null under the browser single-view host —
     /// dialogs that need a Window owner are stubbed out there; see the OwnerWindow guards below).</summary>
     private Window? OwnerWindow => TopLevel.GetTopLevel(this) as Window;
@@ -88,6 +115,26 @@ public partial class MainView : UserControl
         BuildToolPalette();
         _palette = _palettePath is null ? Palette.Default() : Palette.LoadOrDefault(_palettePath);
         BuildPaletteStrip();
+
+        ToggleTools.Content = Icons.Create("PanelTools", 15);
+        ToggleColors.Content = Icons.Create("PanelColors", 15);
+        ToggleColorWheel.Content = Icons.Create("PanelColorWheel", 15);
+        ToggleLayers.Content = Icons.Create("PanelLayers", 15);
+
+        FloatToolsBtn.Content = Icons.Create("Float", 13);
+        FloatColorsBtn.Content = Icons.Create("Float", 13);
+        FloatColorWheelBtn.Content = Icons.Create("Float", 13);
+        FloatLayersBtn.Content = Icons.Create("Float", 13);
+
+        // handledEventsToo: ComboBox has its own built-in wheel behavior; this guarantees our step
+        // logic always runs and has the final say over the box's value.
+        SizeBox.AddHandler(Avalonia.Input.InputElement.PointerWheelChangedEvent, OnSizeWheel,
+            Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
+        ApplyBrushSize(Canvas.BrushWidth);
+        ToleranceBox.AddHandler(Avalonia.Input.InputElement.PointerWheelChangedEvent, OnToleranceWheel,
+            Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
+        ApplyTolerance(Canvas.FillTolerance);
+
         _layout = _layoutPath is null ? new UiLayout() : UiLayout.LoadOrDefault(_layoutPath);
         ApplyLayout();
         SyncWheelToActiveColor();
@@ -534,33 +581,58 @@ public partial class MainView : UserControl
 
     // ---- modular panel layout --------------------------------------------
 
-    // Panel + its docked-to-a-side width. Docked top/bottom the width is dropped so the panel
-    // spans the window instead of being pinned to a thin column.
-    private (Border Border, string Place, double SideWidth)[] Panels => new[]
+    // Panel + its docked-to-a-side width + display title (used on the floating title bar).
+    // Docked top/bottom the width is dropped so the panel spans the window instead of being
+    // pinned to a thin column.
+    private sealed record PanelSpec(Border Border, string Key, string Title, double SideWidth);
+
+    private PanelSpec[] Panels => new[]
     {
-        (ToolsBorder, _layout.Tools, 70.0),
-        (ColorsBorder, _layout.Colors, double.NaN),
-        (ColorWheelBorder, _layout.ColorWheel, 190.0),
-        (LayersBorder, _layout.Layers, 220.0)
+        new PanelSpec(ToolsBorder, "Tools", "Tools", 70.0),
+        new PanelSpec(ColorsBorder, "Colors", "Colors", double.NaN),
+        new PanelSpec(ColorWheelBorder, "ColorWheel", "Color", 190.0),
+        new PanelSpec(LayersBorder, "Layers", "Layers", 220.0)
     };
 
     private void ApplyLayout()
     {
         var panels = Panels;
 
-        foreach (var (b, _, _) in panels) RootDock.Children.Remove(b);
-        RootDock.Children.Remove(Canvas);
-
-        foreach (var (b, place, sideWidth) in panels)
+        // Detach every panel Border from wherever it currently lives — RootDock, or a floating
+        // host's content slot — before re-placing it, since a control can only have one parent.
+        foreach (var p in panels)
         {
-            if (place == "Hidden") { b.IsVisible = false; continue; }
-            b.IsVisible = true;
+            RootDock.Children.Remove(p.Border);
+            if (_floatHosts.TryGetValue(p.Key, out var host) && host.Child is DockPanel hostDock)
+                hostDock.Children.Remove(p.Border);
+        }
+        RootDock.Children.Remove(Canvas);
+        foreach (var host in _floatHosts.Values) FloatingLayer.Children.Remove(host);
+
+        foreach (var p in panels)
+        {
+            string place = _layout.GetPlace(p.Key);
+
+            if (place == "Hidden") { p.Border.IsVisible = false; continue; }
+            p.Border.IsVisible = true;
+
+            if (place == "Floating")
+            {
+                var host = GetOrCreateFloatHost(p);
+                var (x, y) = _layout.GetFloatPos(p.Key);
+                host.Margin = new Thickness(Math.Max(0, x), Math.Max(0, y), 0, 0);
+                FloatingLayer.Children.Add(host);
+                continue;
+            }
+
             var dock = ParseDock(place);
-            DockPanel.SetDock(b, dock);
-            b.Width = dock is Dock.Left or Dock.Right ? sideWidth : double.NaN;
-            RootDock.Children.Add(b);
+            DockPanel.SetDock(p.Border, dock);
+            p.Border.Width = dock is Dock.Left or Dock.Right ? p.SideWidth : double.NaN;
+            RootDock.Children.Add(p.Border);
         }
         RootDock.Children.Add(Canvas);   // fill
+
+        RefreshPanelToggleButtons();
     }
 
     private static Dock ParseDock(string s) => s switch
@@ -580,15 +652,66 @@ public partial class MainView : UserControl
 
         var parts = tag.Split(':');
         if (parts.Length != 2) return;
-        switch (parts[0])
+        string key = parts[0], place = parts[1];
+        if (place != "Hidden") _lastShownPlace[key] = place;
+        if (place is "Left" or "Right" or "Top" or "Bottom") _lastDockPlace[key] = place;
+        _layout.SetPlace(key, place);
+        ApplyLayout();
+        PersistLayout();
+    }
+
+    /// <summary>Top-right icon toggle: hides a visible panel, or restores a hidden one to
+    /// wherever it was last shown (its dock side, or Floating at its last position).</summary>
+    private void OnPanelToggle(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is not ToggleButton tb || tb.Tag is not string key) return;
+
+        string place = _layout.GetPlace(key);
+        if (place == "Hidden")
+            _layout.SetPlace(key, _lastShownPlace.TryGetValue(key, out var last) ? last : "Left");
+        else
         {
-            case "Tools": _layout.Tools = parts[1]; break;
-            case "Colors": _layout.Colors = parts[1]; break;
-            case "ColorWheel": _layout.ColorWheel = parts[1]; break;
-            case "Layers": _layout.Layers = parts[1]; break;
+            _lastShownPlace[key] = place;
+            _layout.SetPlace(key, "Hidden");
         }
         ApplyLayout();
         PersistLayout();
+    }
+
+    /// <summary>Per-panel float button: undocks a docked panel to Floating, or sends a floating
+    /// panel back to wherever it was last docked.</summary>
+    private void OnPanelFloatToggle(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is not ToggleButton tb || tb.Tag is not string key) return;
+
+        string place = _layout.GetPlace(key);
+        string next = place == "Floating"
+            ? (_lastDockPlace.TryGetValue(key, out var dock) ? dock : "Left")
+            : "Floating";
+        _lastShownPlace[key] = next;
+        _layout.SetPlace(key, next);
+        ApplyLayout();
+        PersistLayout();
+    }
+
+    private void RefreshPanelToggleButtons()
+    {
+        ToggleTools.IsChecked = _layout.GetPlace("Tools") != "Hidden";
+        ToggleColors.IsChecked = _layout.GetPlace("Colors") != "Hidden";
+        ToggleColorWheel.IsChecked = _layout.GetPlace("ColorWheel") != "Hidden";
+        ToggleLayers.IsChecked = _layout.GetPlace("Layers") != "Hidden";
+
+        RefreshFloatButton(FloatToolsBtn, "Tools");
+        RefreshFloatButton(FloatColorsBtn, "Colors");
+        RefreshFloatButton(FloatColorWheelBtn, "ColorWheel");
+        RefreshFloatButton(FloatLayersBtn, "Layers");
+    }
+
+    private void RefreshFloatButton(ToggleButton btn, string key)
+    {
+        bool floating = _layout.GetPlace(key) == "Floating";
+        btn.IsChecked = floating;
+        ToolTip.SetTip(btn, floating ? "Dock this panel" : "Float this panel");
     }
 
     private void OnResetLayout(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -602,6 +725,123 @@ public partial class MainView : UserControl
     {
         if (_layoutPath is null) return;
         try { _layout.Save(_layoutPath); } catch { /* ignore */ }
+    }
+
+    // ---- floating panels ---------------------------------------------------
+    //
+    // A floating panel is the same Border used when docked, reparented into a small window-like
+    // frame (title bar + close button) absolutely positioned within FloatingLayer via Margin.
+    // Hosts are created once and cached, so drag handlers are wired exactly once per panel.
+
+    private Border GetOrCreateFloatHost(PanelSpec spec)
+    {
+        if (_floatHosts.TryGetValue(spec.Key, out var existing))
+        {
+            // ApplyLayout unconditionally detaches spec.Border from the host's DockPanel before
+            // re-placing every panel (see the top of ApplyLayout), so a reused host always needs
+            // its content put back — otherwise a second float placement leaves only the title bar.
+            if (existing.Child is DockPanel existingDock && !existingDock.Children.Contains(spec.Border))
+                existingDock.Children.Add(spec.Border);
+            return existing;
+        }
+
+        spec.Border.Width = spec.SideWidth;
+
+        var titleText = new TextBlock
+        {
+            Text = spec.Title,
+            Foreground = new SolidColorBrush(Color.FromRgb(0xE0, 0xE0, 0xE0)),
+            FontWeight = FontWeight.Bold,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var closeBtn = new Button { Content = "✕", Padding = new Thickness(6, 0) };
+        ToolTip.SetTip(closeBtn, "Hide (View ▸ Panels to restore)");
+        closeBtn.Click += (_, _) =>
+        {
+            _layout.SetPlace(spec.Key, "Hidden");
+            ApplyLayout();
+            PersistLayout();
+        };
+
+        var titleGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        titleGrid.Children.Add(titleText);
+        Grid.SetColumn(closeBtn, 1);
+        titleGrid.Children.Add(closeBtn);
+
+        var titleBar = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33)),
+            Padding = new Thickness(8, 4),
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeAll),
+            Child = titleGrid
+        };
+        DockPanel.SetDock(titleBar, Dock.Top);
+
+        var hostDock = new DockPanel { LastChildFill = true };
+        hostDock.Children.Add(titleBar);
+        hostDock.Children.Add(spec.Border);
+
+        var host = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(0x26, 0x26, 0x26)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x50, 0x50, 0x50)),
+            BorderThickness = new Thickness(1),
+            BoxShadow = BoxShadows.Parse("0 4 16 0 #A0000000"),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            Child = hostDock
+        };
+
+        WireFloatDrag(titleBar, host, spec.Key);
+        host.PointerPressed += (_, _) => BringToFront(host);
+
+        _floatHosts[spec.Key] = host;
+        return host;
+    }
+
+    private void WireFloatDrag(Border titleBar, Border host, string key)
+    {
+        Point dragStart = default;
+        Point marginStart = default;
+        bool dragging = false;
+
+        titleBar.PointerPressed += (_, e) =>
+        {
+            if (!e.GetCurrentPoint(titleBar).Properties.IsLeftButtonPressed) return;
+            // Reordering FloatingLayer.Children detaches/reattaches host's visual subtree, which
+            // silently drops pointer capture — so this must happen *before* Capture is requested,
+            // never after.
+            BringToFront(host);
+            dragging = true;
+            dragStart = e.GetPosition(FloatingLayer);
+            marginStart = new Point(host.Margin.Left, host.Margin.Top);
+            e.Pointer.Capture(titleBar);
+        };
+        titleBar.PointerMoved += (_, e) =>
+        {
+            if (!dragging) return;
+            var p = e.GetPosition(FloatingLayer);
+            double nx = Math.Max(0, marginStart.X + (p.X - dragStart.X));
+            double ny = Math.Max(0, marginStart.Y + (p.Y - dragStart.Y));
+            host.Margin = new Thickness(nx, ny, 0, 0);
+        };
+        titleBar.PointerReleased += (_, e) =>
+        {
+            if (!dragging) return;
+            dragging = false;
+            e.Pointer.Capture(null);
+            _layout.SetFloatPos(key, host.Margin.Left, host.Margin.Top);
+            PersistLayout();
+        };
+    }
+
+    private void BringToFront(Border host)
+    {
+        // No-op when already topmost: reordering detaches/reattaches host's visual subtree, which
+        // would drop pointer capture if this ran again mid-drag (see WireFloatDrag).
+        if (FloatingLayer.Children.Count > 0 && ReferenceEquals(FloatingLayer.Children[^1], host)) return;
+        FloatingLayer.Children.Remove(host);
+        FloatingLayer.Children.Add(host);
     }
 
     // No-op under the browser single-view host (no desktop window to close).
@@ -1041,11 +1281,54 @@ public partial class MainView : UserControl
         CoordText.Text = inside ? $"{x}, {y}" : "";
     }
 
-    private void OnSize(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    private bool _suppressSize;   // guards programmatic updates to SizeBox while applying a size
+
+    /// <summary>Sets the brush/outline size, clamped to range, and syncs SizeBox to match —
+    /// selecting the matching preset if there is one, and always updating the editable text.</summary>
+    private void ApplyBrushSize(int size)
     {
-        int size = (int)Math.Round(e.NewValue);
+        size = Math.Clamp(size, MinBrushSize, MaxBrushSize);
         if (Canvas is not null) Canvas.BrushWidth = size;
-        if (SizeLabel is not null) SizeLabel.Text = size + " px";
+        if (SizeBox is null) return;
+
+        _suppressSize = true;
+        SizeBox.SelectedItem = Array.IndexOf(BrushSizePresets, size) >= 0 ? size : null;
+        SizeBox.Text = size.ToString();
+        _suppressSize = false;
+    }
+
+    private void OnSizePresetSelected(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressSize) return;
+        if (SizeBox.SelectedItem is int size) ApplyBrushSize(size);
+    }
+
+    private void OnSizeKeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
+    {
+        if (e.Key != Avalonia.Input.Key.Enter) return;
+        CommitSizeText();
+        e.Handled = true;
+    }
+
+    private void OnSizeTextCommit(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => CommitSizeText();
+
+    /// <summary>Parses whatever the user typed into the editable box; reverts to the current size
+    /// on unparsable input instead of leaving the box showing something that was never applied.</summary>
+    private void CommitSizeText()
+    {
+        if (_suppressSize || SizeBox is null) return;
+        ApplyBrushSize(int.TryParse((SizeBox.Text ?? "").Trim(), out int size) ? size : Canvas.BrushWidth);
+    }
+
+    /// <summary>Lets the wheel nudge the size while hovering SizeBox, Shift for a bigger jump —
+    /// independent of the box's own built-in wheel behavior (see the handledEventsToo hookup).</summary>
+    private void OnSizeWheel(object? sender, Avalonia.Input.PointerWheelEventArgs e)
+    {
+        int step = e.KeyModifiers.HasFlag(Avalonia.Input.KeyModifiers.Shift) ? 10 : 1;
+        int delta = Math.Sign(e.Delta.Y) * step;
+        if (delta == 0) return;
+        ApplyBrushSize(Canvas.BrushWidth + delta);
+        e.Handled = true;
     }
 
     private void OnAntialias(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -1063,11 +1346,50 @@ public partial class MainView : UserControl
         if (Canvas is not null && GlobalFillCheck is not null) Canvas.GlobalFill = GlobalFillCheck.IsChecked ?? false;
     }
 
-    private void OnTolerance(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    private bool _suppressTolerance;   // guards programmatic updates to ToleranceBox
+
+    /// <summary>Sets the fill tolerance, clamped to range, and syncs ToleranceBox to match —
+    /// selecting the matching preset if there is one, and always updating the editable text.</summary>
+    private void ApplyTolerance(int tol)
     {
-        int tol = (int)Math.Round(e.NewValue);
+        tol = Math.Clamp(tol, MinTolerance, MaxTolerance);
         if (Canvas is not null) Canvas.FillTolerance = tol;
-        if (ToleranceLabel is not null) ToleranceLabel.Text = tol.ToString();
+        if (ToleranceBox is null) return;
+
+        _suppressTolerance = true;
+        ToleranceBox.SelectedItem = Array.IndexOf(TolerancePresets, tol) >= 0 ? tol : null;
+        ToleranceBox.Text = tol.ToString();
+        _suppressTolerance = false;
+    }
+
+    private void OnTolerancePresetSelected(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressTolerance) return;
+        if (ToleranceBox.SelectedItem is int tol) ApplyTolerance(tol);
+    }
+
+    private void OnToleranceKeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
+    {
+        if (e.Key != Avalonia.Input.Key.Enter) return;
+        CommitToleranceText();
+        e.Handled = true;
+    }
+
+    private void OnToleranceTextCommit(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => CommitToleranceText();
+
+    private void CommitToleranceText()
+    {
+        if (_suppressTolerance || ToleranceBox is null) return;
+        ApplyTolerance(int.TryParse((ToleranceBox.Text ?? "").Trim(), out int tol) ? tol : Canvas.FillTolerance);
+    }
+
+    private void OnToleranceWheel(object? sender, Avalonia.Input.PointerWheelEventArgs e)
+    {
+        int step = e.KeyModifiers.HasFlag(Avalonia.Input.KeyModifiers.Shift) ? 10 : 1;
+        int delta = Math.Sign(e.Delta.Y) * step;
+        if (delta == 0) return;
+        ApplyTolerance(Canvas.FillTolerance + delta);
+        e.Handled = true;
     }
 
     // ---- layers panel -----------------------------------------------------
@@ -1109,7 +1431,7 @@ public partial class MainView : UserControl
             var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
             panel.Children.Add(check);
             panel.Children.Add(thumb);
-            panel.Children.Add(new TextBlock { Text = layer.Name, VerticalAlignment = VerticalAlignment.Center });
+            panel.Children.Add(new TextBlock { Text = layer.Name, VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.White });
 
             var item = new ListBoxItem { Content = panel, Tag = layer };
             item.DoubleTapped += async (_, _) =>

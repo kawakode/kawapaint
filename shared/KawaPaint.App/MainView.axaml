@@ -108,6 +108,13 @@
                     <Separator />
                     <MenuItem Header="Reset Layout" Click="OnResetLayout" />
                 </MenuItem>
+                <MenuItem x:Name="LayoutPresetsMenu" Header="_Layout">
+                    <MenuItem Header="Save As…" Click="OnSaveLayoutPreset" />
+                    <MenuItem Header="Rename Current…" Click="OnRenameLayoutPreset" />
+                    <MenuItem Header="Delete Current…" Click="OnDeleteLayoutPreset" />
+                    <Separator />
+                    <!-- Preset entries are inserted here at runtime; see RebuildLayoutPresetsMenu. -->
+                </MenuItem>
             </MenuItem>
             <MenuItem Header="_Image" Classes="topbar">
                 <MenuItem Header="_Resize…" Click="OnResize" Icon="{app:Icon Resize}" />

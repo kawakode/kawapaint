@@ -10,10 +10,14 @@ public sealed class SettingsService
 {
     private const string Key = "settings.json";
 
+    // AllowNamedFloatingPointLiterals: PanelPlacement's dock/float sizes default to NaN ("size
+    // to content"), which System.Text.Json otherwise refuses to write at all — every save with a
+    // panel still at its default size would silently no-op without this.
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
     };
 
     private readonly ISettingsStore _store;

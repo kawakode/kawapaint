@@ -118,6 +118,7 @@ public partial class MainView : UserControl
         ApplyTolerance(Canvas.FillTolerance);
 
         BuildPanelManager();
+        RebuildLayoutPresetsMenu();
         BuildCommands();
         ApplyHistorySettings();
         SyncWheelToActiveColor();
@@ -884,6 +885,109 @@ public partial class MainView : UserControl
         var workspace = _settings.Settings.Workspace;
         workspace.Layouts[workspace.ActiveLayout] = _panels.Layout;
         _settings.SaveDeferred();
+    }
+
+    // ---- saveable layout presets -------------------------------------------
+    //
+    // A named WorkspaceLayout snapshot, switchable from the View ▸ Layout menu. Local settings
+    // file by default (see AppSettings.Workspace.Layouts); a git-backed alternative can read the
+    // same structure later without changing this code.
+
+    private const int LayoutPresetsMenuStaticItemCount = 4;   // Save As, Rename, Delete, Separator
+
+    private void RebuildLayoutPresetsMenu()
+    {
+        while (LayoutPresetsMenu.Items.Count > LayoutPresetsMenuStaticItemCount)
+            LayoutPresetsMenu.Items.RemoveAt(LayoutPresetsMenu.Items.Count - 1);
+
+        var workspace = _settings.Settings.Workspace;
+        foreach (string name in workspace.Layouts.Keys.OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
+        {
+            var item = new MenuItem
+            {
+                Header = name,
+                ToggleType = MenuItemToggleType.Radio,
+                GroupName = "LayoutPreset",
+                IsChecked = name == workspace.ActiveLayout
+            };
+            item.Click += (_, _) => SwitchLayoutPreset(name);
+            LayoutPresetsMenu.Items.Add(item);
+        }
+    }
+
+    private void SwitchLayoutPreset(string name)
+    {
+        var workspace = _settings.Settings.Workspace;
+        if (!workspace.Layouts.TryGetValue(name, out var layout) || name == workspace.ActiveLayout) return;
+
+        workspace.ActiveLayout = name;
+        _panels.SetLayout(layout);
+        RefreshPanelToggleButtons();
+        _settings.Save();
+        RebuildLayoutPresetsMenu();
+        StatusText.Text = "Switched to layout \"" + name + "\"";
+    }
+
+    private async void OnSaveLayoutPreset(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var owner = OwnerWindow;
+        if (owner is null) return;   // no dialog host under the browser single-view build
+
+        var workspace = _settings.Settings.Workspace;
+        var dlg = new PromptDialog("Save Layout As", workspace.ActiveLayout);
+        if (!await dlg.ShowDialog<bool>(owner)) return;
+
+        string name = dlg.ResultText.Trim();
+        if (name.Length == 0) return;
+
+        workspace.Layouts[name] = _panels.Layout.Clone();
+        workspace.ActiveLayout = name;
+        _settings.Save();
+        RebuildLayoutPresetsMenu();
+        StatusText.Text = "Saved layout \"" + name + "\"";
+    }
+
+    private async void OnRenameLayoutPreset(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var owner = OwnerWindow;
+        if (owner is null) return;
+
+        var workspace = _settings.Settings.Workspace;
+        string oldName = workspace.ActiveLayout;
+        var dlg = new PromptDialog("Rename Layout", oldName);
+        if (!await dlg.ShowDialog<bool>(owner)) return;
+
+        string newName = dlg.ResultText.Trim();
+        if (newName.Length == 0 || newName == oldName) return;
+        if (!workspace.Layouts.TryGetValue(oldName, out var layout)) return;
+
+        workspace.Layouts.Remove(oldName);
+        workspace.Layouts[newName] = layout;
+        workspace.ActiveLayout = newName;
+        _settings.Save();
+        RebuildLayoutPresetsMenu();
+        StatusText.Text = "Renamed layout to \"" + newName + "\"";
+    }
+
+    private void OnDeleteLayoutPreset(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var workspace = _settings.Settings.Workspace;
+        if (workspace.Layouts.Count <= 1)
+        {
+            StatusText.Text = "Can't delete the only layout";
+            return;
+        }
+
+        string removed = workspace.ActiveLayout;
+        workspace.Layouts.Remove(removed);
+
+        string next = workspace.Layouts.ContainsKey("Default") ? "Default" : workspace.Layouts.Keys.First();
+        workspace.ActiveLayout = next;
+        _panels.SetLayout(workspace.Layouts[next]);
+        RefreshPanelToggleButtons();
+        _settings.Save();
+        RebuildLayoutPresetsMenu();
+        StatusText.Text = "Deleted layout \"" + removed + "\"";
     }
 
     // No-op under the browser single-view host (no desktop window to close).

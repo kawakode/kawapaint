@@ -1,0 +1,268 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:app="clr-namespace:KawaPaint.App"
+        x:Class="KawaPaint.App.MainView">
+    <UserControl.Styles>
+        <!-- Color swatches. The Fluent button template repaints its content background on
+             hover/press, which would hide the very color the button exists to show, so the
+             templated background is re-asserted in those states. -->
+        <Style Selector="Button.swatch:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{TemplateBinding Background}" />
+        </Style>
+        <Style Selector="Button.swatch:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{TemplateBinding Background}" />
+        </Style>
+    </UserControl.Styles>
+    <DockPanel x:Name="RootDock">
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="_File">
+                <MenuItem Header="_New" Click="OnNew" InputGesture="Ctrl+N" />
+                <MenuItem Header="_Open Image…" Click="OnOpen" InputGesture="Ctrl+O" />
+                <MenuItem Header="Open _Project…" Click="OnOpenProject" InputGesture="Ctrl+Shift+O" />
+                <Separator />
+                <MenuItem Header="Save _Project…" Click="OnSaveProject" InputGesture="Ctrl+S" />
+                <MenuItem Header="_Export Flattened…" Click="OnSaveAs" InputGesture="Ctrl+Shift+S" />
+                <Separator />
+                <MenuItem Header="E_xit" Click="OnExit" />
+            </MenuItem>
+            <MenuItem Header="_Edit">
+                <MenuItem Header="_Undo" Click="OnUndo" InputGesture="Ctrl+Z" />
+                <MenuItem Header="_Redo" Click="OnRedo" InputGesture="Ctrl+Y" />
+            </MenuItem>
+            <MenuItem Header="_Select">
+                <MenuItem Header="Select _All" Click="OnSelectAll" InputGesture="Ctrl+A" />
+                <MenuItem Header="_Invert" Click="OnInvertSelection" InputGesture="Ctrl+I" />
+                <MenuItem Header="Deselect (Select _None)" Click="OnSelectNone" InputGesture="Ctrl+D" />
+            </MenuItem>
+            <MenuItem Header="_View">
+                <!-- These are spelled into the header rather than set as an InputGesture: a
+                     KeyGesture for +/-/0/1 stringifies as "OemPlus"/"D0" in the menu. -->
+                <MenuItem Header="Zoom _In   (Ctrl +)" Click="OnZoomIn" />
+                <MenuItem Header="Zoom _Out   (Ctrl -)" Click="OnZoomOut" />
+                <MenuItem Header="_Fit to Window   (Ctrl 0)" Click="OnZoomFit" />
+                <MenuItem Header="_Actual Size 100%   (Ctrl 1)" Click="OnZoomActual" />
+                <Separator />
+                <MenuItem Header="_Panels">
+                    <MenuItem Header="Tools">
+                        <MenuItem Header="Left" Tag="Tools:Left" Click="OnPanelPlace" />
+                        <MenuItem Header="Right" Tag="Tools:Right" Click="OnPanelPlace" />
+                        <MenuItem Header="Top" Tag="Tools:Top" Click="OnPanelPlace" />
+                        <MenuItem Header="Bottom" Tag="Tools:Bottom" Click="OnPanelPlace" />
+                        <MenuItem Header="Hidden" Tag="Tools:Hidden" Click="OnPanelPlace" />
+                    </MenuItem>
+                    <MenuItem Header="Colors">
+                        <MenuItem Header="Left" Tag="Colors:Left" Click="OnPanelPlace" />
+                        <MenuItem Header="Right" Tag="Colors:Right" Click="OnPanelPlace" />
+                        <MenuItem Header="Top" Tag="Colors:Top" Click="OnPanelPlace" />
+                        <MenuItem Header="Bottom" Tag="Colors:Bottom" Click="OnPanelPlace" />
+                        <MenuItem Header="Hidden" Tag="Colors:Hidden" Click="OnPanelPlace" />
+                    </MenuItem>
+                    <MenuItem Header="Color Wheel">
+                        <MenuItem Header="Left" Tag="ColorWheel:Left" Click="OnPanelPlace" />
+                        <MenuItem Header="Right" Tag="ColorWheel:Right" Click="OnPanelPlace" />
+                        <MenuItem Header="Top" Tag="ColorWheel:Top" Click="OnPanelPlace" />
+                        <MenuItem Header="Bottom" Tag="ColorWheel:Bottom" Click="OnPanelPlace" />
+                        <MenuItem Header="Hidden" Tag="ColorWheel:Hidden" Click="OnPanelPlace" />
+                    </MenuItem>
+                    <MenuItem Header="Layers">
+                        <MenuItem Header="Left" Tag="Layers:Left" Click="OnPanelPlace" />
+                        <MenuItem Header="Right" Tag="Layers:Right" Click="OnPanelPlace" />
+                        <MenuItem Header="Top" Tag="Layers:Top" Click="OnPanelPlace" />
+                        <MenuItem Header="Bottom" Tag="Layers:Bottom" Click="OnPanelPlace" />
+                        <MenuItem Header="Hidden" Tag="Layers:Hidden" Click="OnPanelPlace" />
+                    </MenuItem>
+                    <Separator />
+                    <MenuItem Header="Reset Layout" Click="OnResetLayout" />
+                </MenuItem>
+            </MenuItem>
+            <MenuItem Header="_Image">
+                <MenuItem Header="_Resize…" Click="OnResize" />
+                <MenuItem Header="_Crop to Selection" Click="OnCropToSelection" />
+                <Separator />
+                <MenuItem Header="Flip _Horizontal" Click="OnFlipH" />
+                <MenuItem Header="Flip _Vertical" Click="OnFlipV" />
+                <MenuItem Header="Rotate 90° C_W" Click="OnRotateCW" />
+                <MenuItem Header="Rotate 90° CC_W" Click="OnRotateCCW" />
+                <Separator />
+                <MenuItem Header="_Flatten Image" Click="OnFlatten" />
+            </MenuItem>
+            <MenuItem Header="Effe_cts">
+                <MenuItem Header="_Invert Colors" Tag="invert" Click="OnEffect" />
+                <MenuItem Header="_Black &amp; White" Tag="gray" Click="OnEffect" />
+                <MenuItem Header="_Sepia" Tag="sepia" Click="OnEffect" />
+                <Separator />
+                <MenuItem Header="Brightness / Contrast…" Tag="bc" Click="OnAdjust" />
+                <MenuItem Header="Hue / Saturation…" Tag="hsl" Click="OnAdjust" />
+                <MenuItem Header="_Levels…" Tag="levels" Click="OnAdjust" />
+                <MenuItem Header="Cur_ves…" Click="OnCurves" />
+                <MenuItem Header="_Auto Levels" Tag="autolevels" Click="OnEffect" />
+                <Separator />
+                <MenuItem Header="Gaussian _Blur…" Tag="blur" Click="OnAdjust" />
+                <MenuItem Header="Sharpe_n" Tag="sharpen" Click="OnEffect" />
+                <MenuItem Header="_Emboss" Tag="emboss" Click="OnEffect" />
+                <MenuItem Header="Edge _Detect" Tag="edge" Click="OnEffect" />
+                <MenuItem Header="_Posterize…" Tag="posterize" Click="OnAdjust" />
+                <MenuItem Header="Add _Noise…" Tag="noise" Click="OnAdjust" />
+            </MenuItem>
+        </Menu>
+        <Border DockPanel.Dock="Top" Background="#282828" Padding="8,5">
+            <WrapPanel Orientation="Horizontal">
+                <WrapPanel.Styles>
+                    <Style Selector="StackPanel.group">
+                        <Setter Property="Orientation" Value="Horizontal" />
+                        <Setter Property="Spacing" Value="4" />
+                        <Setter Property="Margin" Value="0,2,12,2" />
+                    </Style>
+                    <Style Selector="StackPanel.group > TextBlock">
+                        <Setter Property="Foreground" Value="#C0C0C0" />
+                        <Setter Property="VerticalAlignment" Value="Center" />
+                    </Style>
+                </WrapPanel.Styles>
+                <StackPanel Classes="group">
+                    <TextBlock Text="Fg:" />
+                    <Button Classes="swatch" Tag="#000000" Click="OnColor" Background="Black" Width="22" Height="22" />
+                    <Button Classes="swatch" Tag="#FFFFFF" Click="OnColor" Background="White" Width="22" Height="22" />
+                    <Button Classes="swatch" Tag="#E01010" Click="OnColor" Background="#E01010" Width="22" Height="22" />
+                    <Button Classes="swatch" Tag="#20B020" Click="OnColor" Background="#20B020" Width="22" Height="22" />
+                    <Button Classes="swatch" Tag="#2050E0" Click="OnColor" Background="#2050E0" Width="22" Height="22" />
+                </StackPanel>
+                <!-- Option groups are enabled/disabled per tool (see SelectTool) so the toolbar
+                     only offers what the active tool actually uses. -->
+                <StackPanel x:Name="SizeGroup" Classes="group">
+                    <TextBlock Text="Size:" />
+                    <Slider x:Name="SizeSlider" Minimum="1" Maximum="64" Value="3" Width="140"
+                            VerticalAlignment="Center" ValueChanged="OnSize"
+                            ToolTip.Tip="Brush / outline thickness" />
+                    <TextBlock x:Name="SizeLabel" Text="3 px" Width="42" />
+                </StackPanel>
+                <StackPanel x:Name="ShapeGroup" Classes="group">
+                    <CheckBox x:Name="AntialiasCheck" Content="AA" IsChecked="True"
+                              VerticalAlignment="Center" IsCheckedChanged="OnAntialias"
+                              ToolTip.Tip="Antialias strokes and outlines" />
+                    <CheckBox x:Name="FillShapesCheck" Content="Fill"
+                              VerticalAlignment="Center" IsCheckedChanged="OnFillShapes"
+                              ToolTip.Tip="Draw shapes filled instead of outlined" />
+                </StackPanel>
+                <StackPanel x:Name="BucketGroup" Classes="group">
+                    <CheckBox x:Name="GlobalFillCheck" Content="Global"
+                              VerticalAlignment="Center" IsCheckedChanged="OnGlobalFill"
+                              ToolTip.Tip="Fill every matching pixel, not just the contiguous region" />
+                    <TextBlock Text="Tol:" />
+                    <Slider x:Name="ToleranceSlider" Minimum="0" Maximum="128" Value="32" Width="100"
+                            VerticalAlignment="Center" ValueChanged="OnTolerance"
+                            ToolTip.Tip="How far a pixel's color may differ and still be filled" />
+                    <TextBlock x:Name="ToleranceLabel" Text="32" Width="28" />
+                </StackPanel>
+            </WrapPanel>
+        </Border>
+        <Border DockPanel.Dock="Bottom" Background="#202020" Padding="8,3">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <TextBlock x:Name="StatusText" Foreground="#C0C0C0" Text="Ready" />
+                <TextBlock x:Name="CoordText" Grid.Column="1" Foreground="#C0C0C0" Text="" Margin="0,0,16,0" />
+                <TextBlock x:Name="ZoomText" Grid.Column="2" Foreground="#C0C0C0" Text="Fit" />
+            </Grid>
+        </Border>
+
+        <!-- Colors palette strip -->
+        <Border x:Name="ColorsBorder" DockPanel.Dock="Bottom" Background="#282828" BorderBrush="#404040" BorderThickness="0,1,0,0" Padding="6,4">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="Colors" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
+                <WrapPanel x:Name="PaletteStrip" VerticalAlignment="Center" MaxWidth="640" />
+                <Border Width="1" Background="#505050" Margin="4,2" />
+                <Button Content="+ Add" Click="OnAddPaletteColor" ToolTip.Tip="Add current foreground color" />
+                <Button Content="Save…" Click="OnSavePalette" />
+                <Button Content="Load…" Click="OnLoadPalette" />
+                <Button Content="✕" Padding="6,0" Tag="Colors:Hidden" Click="OnPanelPlace"
+                        ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+            </StackPanel>
+        </Border>
+
+        <!-- Color Wheel panel -->
+        <Border x:Name="ColorWheelBorder" DockPanel.Dock="Right" Width="190" Background="#262626" BorderBrush="#404040" BorderThickness="1,0,0,0">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="8" Spacing="8">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="Color" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="✕" Padding="4,0" Tag="ColorWheel:Hidden" Click="OnPanelPlace"
+                                ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                    </Grid>
+
+                    <!-- Active-target swatches: click to choose which color the wheel edits.
+                         Border, not Button: the theme's button template repaints its content
+                         background on hover, which would mask the swatch color. -->
+                    <Grid ColumnDefinitions="*,Auto,*" ColumnSpacing="4">
+                        <Border x:Name="FgSwatch" Grid.Column="0" Height="30" MinWidth="40"
+                                HorizontalAlignment="Stretch" Cursor="Hand"
+                                BorderBrush="#8CB4FF" BorderThickness="2" CornerRadius="3"
+                                PointerPressed="OnSelectFg" ToolTip.Tip="Foreground (click to edit)" />
+                        <Button Grid.Column="1" Content="⇄" Padding="8,0" Click="OnSwapColors"
+                                VerticalAlignment="Stretch" ToolTip.Tip="Swap foreground / background" />
+                        <Border x:Name="BgSwatch" Grid.Column="2" Height="30" MinWidth="40"
+                                HorizontalAlignment="Stretch" Cursor="Hand"
+                                BorderBrush="#505050" BorderThickness="2" CornerRadius="3"
+                                PointerPressed="OnSelectBg" ToolTip.Tip="Background (click to edit)" />
+                    </Grid>
+
+                    <ColorSpectrum x:Name="ColorWheel" Shape="Ring" Components="HueSaturation"
+                                   Height="150" MinWidth="0" MinHeight="0"
+                                   HorizontalAlignment="Stretch"
+                                   ColorChanged="OnSpectrumChanged" />
+
+                    <TextBlock Text="Value" Foreground="#A0A0A0" FontSize="11" />
+                    <ColorSlider x:Name="ValueSlider" ColorModel="Hsva" ColorComponent="Component3"
+                                 IsAlphaVisible="False" Height="18" ColorChanged="OnValueSliderChanged" />
+
+                    <TextBlock Text="Alpha" Foreground="#A0A0A0" FontSize="11" />
+                    <ColorSlider x:Name="AlphaSlider" ColorModel="Hsva" ColorComponent="Alpha"
+                                 Height="18" ColorChanged="OnAlphaSliderChanged" />
+
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="4">
+                        <TextBlock Text="#" Foreground="#A0A0A0" VerticalAlignment="Center" />
+                        <TextBox x:Name="HexBox" Grid.Column="1" FontFamily="monospace" Padding="4,2"
+                                 KeyDown="OnHexKeyDown" LostFocus="OnHexCommit" />
+                    </Grid>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+
+        <!-- Layers panel -->
+        <Border x:Name="LayersBorder" DockPanel.Dock="Right" Width="220" Background="#262626" BorderBrush="#404040" BorderThickness="1,0,0,0">
+            <DockPanel Margin="6">
+                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="2,2,2,6">
+                    <TextBlock Text="Layers" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Content="✕" Padding="4,0" Tag="Layers:Hidden" Click="OnPanelPlace"
+                            ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                </Grid>
+                <WrapPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                    <Button Content="Add" Click="OnAddLayer" Margin="0,0,4,4" />
+                    <Button Content="Dup" Click="OnDuplicateLayer" Margin="0,0,4,4" />
+                    <Button Content="Del" Click="OnDeleteLayer" Margin="0,0,4,4" />
+                    <Button Content="Merge" Click="OnMergeDown" Margin="0,0,4,4" />
+                    <Button Content="↑" Click="OnLayerUp" Margin="0,0,4,4" />
+                    <Button Content="↓" Click="OnLayerDown" Margin="0,0,4,4" />
+                </WrapPanel>
+                <StackPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                    <TextBlock Text="Blend mode" Foreground="#A0A0A0" Margin="2,0" />
+                    <ComboBox x:Name="BlendCombo" HorizontalAlignment="Stretch"
+                              SelectionChanged="OnBlendChanged" />
+                    <TextBlock Text="Opacity" Foreground="#A0A0A0" Margin="2,6,2,0" />
+                    <Slider x:Name="OpacitySlider" Minimum="0" Maximum="255" Value="255"
+                            ValueChanged="OnOpacityChanged" />
+                </StackPanel>
+                <ListBox x:Name="LayerList" Background="#1E1E1E"
+                         SelectionChanged="OnLayerSelected" />
+            </DockPanel>
+        </Border>
+
+        <Border x:Name="ToolsBorder" DockPanel.Dock="Left" Width="70" Background="#262626"
+                BorderBrush="#404040" BorderThickness="0,0,1,0">
+            <DockPanel>
+                <Button DockPanel.Dock="Top" Content="✕" HorizontalAlignment="Right" Padding="4,0" Margin="2"
+                        Tag="Tools:Hidden" Click="OnPanelPlace" ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                <WrapPanel x:Name="ToolPalette" Orientation="Horizontal" Margin="4" />
+            </DockPanel>
+        </Border>
+
+        <app:SurfaceView x:Name="Canvas" />
+    </DockPanel>
+</UserControl>

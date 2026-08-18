@@ -30,6 +30,12 @@ public static class DocumentFile
 
     public static void Save(Document doc, string path)
     {
+        using var file = File.Create(path);
+        Save(doc, file);
+    }
+
+    public static void Save(Document doc, Stream stream)
+    {
         var manifest = new Manifest { Width = doc.Width, Height = doc.Height };
         foreach (var layer in doc.Layers)
         {
@@ -42,8 +48,7 @@ public static class DocumentFile
             });
         }
 
-        using var file = File.Create(path);
-        using var zip = new ZipArchive(file, ZipArchiveMode.Create);
+        using var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true);
 
         var manifestEntry = zip.CreateEntry("manifest.json", CompressionLevel.Optimal);
         using (var ms = manifestEntry.Open())
@@ -60,7 +65,12 @@ public static class DocumentFile
     public static Document Load(string path)
     {
         using var file = File.OpenRead(path);
-        using var zip = new ZipArchive(file, ZipArchiveMode.Read);
+        return Load(file);
+    }
+
+    public static Document Load(Stream stream)
+    {
+        using var zip = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
 
         var manifestEntry = zip.GetEntry("manifest.json")
             ?? throw new InvalidDataException("not a KawaPaint document (missing manifest.json)");

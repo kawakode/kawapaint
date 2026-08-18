@@ -29,6 +29,9 @@ public sealed class Palette
         File.WriteAllText(path, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
     }
 
+    public void Save(Stream stream) =>
+        JsonSerializer.Serialize(stream, this, new JsonSerializerOptions { WriteIndented = true });
+
     public static Palette LoadOrDefault(string path)
     {
         try
@@ -38,6 +41,12 @@ public sealed class Palette
         }
         catch { /* fall through to default */ }
         return Default();
+    }
+
+    public static Palette LoadOrDefault(Stream stream)
+    {
+        try { return JsonSerializer.Deserialize<Palette>(stream) ?? Default(); }
+        catch { return Default(); }
     }
 
     public static Palette Default()

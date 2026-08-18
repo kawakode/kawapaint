@@ -40,6 +40,7 @@ public partial class MainView : UserControl
     private readonly SettingsService _settings = SettingsService.Instance;
     private PanelManager _panels = null!;   // built in the constructor, once the AXAML tree exists
     private readonly CommandRegistry _commands = new();
+    private AutosaveService? _autosave;
 
     public static readonly int[] BrushSizePresets = { 1, 2, 3, 5, 8, 10, 15, 20, 25, 30, 40, 50, 64, 75, 100, 150, 200 };
     private const int MinBrushSize = 1;
@@ -125,6 +126,50 @@ public partial class MainView : UserControl
         Canvas.History.Changed += (_, _) => MarkDirty();
         SetClean(null);
         SelectTool("Pencil");
+
+        _autosave = new AutosaveService(_settings, () => _session);
+        _autosave.Saved += name => StatusText.Text = $"Autosaved {name} at {DateTime.Now:HH:mm}";
+
+        // Deferred: on desktop this needs a Window to own the dialog, which is only available
+        // once this view is attached (OwnerWindow is null during the constructor).
+        Loaded += OnFirstLoadedCheckRecovery;
+    }
+
+    private async void OnFirstLoadedCheckRecovery(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Loaded -= OnFirstLoadedCheckRecovery;
+
+        var owner = OwnerWindow;
+        if (owner is null) return;   // no recovery prompt in the browser build (see class remarks)
+
+        var entries = AutosaveRecovery.FindAll();
+        if (entries.Count == 0) return;
+
+        var choice = await new RecoveryDialog(entries.Count).ShowDialog<RecoveryChoice>(owner);
+        if (choice != RecoveryChoice.Restore)
+        {
+            AutosaveRecovery.DiscardAll();
+            return;
+        }
+
+        try
+        {
+            var newest = entries[0];
+            var doc = DocumentFile.Load(newest.Path);
+            Canvas.SetDocument(doc);
+            _session = new DocumentSession(doc, filePath: null, displayName: "Recovered document");
+            _session.MarkDirty(DirtyReason.Structure);   // recovered work was never saved by the user
+            UpdateTitle();
+            StatusText.Text = "Restored autosaved work from " + newest.WrittenUtc.ToLocalTime();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Recovery failed: " + ex.Message;
+        }
+        finally
+        {
+            AutosaveRecovery.DiscardAll();
+        }
     }
 
     // ---- unsaved-changes tracking ----------------------------------------
@@ -147,9 +192,17 @@ public partial class MainView : UserControl
         if (document is null) { UpdateTitle(); return; }
 
         if (_session is null || !ReferenceEquals(_session.Document, document))
+        {
+            // A previous session's recovery snapshots are now moot: either its document is the
+            // one just opened cleanly (this branch fires on New/Open too), or it was abandoned.
+            if (_session is not null) AutosaveRecovery.Discard(_session.SessionId);
             _session = new DocumentSession(document, LocalPathOf(file), file?.Name);
+        }
         else
+        {
             _session.MarkSaved(LocalPathOf(file), file?.Name);
+            AutosaveRecovery.Discard(_session.SessionId);
+        }
 
         UpdateTitle();
     }

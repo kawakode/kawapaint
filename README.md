@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="kawapaint-main.png" alt="KawaPaint" width="160" />
+  <img src="kawapaint-main.png" alt="KawaPaint" width="320" />
 </p>
 
 <p align="center">

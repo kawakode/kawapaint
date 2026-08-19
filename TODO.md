@@ -1,6 +1,7 @@
 # KawaPaint — resume-here notes
 
-Status snapshot: 2026-08-19, branch `master` (updated post-2.4, post-JXL/JP2-Windows-packaging).
+Status snapshot: 2026-08-19, branch `master` (updated post-2.4, post-JXL/JP2-Windows-packaging,
+post-3.x-classic-PDN-plugin-bridge).
 Full roadmap/rationale lives in Claude memory
 (`feature-roadmap-tiers`) and the published plan:
 https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
@@ -459,12 +460,135 @@ disabled (code never runs), throwing Register (rollback), Id/folder mismatch. Al
 **Live app launch:** No crash despite deliberately-broken BadOne/ plugin present (graceful degradation 
 confirmed). Plugins menu visible, both Effects and Tools submenus ready for population.
 
-### 3.x — Spikes (time-box before committing a schedule, don't just build)
-- **Paint.NET plugin compatibility.** Genuinely split: effects built on `PropertyBasedEffect` /
-  IndirectUI declare their dialogs as data → portable, would work through a shim on top of 2.4.
-  Effects with a hand-written WinForms `EffectConfigDialog` **cannot** show their UI outside
-  Windows — best case is running with default settings, or Windows-only. Spike: load 3 widely-used
-  real plugins, see which bucket they land in, before scoping anything further.
+### 3.x — Real Paint.NET plugin compatibility
+**Classic tier (`Effect`/`PropertyBasedEffect`) done 2026-08-19.** User's ask was explicit:
+compatible with *current* paint.net plugins, not the ancient 3.36-era interfaces this fork started
+from — and "how far" (classic-only vs. also the new v5.0+ `BitmapEffect`/`GpuEffect` tiers) got
+scoped with the user via `AskUserQuestion` before any code, then researched for real (not
+theorized) via a hands-on spike before committing to a plan. Full design rationale lives in the
+approved plan this session — key facts worth keeping here:
+
+- Paint.NET's plugin API is three live generations, not one: classic `Effect`/`PropertyBasedEffect`
+  (2004-era, `[Obsolete]` since 5.x but still what most plugins in the wild use), the newer CPU
+  `BitmapEffect`/`PropertyBasedBitmapEffect` (v5.0+, non-obsolete), and `GpuEffect`/`GpuImageEffect`/
+  `GpuDrawingEffect` (v5.0+, hard Direct2D dependency). User's scope choice: eventually all three,
+  phased. **Only the classic tier is built so far** — see below for 2/3.
+- **No public NuGet SDK exists** — plugin authors compile against paint.net's own real installed
+  `PaintDotNet.*.dll` binaries. Confirmed by reading the actual `License.txt` from the official
+  v5.1.12 portable release that the license permits copying/redistributing the *unmodified*
+  software but forbids "modify, adapt, ... sell, or create derivative works" — given this fork
+  exists specifically to get away from that license (FORK.TXT), **KawaPaint never bundles or
+  compiles against those binaries**. The bridge is pure runtime reflection (`System.Reflection`/
+  `AssemblyLoadContext`, no `PaintDotNet.*` type ever named in KawaPaint's own compiled code) that
+  loads them from a real paint.net install the *user* already has separately, detected via
+  `PdnInstallLocator` (well-known Windows paths, or a user-set override) or pointed at manually in
+  Manage Plugins. `winget` wasn't available on this dev box (no App Installer on this Windows 10
+  IoT LTSC build) — used the official portable ZIP from `github.com/paintdotnet/release` instead,
+  which is what `PdnInstallLocator`/the Manage Plugins UI also point users at.
+- **Proven end-to-end with a real hands-on spike before writing any production code**: instantiated
+  a real `PropertyBasedEffect` (`GaussianBlurEffect` from `PaintDotNet.Effects.Legacy.dll`) in a
+  plain console app with no paint.net process running, drove its real `PropertyCollection`, called
+  its real `Render(...)`, got a correct blur (edge pixel blended R:113/B:142, far pixels stayed
+  pure). This is the same fixture `PdnPluginSmokeTest` re-checks against the real production
+  pipeline.
+
+**New files, all under `shared/KawaPaint.Engine/Plugins/Pdn/`:** `PdnInstallLocator` (finds/
+validates a real install — manifest-only peek via `AssemblyName.GetAssemblyName`, never loads or
+executes speculatively), `PdnAssembliesLoadContext` (one shared, non-collectible ALC holding the
+real `PaintDotNet.*.dll` set + their own dependency closure for the process lifetime — resolves via
+the default context FIRST, only falling back to probing paint.net's install directory, so
+BCL-adjacent types like `System.Drawing.Rectangle` keep the *same* type identity KawaPaint's own
+compiled code uses; see bug #1 below for why this matters), `PdnPluginLoadContext` (one collectible
+ALC per third-party plugin DLL, redirects any `PaintDotNet.*` reference **by name only, ignoring
+version** to the shared instance — this is what lets a plugin compiled 10+ years ago against an old
+paint.net still resolve today), `PdnReflectionSchema` (every `Type`/`MethodInfo`/`PropertyInfo` the
+bridge needs, resolved once, throws one clear "PDN bridge unavailable: ..." at construction on a
+shape mismatch instead of a confusing null-ref later), `PdnPropertyMapper` (`PropertyCollection` →
+the existing 4 `PluginParameterSpec` types, with honest documented fallbacks for what doesn't map:
+unmapped property types stay silently at their paint.net-declared default forever rather than
+failing the whole plugin; color pickers are guessed via a `"color"`/`"colour"` substring heuristic
+on the property name since `PropertyCollection` alone can't distinguish them from plain bounded
+integers; a plugin's custom `OnCreateConfigUI`/`CreateConfigDialog()` is never invoked at all — it
+still loads and renders via the default per-property layout), `PdnSurfaceBridge` (KawaPaint's
+`Surface` ↔ real `PaintDotNet.Surface`/`RenderArgs` — both already byte-identical BGRA32, so this is
+one `Buffer.MemoryCopy` via `MemoryBlock.Pointer` per direction, not a pixel loop; zero-copy was
+investigated and ruled out — `MemoryBlock` has no public constructor wrapping an external pointer,
+confirmed by reflecting its full member list, not guessed), `PdnClassicEffectAdapter` (the `IEffect`
+that builds a fresh effect instance + token on every `Apply()`, matching how
+`PluginEffectDescriptor.Build` is already invoked fresh on every dialog preview tick), and
+`PdnEffectDiscovery` (the entry point — flat-folder DLL scan, one `PluginEffectDescriptor` per
+discovered `PropertyBasedEffect` type, registers straight into the **existing**
+`EffectRegistry.Register(...)`, zero changes to that registry).
+
+**App-side:** `shared/KawaPaint.App/Core/Plugins/Pdn/AppPdnPluginHost.cs` (new, parallel to
+`AppPluginHost`), `PdnPluginSettings` on `AppSettings` (`Enabled`, `InstallDirectoryOverride`,
+`SearchPaths`, `Disabled`), `AppPaths.PdnPluginsDirectory` (new `pdn-plugins` folder — flat,
+one loose `*.dll` per plugin, deliberately different from the native plugin system's
+one-folder-per-plugin convention since that's how real third-party DLLs are actually distributed).
+`PluginManagerDialog` gained a second section (install-path override with Browse/Auto-detect,
+status line, plugin list with the same enable/disable-checkbox pattern as native plugins).
+`MainView.axaml.cs`/`PluginEffectDialog.cs` needed **zero changes** — both already operate
+generically on `EffectRegistry`/`PluginParameterSpec`, so PDN effects just appear once registered,
+correctly grouped under their own "Paint.NET Plugins" submenu by the existing category-grouping
+code.
+
+**Two real bugs found and fixed during verification, not guessed:**
+1. `PdnAssembliesLoadContext`'s first version blindly probed paint.net's install directory for
+   *any* requested assembly name, which shadowed `System.Drawing.Primitives` with a second, separate
+   copy — silently breaking `PdnReflectionSchema`'s exact-signature `GetMethod` lookup for
+   `Effect.Render(..., Rectangle[])` even though the method genuinely exists (different ALC = different
+   type identity for `Rectangle`, so the parameter-type array in the `GetMethod` call never matched).
+   Fixed by trying the default context first and only falling back to directory-probing for names
+   the default context can't already provide.
+2. ~9 of paint.net's own 44 bundled legacy effects (Clouds, fractals, Twist/PolarInversion/Dents/
+   Tile/RadialBlur/Crystalize) threw during property-collection discovery. Root-caused via an
+   unwrapped `TargetInvocationException` (not accepted at face value) to real internal
+   `PaintDotNet.AppModel.ISettingsService`/`IEnumLocalizerFactory` service lookups these *specific*
+   effects make — undocumented, DI-container-only types that only exist inside the real running
+   paint.net app, and that a genuine third-party plugin author wouldn't have access to at all (they
+   compile against the public `Effects`/`PropertyBasedEffect` surface, not paint.net's internal
+   `AppModel` namespace). Not fixed — flagged as a real, narrow, well-understood limitation specific
+   to a handful of paint.net's own bundled effects, not expected to affect genuine third-party
+   plugins. A smaller, separate fix (setting `Effect.EnvironmentParameters` to the static
+   `EffectEnvironmentParameters.DefaultParameters` before probing/rendering) *was* applied and *did*
+   matter — several Warp-family effects read canvas-size-relative defaults from it during
+   `OnCreatePropertyCollection` and would otherwise throw with zero plugins involved at all.
+
+**Verified for real, twice, not just "it compiles":**
+- **Headless** (`shared/KawaPaint.Sandbox/PdnPluginSmokeTest.cs`, wired into `Program.cs`, gated on
+  `KAWAPAINT_PDN_TEST_INSTALL_DIR` so CI/other machines skip gracefully): deploys the real
+  `PaintDotNet.Effects.Legacy.dll` as a stand-in third-party plugin, runs it through the actual
+  production `PdnEffectDiscovery` → `EffectRegistry` → `PdnClassicEffectAdapter` path, re-checks the
+  exact blur fixture the original spike used (same pass/fail bar). Confirmed both the configured
+  path (34/44 legacy effects load) and the unset-env-var skip path.
+- **Live UI, full gesture** (`win/KawaPaint.Win.csproj`, real portable v5.1.12 install, PowerShell +
+  `user32.dll` P/Invoke — no input-automation tool preinstalled on this box, same technique noted
+  below in Working Notes): launched the real app with a real plugin DLL in `pdn-plugins/`, navigated
+  Plugins ▸ Effects ▸ Paint.NET Plugins (a real 3-level nested Avalonia flyout — needed a smooth
+  multi-step mouse *glide* rather than teleporting the cursor directly to the target, since a
+  straight jump crosses dead space between flyout panels and Avalonia closes the whole chain),
+  confirmed the full humanized effect list (Bulge, Gaussian Blur, Hue And Saturation Adjustment,
+  etc.), opened "Gaussian Blur...", confirmed the real `Radius` property rendered as a slider
+  (default 2, matching the real `Int32Property`), dragged it to 168 and watched the live preview
+  actually blur the canvas in real time, pressed Enter (the OK button is `IsDefault`) to commit, and
+  confirmed the canvas kept the blurred result with the title bar's unsaved-changes marker still
+  set — the real `TileDeltaMemento`/history commit path, unmodified. Test settings/plugin-folder
+  changes made to this machine's real `%APPDATA%\KawaPaint` for the pass were reverted afterward.
+
+**Phase 2/3, explicitly scoped, not designed or started:**
+- **`BitmapEffect`/`PropertyBasedBitmapEffect` (v5.0+ CPU tier).** Structurally inspected via
+  paint.net's own official `PdnV5EffectSamples` GitHub repo (real base-class shapes:
+  `OnInitializeRenderInfo(IBitmapEffectRenderInfo)`, `OnRender(IBitmapEffectOutput)`, generic typed
+  pixel formats like `ColorPrgba128Float` with automatic linear-gamma conversion, tiled virtualized
+  I/O, multi-layer/document access) but never run standalone the way the classic tier was. Would
+  reuse `PdnAssembliesLoadContext`/`PdnPluginLoadContext`/`PdnPropertyMapper` as-is — only the
+  render-call plumbing and pixel-format conversion are new, but that's a materially bigger surface
+  than the classic tier's simple `Surface`/`RenderArgs` pair. Needs its own hands-on spike (same
+  proof bar the classic tier just cleared) before a real file-level plan.
+- **`GpuEffect`/`GpuImageEffect`/`GpuDrawingEffect` (v5.0+ Direct2D tier).** Genuinely unexplored —
+  real public base-class names weren't even found during this session's reflection spike. Hard
+  Direct2D/COM dependency, realistically Windows-only. Not designed here at all; needs its own
+  dedicated spike just to identify the real API shape before anything else can be scoped.
 - **JPEG XL / JPEG 2000 — spiked 2026-08-19, feasibility confirmed, not yet wired.** Neither is
   impossible, both are impractical-but-accepted (user's explicit call). Both are desktop-only, no
   WASM path, permanent packaging/CI-matrix tax either way. Wire through the existing
@@ -679,8 +803,10 @@ prioritized git-compat truncate-only over this.
   above, but the command-log alternative is what unlocks Tier 4 — noted here as the fork point).
 - Git scope: backup/versioning of projects + config, or the literal undo timeline? Assumed:
   backup/versioning only.
-- Native plugin API before Paint.NET compat, or the reverse? Assumed: native API first (2.4),
-  Paint.NET compat as an adapter on top of it later.
+- ~~Native plugin API before Paint.NET compat, or the reverse?~~ Resolved: native API first (2.4),
+  Paint.NET compat as a reflection-based bridge on top of it (3.x classic tier, done 2026-08-19) —
+  played out exactly as assumed, `EffectRegistry`/`PluginParameterSpec`/`PluginEffectDialog` all
+  reused unchanged.
 
 ## Working notes for whoever resumes
 

@@ -27,6 +27,11 @@ public static class AppPaths
     /// declared Id. Null on the browser build, same as every other path here.</summary>
     public static string? PluginsDirectory => Combine("plugins");
 
+    /// <summary>Real, unmodified third-party Paint.NET classic-tier plugin DLLs — a flat folder,
+    /// one loose *.dll per plugin (unlike PluginsDirectory's one-folder-per-plugin convention),
+    /// matching how these DLLs are actually distributed. See PdnEffectDiscovery.</summary>
+    public static string? PdnPluginsDirectory => Combine("pdn-plugins");
+
     private static string? Combine(string name)
     {
         string? root = Root;

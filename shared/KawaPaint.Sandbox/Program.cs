@@ -70,5 +70,6 @@ flatSurf.Save(Path.Combine(tmp, "smoke.png"), SKEncodedImageFormat.Png);
 Console.WriteLine($"SMOKE OK — effects={effects.Length}, reloaded {reloaded.Width}x{reloaded.Height} {reloaded.LayerCount} layer(s), dup='{dup.Name}'");
 
 KawaPaint.Sandbox.PluginSmokeTest.RunAll();
+KawaPaint.Sandbox.PdnPluginSmokeTest.RunAll();
 
 static byte[] BuildIdentityLut() { var l = new byte[256]; for (int i = 0; i < 256; i++) l[i] = (byte)i; return l; }

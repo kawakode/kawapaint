@@ -3,6 +3,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using KawaPaint.App.Core;
 using KawaPaint.App.Core.Plugins;
+using KawaPaint.App.Core.Plugins.Pdn;
 
 namespace KawaPaint.App;
 
@@ -23,6 +24,7 @@ public partial class App : Application
         // populated by the time RebuildPluginsMenu() runs. A failed plugin is reported, not thrown
         // — see AppPluginHost.LoadAll / PluginManager.
         AppPluginHost.LoadAll(SettingsService.Instance.Settings);
+        AppPdnPluginHost.LoadAll(SettingsService.Instance.Settings);
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {

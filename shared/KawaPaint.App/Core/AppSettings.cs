@@ -21,6 +21,7 @@ public sealed class AppSettings
     public GitSettings Git { get; set; } = new();
     public WorkspaceSettings Workspace { get; set; } = new();
     public PluginSettings Plugins { get; set; } = new();
+    public PdnPluginSettings PdnPlugins { get; set; } = new();
 
     /// <summary>Most-recently-opened project paths, newest first. See SettingsService.AddRecentFile.</summary>
     public List<string> RecentFiles { get; set; } = new();
@@ -117,5 +118,25 @@ public sealed class PluginSettings
     public List<string> SearchPaths { get; set; } = new();
 
     /// <summary>Plugin ids the user has explicitly turned off.</summary>
+    public List<string> Disabled { get; set; } = new();
+}
+
+/// <summary>Real, unmodified third-party Paint.NET classic-tier (Effect/PropertyBasedEffect)
+/// plugin DLLs. KawaPaint never bundles paint.net's own assemblies (see FORK.TXT for why this
+/// fork exists at all) — this only points at a real paint.net install the user already has
+/// separately on their own machine. See KawaPaint.Engine.Plugins.Pdn.PdnEffectDiscovery.</summary>
+public sealed class PdnPluginSettings
+{
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Null means auto-detect via PdnInstallLocator's well-known paths. Set when the
+    /// user pointed this at a portable-ZIP extraction or a non-standard install location.</summary>
+    public string? InstallDirectoryOverride { get; set; }
+
+    /// <summary>Extra directories scanned for loose plugin DLLs, on top of the built-in
+    /// "pdn-plugins" folder.</summary>
+    public List<string> SearchPaths { get; set; } = new();
+
+    /// <summary>Disabled entries, keyed "&lt;dll file name&gt;::&lt;effect type full name&gt;".</summary>
     public List<string> Disabled { get; set; } = new();
 }

@@ -36,6 +36,7 @@ public static class CodecRegistry
         Register(new IcoCodec());
 
         Register(new JxlCodec());
+        Register(new Jp2Codec());
     }
 
     /// <summary>

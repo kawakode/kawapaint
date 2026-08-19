@@ -15,4 +15,12 @@
   <ItemGroup>
     <ProjectReference Include="..\shared\KawaPaint.App\KawaPaint.App.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- JPEG XL (jxl.dll + jxl_cms + brotli) and JPEG 2000 (openjp2.dll + its MSVC runtime deps),
+         win-x64 only, so JxlCodec/Jp2Codec's IsAvailable is true without a system install.
+         See TODO.md's JXL/JP2 packaging entry for provenance/versions and how this set was
+         verified minimal. -->
+    <None Include="natives\win-x64\*.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

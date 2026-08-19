@@ -1,6 +1,7 @@
 # KawaPaint — resume-here notes
 
-Status snapshot: 2026-08-19, branch `master`. Full roadmap/rationale lives in Claude memory
+Status snapshot: 2026-08-19, branch `master` (updated post-2.4, post-JXL/JP2-Windows-packaging).
+Full roadmap/rationale lives in Claude memory
 (`feature-roadmap-tiers`) and the published plan:
 https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
 
@@ -61,6 +62,14 @@ panel defaults or redo-binding looks wrong later):
    duplicate in the dock picker. Added `AppCommand.AlternateGesture` instead.
 
 ## Not started — pick one, each is its own multi-hour subsystem
+
+### 2.4 forge integrations
+**Explicitly out of scope for this pass.** Local git history is done (2.3); forge half (GitHub/GitLab/Gitea 
+OAuth or PAT, token storage per-platform, create-repo/clone-url flows) needs its own design pass before 
+code. See 2.3 notes in the Done section for the rough sketch.
+
+### 3.x Paint.NET plugin compatibility
+See below in Spikes.
 
 ### 2.1 — Effect catalogue
 Port from paint.net 3.36's `src/Effects/` (MIT-licensed). The original source is preserved on the
@@ -423,11 +432,32 @@ interface IForgeProvider {
 ```
 
 ### 2.4 — Native plugin API
-Not started at all. Rough shape discussed: effect/codec/tool contributions loaded from a
-`plugins/` directory via an isolated `AssemblyLoadContext`, declarative property UI (so a plugin's
-options dialog renders in Avalonia without the plugin shipping UI code), enable/disable list
-(`AppSettings.Plugins` already has `Enabled`/`SearchPaths`/`Disabled` — unused so far), per-plugin
-failure reporting.
+**Done 2026-08-19.** Plugin loader + registries + UI, verified end-to-end.
+
+**Engine-side (KawaPaint.Engine/Plugins/):** `IKawaPaintPlugin` contract with `Register(PluginContext)` 
+callback, `PluginParameterSpec` hierarchy (numeric/bool/choice/color — full schema, not just sliders), 
+`PluginEffectDescriptor`/`PluginToolDescriptor`, `IPluginTool`/`PluginToolContext` (duplicate of App's 
+`ToolContext` by design — Engine cannot reference App). `EffectRegistry`/`ToolRegistry` (dedup-by-id, 
+later-wins, `Changed` event), `PluginManager.LoadFrom()` (folder scan, collectible `AssemblyLoadContext` 
+per plugin, buffered atomic registration with rollback on throw), `PluginLoadResult` + `PluginStatus` 
+enum (Loaded/Disabled/Failed).
+
+**App-side (KawaPaint.App/):** `AppPluginHost` (AppSettings+AppPaths → PluginManager), 
+`PluginEffectDialog` (data-driven, mirrors AdjustmentDialog lifecycle), `PluginManagerDialog` 
+(list results, enable/disable toggle, reload button), `PluginToolAdapter` (ITool wrapper), 
+`RebuildPluginsMenu()`/`RebuildPluginToolButtons()` (dynamic menu/toolbar entries), `SelectTool()` 
+guard for "plugin:" tags.
+
+**Sample plugin + fixture:** `KawaPaint.Plugins.Sample` (GlowTintPlugin effect with 3 param kinds + 
+GlowDotTool), `KawaPaint.Plugins.ThrowingFixture` (throws in Register to verify rollback). Both 
+reference only Engine via Private=false, buildable standalone.
+
+**Headless verification (PluginSmokeTest):** Happy path (load, register, effect applies), bad DLL, 
+disabled (code never runs), throwing Register (rollback), Id/folder mismatch. All pass. WASM guard: 
+`AppPaths.PluginsDirectory` null on browser, so no code path touches `AssemblyLoadContext` there.
+
+**Live app launch:** No crash despite deliberately-broken BadOne/ plugin present (graceful degradation 
+confirmed). Plugins menu visible, both Effects and Tools submenus ready for population.
 
 ### 3.x — Spikes (time-box before committing a schedule, don't just build)
 - **Paint.NET plugin compatibility.** Genuinely split: effects built on `PropertyBasedEffect` /
@@ -574,10 +604,60 @@ failure reporting.
   (`tcp_rates[0] = 101 - quality`, `cp_disto_alloc = 1`), a documented judgment call, not a
   perceptual calibration. Revisit if real images show it's poorly scaled in practice.
 
-  Still open, same as JXL: bundled natives for Windows/macOS (this box now has real Windows x64
-  `openjp2.dll` + dependent MSVC runtime DLLs sitting in the spike's scratchpad from the
-  verification above — not yet copied anywhere the app itself would find them at runtime). Until
-  then `IsAvailable` correctly degrades to false off dev boxes with the library preinstalled.
+  **Windows natives bundled, 2026-08-19 (same day, third session on this Windows box).** Both
+  `JxlCodec.IsAvailable` and `Jp2Codec.IsAvailable` are now true out of the box on Windows, no
+  system install required — closes the "still open" gap noted above and immediately below.
+
+  Fetched real prebuilt Windows x64 binaries rather than building from source (no C compiler was
+  available on this box, per the note below): `openjpeg-v2.5.4-windows-x64.zip` from
+  `uclouvain/openjpeg`'s own GitHub release (matches the 2.5.4 already verified against), and
+  `jxl-x64-windows.zip` from `libjxl/libjxl`'s v0.12.0 release (matches the libjxl version this
+  codec was originally verified against on CachyOS).
+
+  **The libjxl release ships more DLLs than `JxlCodec` actually needs** (`gif.dll`, `jpeg62.dll`,
+  `libpng16.dll`, `libsharpyuv.dll`, `libwebp.dll`, `zlib1.dll`, `jxl_threads.dll` — support for
+  `jxl_extras`/the `cjxl`/`djxl` CLI tools' format conversion, not the core codestream API this
+  binds against). Didn't just bundle the whole folder: empirically bisected the minimal working set
+  with `LoadLibraryEx(..., LOAD_WITH_ALTERED_SEARCH_PATH)` + `GetProcAddress`/`JxlDecoderVersion()`
+  calls from a throwaway PowerShell P/Invoke harness (no dumpbin/objdump/python on this box to read
+  the import table directly) — `jxl.dll` + `jxl_cms.dll` + `brotlicommon`/`brotlidec`/`brotlienc`
+  (5 files, no separate `hwy.dll` — Highway is statically linked into this build) is the real
+  minimum; confirmed by calling `JxlDecoderVersion()` through it and getting back `12000` (0.12.0),
+  not just a successful `LoadLibrary`. Kept openjpeg's full official `bin/` folder as-is (9 files:
+  `openjp2.dll` + `concrt140`/`msvcp140*`/`vcruntime140*`) rather than bisecting further — this
+  machine's own VC++ redist already installed made `openjp2.dll` load standalone here, which would
+  have been a false-negative "don't need the runtime DLLs" signal specific to this box; shipping the
+  official self-contained set avoids that trap on a cleaner target machine. Combined: **5.8MB**,
+  in line with the ~6.7MB estimate above.
+
+  Wired into `win/KawaPaint.Win.csproj` as `<None Include="natives\win-x64\*.dll" Link="..."
+  CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />` — DLLs live in
+  the new `win/natives/win-x64/` folder (committed to git, not gitignored) and land flat next to
+  `KawaPaint.Win.exe` in both `dotnet build` and `dotnet publish` output, which is what makes
+  bundled-native P/Invoke resolution work on .NET/Windows (confirmed: SkiaSharp/HarfBuzzSharp/
+  LibGit2Sharp's own native DLLs already sit in this same flat output folder via NuGet's runtimes/
+  mechanism — this is that same pattern, just via a plain `None` item instead of a NuGet package).
+  The `Link` metadata matters: without it MSBuild preserves the `natives\win-x64\` subfolder in the
+  output tree instead of flattening — caught this because the first build put the DLLs one level
+  too deep and `IsAvailable` still read false.
+
+  **Verified for real, not just "the files are present":** a headless harness
+  (`scratchpad/codectest`, not committed, `ProjectReference` to the real
+  `KawaPaint.Engine.csproj`) copied into the actual `win/bin/Debug/net10.0/` output directory and
+  run from there — `JxlCodec.IsAvailable`/`Jp2Codec.IsAvailable` both true, and a full
+  `CodecRegistry.Encode`/`.Decode` round trip (37×29 odd-sized BGRA-random/alpha-swept surface,
+  lossless byte-exact including alpha for both formats, lossy encodes smaller, header-sniffed with
+  no filename given, plus 1×1 and 4×4 degenerate sizes exercising `Jp2Codec`'s
+  `ClampResolutions`) all passed — same bar the original JXL/JP2 verification used. Also ran a real
+  `dotnet publish -c Release -r win-x64 --self-contained` and confirmed all 14 native DLLs land in
+  the publish output next to the apphost exe, not just the build output. Launched the real
+  `KawaPaint.Win.exe` after this change — starts clean, no crash, autosave/crash-recovery correctly
+  restored the prior session's canvas.
+
+  Still open: macOS packaging (same pattern, needs a macOS box or cross-fetching prebuilt osx-x64/
+  osx-arm64 releases from both upstreams — not attempted here, this session only had a Windows
+  box). `IsAvailable` still correctly degrades to false wherever the bundled natives aren't present
+  for the current RID.
 
   **Mid-project machine switch, worth knowing if something here looks inconsistent:** the JXL work
   and this file's original resume plan were written on a Linux (CachyOS) box; this JP2 work was

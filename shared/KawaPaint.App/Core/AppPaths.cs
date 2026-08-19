@@ -23,6 +23,10 @@ public static class AppPaths
     /// <summary>Layout presets, palettes and other exportable user data.</summary>
     public static string? PresetsDirectory => Combine("presets");
 
+    /// <summary>Built-in plugin search location. One subdirectory per plugin, named after its
+    /// declared Id. Null on the browser build, same as every other path here.</summary>
+    public static string? PluginsDirectory => Combine("plugins");
+
     private static string? Combine(string name)
     {
         string? root = Root;

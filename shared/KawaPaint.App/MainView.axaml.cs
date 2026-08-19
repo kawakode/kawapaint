@@ -136,6 +136,9 @@ public partial class MainView : UserControl
         BuildPanelManager();
         RebuildLayoutPresetsMenu();
         RebuildRecentFilesMenu();
+        RebuildPluginsMenu();
+        KawaPaint.Engine.Plugins.EffectRegistry.Changed += (_, _) => Dispatcher.UIThread.Post(RebuildPluginsMenu);
+        KawaPaint.Engine.Plugins.ToolRegistry.Changed += (_, _) => Dispatcher.UIThread.Post(RebuildPluginsMenu);
         SetupRulers();
         BuildCommands();
         ApplyHistorySettings();
@@ -1423,6 +1426,69 @@ public partial class MainView : UserControl
         RecentFilesMenu.Items.Add(clear);
     }
 
+    // ---- plugins ------------------------------------------------------------
+    //
+    // Purely additive: built-in effects/tools stay on their existing hardcoded switches
+    // (OnAdjust/OnEffect, SelectTool) unchanged. Plugin contributions live in EffectRegistry/
+    // ToolRegistry (KawaPaint.Engine.Plugins) and are surfaced here, mirroring how
+    // RebuildLayoutPresetsMenu inserts dynamic entries into an otherwise-static menu shell.
+
+    private void RebuildPluginsMenu()
+    {
+        PluginEffectsMenu.Items.Clear();
+        var categories = new System.Collections.Generic.Dictionary<string, MenuItem>();
+
+        foreach (var d in KawaPaint.Engine.Plugins.EffectRegistry.All)
+        {
+            var item = new MenuItem { Header = d.DisplayName + "…", Tag = d };
+            item.Click += (_, _) => OnPluginEffect(d);
+
+            if (d.Category is null)
+            {
+                PluginEffectsMenu.Items.Add(item);
+                continue;
+            }
+
+            if (!categories.TryGetValue(d.Category, out var submenu))
+            {
+                submenu = new MenuItem { Header = d.Category };
+                categories[d.Category] = submenu;
+                PluginEffectsMenu.Items.Add(submenu);
+            }
+            submenu.Items.Add(item);
+        }
+        PluginEffectsMenu.IsVisible = KawaPaint.Engine.Plugins.EffectRegistry.All.Count > 0;
+
+        PluginToolsMenu.Items.Clear();
+        foreach (var d in KawaPaint.Engine.Plugins.ToolRegistry.All)
+        {
+            var item = new MenuItem { Header = d.DisplayName };
+            item.Click += (_, _) => SelectTool("plugin:" + d.Id);
+            PluginToolsMenu.Items.Add(item);
+        }
+        PluginToolsMenu.IsVisible = KawaPaint.Engine.Plugins.ToolRegistry.All.Count > 0;
+
+        RebuildPluginToolButtons();
+    }
+
+    private void OnPluginEffect(KawaPaint.Engine.Plugins.PluginEffectDescriptor descriptor)
+    {
+        if (Canvas.ActiveLayer is null) return;
+        if (OwnerWindow is not { } owner)
+        {
+            StatusText.Text = "Plugin effects aren't available in the browser build yet";
+            return;
+        }
+
+        new PluginEffectDialog(Canvas, descriptor).ShowDialog(owner);
+    }
+
+    private async void OnManagePlugins(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (OwnerWindow is not { } owner) return;
+        await new PluginManagerDialog(_settings, RebuildPluginsMenu).ShowDialog(owner);
+    }
+
     private async void OnRecentFile(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (sender is not MenuItem { Tag: string path }) return;
@@ -1918,13 +1984,68 @@ public partial class MainView : UserControl
         }
     }
 
+    /// <summary>Appends (or, on a reload, replaces) one more WrapPanel group for
+    /// ToolRegistry-contributed tools, same ToggleButton/Icons.Create/Tag wiring as every built-in
+    /// group in BuildToolPalette above — additive, the static groups above are untouched.</summary>
+    private void RebuildPluginToolButtons()
+    {
+        const string marker = "PluginToolGroup";
+
+        for (int i = ToolPalette.Children.Count - 1; i >= 0; i--)
+        {
+            if (ToolPalette.Children[i] is not Control c || (c.Tag as string) != marker) continue;
+
+            if (c is WrapPanel oldGroup)
+                foreach (var child in oldGroup.Children)
+                    if (child is ToggleButton oldBtn) _toolButtons.Remove(oldBtn);
+
+            ToolPalette.Children.RemoveAt(i);
+        }
+
+        var tools = KawaPaint.Engine.Plugins.ToolRegistry.All;
+        if (tools.Count == 0) return;
+
+        ToolPalette.Children.Add(new Border
+        {
+            Tag = marker,
+            Height = 1,
+            Margin = new Thickness(2, 4),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Background = Brushes.DimGray
+        });
+
+        var group = new WrapPanel { Tag = marker, Orientation = Orientation.Horizontal };
+        foreach (var d in tools)
+        {
+            string key = "plugin:" + d.Id;
+            var btn = new ToggleButton
+            {
+                Content = Icons.Create("Plugin"),
+                Width = 28,
+                Height = 28,
+                Padding = new Thickness(3),
+                Margin = new Thickness(1),
+                Tag = key
+            };
+            ToolTip.SetTip(btn, d.DisplayName);
+            btn.Click += (_, _) => SelectTool(key);
+            _toolButtons.Add(btn);
+            group.Children.Add(btn);
+        }
+        ToolPalette.Children.Add(group);
+    }
+
     private void SelectTool(string tag)
     {
         _currentToolTag = tag;
         foreach (var b in _toolButtons)
             b.IsChecked = (b.Tag as string) == tag;
 
-        ITool tool = tag switch
+        // Checked before the built-in switch (whose own fallback is PencilTool, not an error) so a
+        // "plugin:<id>" tag can't silently resolve to Pencil.
+        ITool tool = tag.StartsWith("plugin:") && KawaPaint.Engine.Plugins.ToolRegistry.TryGet(tag[7..], out var pluginTool)
+            ? new KawaPaint.App.Core.Plugins.PluginToolAdapter(pluginTool.Create())
+            : tag switch
         {
             "Eraser" => new EraserTool(),
             "Fill" => new PaintBucketTool(),

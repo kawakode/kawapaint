@@ -1,50 +1,14 @@
-<img src="kawapaint-main.png" alt="KawaPaint" width="360" />
+<p align="center">
+  <img src="kawapaint-logo.png" alt="KawaPaint" width="160" />
+</p>
+
+<p align="center">
+  <a href="https://github.com/kawakode/kawapaint/releases/latest"><img src="https://img.shields.io/github/v/release/kawakode/kawapaint?label=release" alt="Latest Release"></a>
+  <a href="https://github.com/kawakode/kawapaint/releases/latest"><img src="https://img.shields.io/github/release-date/kawakode/kawapaint" alt="Release Date"></a>
+  <a href="https://github.com/kawakode/kawapaint/releases"><img src="https://img.shields.io/github/downloads/kawakode/kawapaint/total" alt="Downloads"></a>
+</p>
 
 A modern, cross-platform image editor compatible with Paint.NET 3.36 file format. KawaPaint is a clean rewrite built on a shared C#/SkiaSharp engine with Avalonia UI, running natively on Windows, Linux, and in the browser via WebAssembly.
-
-## Quick Start
-
-### Docker (Easiest)
-
-Run the web version in Docker:
-
-```bash
-docker-compose up
-```
-
-Then open http://localhost:8080 in your browser.
-
-### Windows Build
-
-Requires .NET 10 SDK.
-
-```bash
-dotnet build KawaPaint.slnx -c Release
-cd win/bin/Release/net10.0-windows
-./KawaPaint.Win.exe
-```
-
-### Linux Build
-
-Requires .NET 10 SDK.
-
-```bash
-dotnet build KawaPaint.slnx -c Release
-cd linux/bin/Release/net10.0-linux-x64
-./KawaPaint.Linux
-```
-
-### Web Build (Local)
-
-Requires .NET 10 SDK with wasm-tools workload:
-
-```bash
-dotnet workload install wasm-tools
-dotnet build web/KawaPaint.Web.csproj -c Release
-cd web/bin/Release/net10.0-browser/publish/wwwroot
-# Serve with any HTTP server, e.g.
-python -m http.server 8000
-```
 
 ## Project Structure
 
@@ -59,7 +23,7 @@ Open `KawaPaint.slnx` to build any platform; all share the same engine and UI co
 
 **KawaPaint** is maintained by Kawa.
 
-**Paint.NET** — Based on Paint.NET 3.36 (the last MIT-licensed release) by Rick Brewster and contributors. See [FORK.TXT](FORK.TXT) for fork rationale.
+**Paint.NET** — Based on Paint.NET 3.36 by Rick Brewster and contributors. See [FORK.TXT](FORK.TXT) for fork rationale.
 
 **Libraries**
 

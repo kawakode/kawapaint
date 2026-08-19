@@ -34,6 +34,8 @@ public static class CodecRegistry
             new byte[] { 0x47, 0x49, 0x46, 0x38 }));
 
         Register(new IcoCodec());
+
+        Register(new JxlCodec());
     }
 
     /// <summary>

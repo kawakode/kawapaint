@@ -22,7 +22,7 @@ https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
   originating click's own dispatch has finished. Verified: re-ran the same repro post-fix (history
   row click on a genuinely populated list, and a layer row click) — both jump/select correctly
   with no exception, and a screenshot confirms the Layers panel visually reflects the new
-  selection. Not yet committed — do that before anything else if resuming here.
+  selection. Committed as `d787b35`.
 
 ## Done
 
@@ -121,14 +121,110 @@ failure reporting.
   Effects with a hand-written WinForms `EffectConfigDialog` **cannot** show their UI outside
   Windows — best case is running with default settings, or Windows-only. Spike: load 3 widely-used
   real plugins, see which bucket they land in, before scoping anything further.
-- **JPEG XL / JPEG 2000.** Neither is impossible, both are impractical-but-accepted (user's
-  explicit call). JP2 → P/Invoke `libopenjp2` (BSD-2, packaged everywhere on Linux, vcpkg on
-  Windows). JXL → P/Invoke `libjxl` directly, OR a custom SkiaSharp native build with
-  `SK_CODEC_DECODES_JPEGXL` (decode-only). Untested shortcut worth checking first: **Magick.NET**
-  ships prebuilt natives for win/linux/osx and may cover both in one dependency — verify its JXL
-  delegate is actually compiled into the shipped build before relying on it. Both are desktop-only,
-  no WASM path, permanent packaging/CI-matrix tax either way. Wire through the existing
+- **JPEG XL / JPEG 2000 — spiked 2026-08-19, feasibility confirmed, not yet wired.** Neither is
+  impossible, both are impractical-but-accepted (user's explicit call). Both are desktop-only, no
+  WASM path, permanent packaging/CI-matrix tax either way. Wire through the existing
   `IImageCodec`/`CodecRegistry` — that plumbing is exactly what's needed.
+
+  **Option A — Magick.NET-Q16-AnyCPU 14.16.0 (verified working).** Added the nuget package in a
+  throwaway console project, ran an actual encode+decode roundtrip (not just a format-list check):
+  both JXL and JP2 round-tripped an 8x8 test image correctly. Ships prebuilt natives for all 8 RIDs
+  (win-x64/x86/arm64, linux-x64/arm64/musl-x64, osx-x64/arm64) — covers every desktop target in one
+  dependency. Cost: one native blob per platform, 19-38MB, full ImageMagick rather than scoped to
+  just these two formats — acceptable if a single dependency beats two hand-written P/Invoke
+  bindings.
+
+  **Option B — direct P/Invoke, verified working for JXL 2026-08-19.** Wrote real bindings
+  (`JxlEncoderCreate`/`SetBasicInfo`/`FrameSettingsCreate`/`SetFrameLossless`/`AddImageFrame`/
+  `ProcessOutput`, `JxlDecoderCreate`/`SubscribeEvents`/`SetInput`/`ProcessInput`/`GetBasicInfo`/
+  `ImageOutBufferSize`/`SetImageOutBuffer`, plus the `JxlBasicInfo`/`JxlPixelFormat` struct layouts
+  from `/usr/include/jxl/{decode,encode,codestream_header,types}.h`) against the system
+  `libjxl.so` 0.12.0 in a throwaway console project, encoded a 4x4 RGBA random-pixel image
+  lossless and decoded it back — byte-for-byte pixel match, not just "it ran". No color-encoding
+  call needed: per libjxl's own doc comment on `JxlEncoderAddImageFrame`, omitting
+  `JxlEncoderSetColorEncoding`/`SetICCProfile` defaults to nonlinear sRGB for UINT8/16, which is
+  what KawaPaint's `Surface` already assumes.
+
+  **Size, decisive point per the user's "as optimized as possible" ask (2026-08-19):**
+  hand-rolled needs `libjxl.so` (5.4M) + `libjxl_cms` (200K) + `libhwy` (60K) + brotli enc/dec/common
+  (~1.1M) = **~6.7MB total, JXL only**. Magick.NET's single native blob is **20-38MB per platform**
+  for JXL+JP2 riding along with 274 unused formats. Hand-rolled is ~3-5x smaller and scoped to
+  exactly what's used.
+
+  JP2 not yet spiked the same way (`libopenjp2` 2.5.4 confirmed present via pkg-config, its C API
+  not yet bound) — same pattern would apply, do it before wiring either format in.
+
+  **Decided: Option B (hand-rolled P/Invoke), not Magick.NET.**
+
+  **JXL — actually wired in, 2026-08-19, not just spiked.** `shared/KawaPaint.Engine/Codecs/JxlCodec.cs`,
+  registered in `CodecRegistry`. Bindings use `LibraryImport` (source-generated marshalling), not
+  `DllImport` — no reflection-based stub, AOT-compatible, in line with the "as optimized as
+  possible" ask that decided against Magick.NET in the first place. `JxlBasicInfo`'s 100-byte
+  padding field had to become an `unsafe fixed byte[100]` rather than a `byte[]` with
+  `MarshalAs(ByValArray)` — the source generator (`SYSLIB1051`) rejects non-blittable struct
+  fields, `DllImport` would have accepted it silently. Surface is BGRA; libjxl has no BGR(A) pixel
+  format (its own `types.h` says so), so encode/decode each do one channel-swap pass over the
+  buffer — the only per-pixel cost this adds.
+
+  Verified through the real path, not the throwaway spike project: a 37x29 `Surface` (odd
+  non-power-of-two dims, random BGR, alpha swept 0-255 across pixels to catch a premultiply
+  mistake) round-tripped through `CodecRegistry.Encode`/`.Decode` — lossless came back
+  byte-for-byte identical including alpha, and `Decode` with no filename correctly header-sniffed
+  the JXL container via `MatchesHeader`/`JxlSignatureCheck` rather than needing the extension.
+  Lossy (`Quality = 80`) encodes smaller and decodes back to the right dimensions (not checked
+  pixel-exact, lossy by definition isn't).
+
+  Still open: JP2 P/Invoke binding (not started — see resume plan right below), and the
+  still-unsolved Windows/macOS packaging story (vcpkg for `libopenjp2`; a libjxl release/build for
+  the same platforms) — the P/Invoke path assumes the system already has `libjxl`/`libopenjp2`
+  installed, true here via CachyOS's package but not true on a clean Windows/macOS machine.
+  `JxlCodec.IsAvailable` degrades cleanly to false there (probes `JxlDecoderVersion()`, catches
+  `DllNotFoundException`) so it just won't show up in file dialogs rather than crashing — but it
+  needs bundled natives shipped with the app on those platforms before this is actually usable off
+  this box.
+
+  **JP2 resume plan — not started, but scoped 2026-08-19 so this isn't a cold start next time.**
+  Header: `/usr/include/openjpeg-2.5/openjpeg.h` on a system with the `openjpeg2` package (this
+  dev box has 2.5.4); `pkg-config --cflags --libs libopenjp2` gives `-I.../openjpeg-2.5 -lopenjp2`
+  elsewhere. New file should be `shared/KawaPaint.Engine/Codecs/Jp2Codec.cs`, same
+  `IImageCodec`/`LibraryImport` pattern as `JxlCodec.cs`, registered in `CodecRegistry.cs` next to
+  it.
+
+  **This is a materially bigger lift than JXL was — two real differences, not just "same thing
+  again":**
+  1. **No simple buffer-in/buffer-out API.** libjxl's `JxlDecoderSetInput(dec, data, size)` has no
+     openjpeg equivalent. Reading/writing memory (rather than a file path via
+     `opj_stream_create_default_file_stream`) means building an `opj_stream_t` with
+     `opj_stream_create` and wiring `opj_stream_set_read_function` /
+     `opj_stream_set_write_function` / `opj_stream_set_skip_function` /
+     `opj_stream_set_seek_function` / `opj_stream_set_user_data` to native callback function
+     pointers. In .NET that means `[UnmanagedCallersOnly]` static methods (not managed delegates —
+     those need `GetFunctionPointerForDelegate` and careful GC-lifetime pinning to not get
+     collected mid-decode), reading/writing against a pinned buffer or `GCHandle`-tracked stream
+     wrapper. Worth a small standalone spike first, same as JXL got, before wiring it into the
+     codec proper — this callback-marshalling part is the part most likely to have a rough edge.
+  2. **Planar, not interleaved, pixel buffers.** `opj_image_t` holds one `opj_image_comp_t` per
+     channel (`image->comps[i].data`, a separate `OPJ_INT32*` per component, each with its own
+     `dx`/`dy` subsampling and `prec`/`sgnd`), not a single interleaved RGBA/BGRA buffer like
+     libjxl's `JxlPixelFormat`. Decode needs to gather 3-4 separate component planes into
+     `Surface`'s interleaved BGRA; encode needs to split BGRA into 3-4 planar `OPJ_INT32` arrays
+     (component depth 8-bit, unsigned, no subsampling needed for a straightforward RGB(A) encode —
+     don't reach for chroma subsampling, it is lossy-only and not what an image editor wants
+     regardless of format).
+
+  Core call sequence once the stream is sorted, for reference: decode is
+  `opj_create_decompress(OPJ_CODEC_JP2)` → `opj_setup_decoder` → `opj_read_header` → `opj_decode`
+  → `opj_end_decompress` → `opj_image_destroy` + `opj_destroy_codec` + `opj_stream_destroy`.
+  Encode is `opj_create_compress(OPJ_CODEC_JP2)` → `opj_setup_encoder` (takes `opj_cparameters_t`,
+  a large struct — for lossless set `.irreversible = OPJ_FALSE` and use the 5-3 wavelet, which is
+  openjpeg's default; don't hand-tune `tcp_rates`/`tcp_numlayers` beyond what's needed for a
+  lossless-or-quality-N knob matching `EncodeOptions`) → `opj_start_compress` → `opj_encode` →
+  `opj_end_compress`.
+
+  Header-sniff signature for `MatchesHeader` (`.jp2` container, not raw J2K codestream — match
+  what the encoder writes): `00 00 00 0C 6A 50 20 20 0D 0A 87 0A` (the JP2 signature box). Verify
+  this by grep against the real header rather than trusting this from memory before wiring it in —
+  same "verify, don't guess" bar the JXL work was held to.
 
 ### 4.x — Deferred, gated on other decisions
 Branching/non-linear history and git-as-literal-undo-timeline are gated on revisiting the

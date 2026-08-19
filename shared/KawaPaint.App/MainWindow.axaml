@@ -3,6 +3,7 @@
         xmlns:app="clr-namespace:KawaPaint.App"
         x:Class="KawaPaint.App.MainWindow"
         Width="1100" Height="720"
-        Title="KawaPaint">
+        Title="KawaPaint"
+        Icon="avares://KawaPaint.App/Assets/icon.ico">
     <app:MainView x:Name="View" />
 </Window>

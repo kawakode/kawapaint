@@ -1021,7 +1021,8 @@ public partial class MainView : UserControl
             (Key.K, "Pick", "Color Picker"), (Key.L, "Line", "Line"), (Key.R, "Rect", "Rectangle"),
             (Key.O, "Ellipse", "Ellipse"), (Key.G, "Gradient", "Gradient"), (Key.T, "Text", "Text"),
             (Key.M, "Move", "Move"), (Key.C, "Clone", "Clone Stamp"), (Key.N, "Recolor", "Recolor"),
-            (Key.U, "RoundRect", "Rounded Rectangle"), (Key.D, "Freeform", "Freeform Shape")
+            (Key.U, "RoundRect", "Rounded Rectangle"), (Key.D, "Freeform", "Freeform Shape"),
+            (Key.H, "Star", "Star"), (Key.A, "Arrow", "Arrow")
         })
         {
             string toolTag = tag;
@@ -1809,16 +1810,28 @@ public partial class MainView : UserControl
         if (sender is Button { Tag: string tag }) SelectTool(tag);
     }
 
-    private static readonly (string Key, string Name, string Shortcut)[] ToolDefs =
+    // Grouped for the toolbar: additive/paint tools, then selection tools, then click-drag shapes
+    // — a divider is drawn between each group in BuildToolPalette.
+    private static readonly (string Key, string Name, string Shortcut)[][] ToolGroups =
     {
-        ("Pencil", "Pencil", "P"), ("Eraser", "Eraser", "E"), ("Fill", "Paint Bucket", "F"),
-        ("Pick", "Color Picker", "K"), ("Line", "Line", "L"), ("Rect", "Rectangle", "R"),
-        ("Ellipse", "Ellipse", "O"), ("Gradient", "Gradient", "G"), ("Text", "Text", "T"),
-        ("Move", "Move", "M"), ("RectSel", "Rectangle Select", "S"),
-        ("EllipseSel", "Ellipse Select", "S S"), ("Lasso", "Lasso Select", "S S S"),
-        ("Wand", "Magic Wand", "S S S S"), ("Clone", "Clone Stamp", "C"),
-        ("Recolor", "Recolor", "N"), ("RoundRect", "Rounded Rectangle", "U"),
-        ("Freeform", "Freeform Shape", "D")
+        new (string Key, string Name, string Shortcut)[]
+        {
+            ("Pencil", "Pencil", "P"), ("Eraser", "Eraser", "E"), ("Fill", "Paint Bucket", "F"),
+            ("Pick", "Color Picker", "K"), ("Gradient", "Gradient", "G"), ("Clone", "Clone Stamp", "C"),
+            ("Recolor", "Recolor", "N"), ("Text", "Text", "T")
+        },
+        new (string Key, string Name, string Shortcut)[]
+        {
+            ("Move", "Move", "M"), ("RectSel", "Rectangle Select", "S"),
+            ("EllipseSel", "Ellipse Select", "S S"), ("Lasso", "Lasso Select", "S S S"),
+            ("Wand", "Magic Wand", "S S S S")
+        },
+        new (string Key, string Name, string Shortcut)[]
+        {
+            ("Line", "Line", "L"), ("Rect", "Rectangle", "R"), ("Ellipse", "Ellipse", "O"),
+            ("RoundRect", "Rounded Rectangle", "U"), ("Freeform", "Freeform Shape", "D"),
+            ("Star", "Star", "H"), ("Arrow", "Arrow", "A")
+        }
     };
 
     private readonly System.Collections.Generic.List<ToggleButton> _toolButtons = new();
@@ -1826,21 +1839,59 @@ public partial class MainView : UserControl
 
     private void BuildToolPalette()
     {
-        foreach (var (key, name, sc) in ToolDefs)
+        // ToolPalette is a narrow vertical StackPanel (the side panel is only 70px wide, so a
+        // single-row layout isn't an option): each group gets its own WrapPanel so its buttons
+        // still flow horizontally and wrap within that width, and a horizontal rule spanning the
+        // panel separates one group's block of rows from the next.
+        for (int g = 0; g < ToolGroups.Length; g++)
         {
-            var btn = new ToggleButton
+            var group = new WrapPanel { Orientation = Orientation.Horizontal };
+
+            foreach (var (key, name, sc) in ToolGroups[g])
             {
-                Content = Icons.Create(key),
-                Width = 28,
-                Height = 28,
-                Padding = new Thickness(3),
-                Margin = new Thickness(1),
-                Tag = key
-            };
-            ToolTip.SetTip(btn, string.IsNullOrEmpty(sc) ? name : $"{name}   ({sc})");
-            btn.Click += (_, _) => SelectTool(key);
-            _toolButtons.Add(btn);
-            ToolPalette.Children.Add(btn);
+                var btn = new ToggleButton
+                {
+                    Content = Icons.Create(key),
+                    Width = 28,
+                    Height = 28,
+                    Padding = new Thickness(3),
+                    Margin = new Thickness(1),
+                    Tag = key
+                };
+                ToolTip.SetTip(btn, string.IsNullOrEmpty(sc) ? name : $"{name}   ({sc})");
+                btn.Click += (_, _) => SelectTool(key);
+                _toolButtons.Add(btn);
+                group.Children.Add(btn);
+
+                // Crop to Selection is a one-shot command, not a persistent tool, so it's a plain
+                // Button rather than one of the ToggleButtons above. Grouped right after the
+                // selection tools since it acts on whatever they selected.
+                if (key == "Wand")
+                {
+                    var cropBtn = new Button
+                    {
+                        Content = Icons.Create("Crop"),
+                        Width = 28,
+                        Height = 28,
+                        Padding = new Thickness(3),
+                        Margin = new Thickness(1)
+                    };
+                    ToolTip.SetTip(cropBtn, "Crop to Selection");
+                    cropBtn.Click += OnCropToSelection;
+                    group.Children.Add(cropBtn);
+                }
+            }
+
+            ToolPalette.Children.Add(group);
+
+            if (g < ToolGroups.Length - 1)
+                ToolPalette.Children.Add(new Border
+                {
+                    Height = 1,
+                    Margin = new Thickness(2, 4),
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    Background = Brushes.DimGray
+                });
         }
     }
 
@@ -1869,6 +1920,8 @@ public partial class MainView : UserControl
             "Recolor" => new RecolorTool(),
             "RoundRect" => new RoundedRectangleTool(),
             "Freeform" => new FreeformShapeTool(),
+            "Star" => new StarTool(),
+            "Arrow" => new ArrowTool(),
             _ => new PencilTool()
         };
         Canvas.CurrentTool = tool;
@@ -1879,9 +1932,9 @@ public partial class MainView : UserControl
     /// <summary>Greys out toolbar options the active tool ignores.</summary>
     private void UpdateToolOptions(string tag)
     {
-        SizeGroup.IsEnabled = tag is "Pencil" or "Eraser" or "Line" or "Rect" or "Ellipse" or "Clone" or "Recolor" or "RoundRect" or "Freeform";
-        ShapeGroup.IsEnabled = tag is "Pencil" or "Line" or "Rect" or "Ellipse" or "Clone" or "Recolor" or "RoundRect" or "Freeform";
-        FillShapesCheck.IsEnabled = tag is "Rect" or "Ellipse" or "RoundRect" or "Freeform";
+        SizeGroup.IsEnabled = tag is "Pencil" or "Eraser" or "Line" or "Rect" or "Ellipse" or "Clone" or "Recolor" or "RoundRect" or "Freeform" or "Star" or "Arrow";
+        ShapeGroup.IsEnabled = tag is "Pencil" or "Line" or "Rect" or "Ellipse" or "Clone" or "Recolor" or "RoundRect" or "Freeform" or "Star" or "Arrow";
+        FillShapesCheck.IsEnabled = tag is "Rect" or "Ellipse" or "RoundRect" or "Freeform" or "Star" or "Arrow";
         BucketGroup.IsEnabled = tag is "Fill" or "Wand" or "Recolor";
         SelectGroup.IsEnabled = tag is "RectSel" or "EllipseSel" or "Lasso" or "Wand";
     }
@@ -2397,6 +2450,24 @@ public partial class MainView : UserControl
         StatusText.Text = "Cut";
     }
 
+    /// <summary>
+    /// If the pasted image doesn't fit the current canvas, asks whether to grow the canvas, scale
+    /// the image down to fit, or paste as-is and let the overflow clip (today's default). Returns
+    /// PasteAsIs when the image already fits, or when there's no window to host the dialog (the
+    /// browser build), so paste degrades to the old clipping behavior there.
+    /// </summary>
+    private async Task<PastePlacement> ChoosePastePlacementAsync(int canvasWidth, int canvasHeight, int imageWidth, int imageHeight)
+    {
+        if (imageWidth <= canvasWidth && imageHeight <= canvasHeight) return PastePlacement.PasteAsIs;
+        if (OwnerWindow is not { } owner)
+        {
+            // TODO(web): Paste placement needs a dialog; not available in the browser build yet.
+            StatusText.Text = "Pasted image is larger than the canvas and will be clipped";
+            return PastePlacement.PasteAsIs;
+        }
+        return await new PastePlacementDialog(canvasWidth, canvasHeight, imageWidth, imageHeight).ShowDialog<PastePlacement>(owner);
+    }
+
     private async void OnPaste(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         var doc = Canvas.Document;
@@ -2408,10 +2479,29 @@ public partial class MainView : UserControl
         if (bitmap is null) { StatusText.Text = "Clipboard has no image"; return; }
 
         using var pasted = FromClipboardBitmap(bitmap);
-        var (originX, originY, _, _) = SelectionOrCanvasBounds(doc);
+        var placement = await ChoosePastePlacementAsync(doc.Width, doc.Height, pasted.Width, pasted.Height);
+        if (placement == PastePlacement.Cancel) return;
+
+        if (placement == PastePlacement.GrowCanvas)
+        {
+            int w = Math.Max(doc.Width, pasted.Width), h = Math.Max(doc.Height, pasted.Height);
+            ApplyDocumentOp("Paste (Grow Canvas)", d =>
+            {
+                var grown = DocumentOps.ResizeCanvas(d, w, h, CanvasAnchor.TopLeft);
+                SurfaceOps.CompositeOver(grown.Layers[^1].Surface, pasted, 0, 0);
+                return grown;
+            });
+            StatusText.Text = $"Canvas grown to {w}×{h} and pasted {pasted.Width}×{pasted.Height}";
+            return;
+        }
+
+        using Surface? scaled = placement == PastePlacement.ScaleToFit ? pasted.Resized(doc.Width, doc.Height) : null;
+        var source = scaled ?? pasted;
+        int originX = 0, originY = 0;
+        if (scaled is null) (originX, originY, _, _) = SelectionOrCanvasBounds(doc);
 
         var snapshot = layer.Surface.Clone();
-        SurfaceOps.CompositeOver(layer.Surface, pasted, originX, originY);
+        SurfaceOps.CompositeOver(layer.Surface, source, originX, originY);
         Canvas.History.Push(TileDeltaMemento.Consume(layer, snapshot, "Paste"));
         RefreshDocument();
         StatusText.Text = $"Pasted {pasted.Width}×{pasted.Height}";
@@ -2427,8 +2517,28 @@ public partial class MainView : UserControl
         if (bitmap is null) { StatusText.Text = "Clipboard has no image"; return; }
 
         using var pasted = FromClipboardBitmap(bitmap);
+        var placement = await ChoosePastePlacementAsync(doc.Width, doc.Height, pasted.Width, pasted.Height);
+        if (placement == PastePlacement.Cancel) return;
+
+        if (placement == PastePlacement.GrowCanvas)
+        {
+            int w = Math.Max(doc.Width, pasted.Width), h = Math.Max(doc.Height, pasted.Height);
+            ApplyDocumentOp("Paste (Grow Canvas)", d =>
+            {
+                var grown = DocumentOps.ResizeCanvas(d, w, h, CanvasAnchor.TopLeft);
+                var newLayer = grown.AddLayer("Pasted");
+                SurfaceOps.CompositeOver(newLayer.Surface, pasted, 0, 0);
+                return grown;
+            });
+            StatusText.Text = $"Canvas grown to {w}×{h} and pasted {pasted.Width}×{pasted.Height} into a new layer";
+            return;
+        }
+
+        using Surface? scaled = placement == PastePlacement.ScaleToFit ? pasted.Resized(doc.Width, doc.Height) : null;
+        var source = scaled ?? pasted;
+
         var layer = doc.AddLayer("Pasted");
-        SurfaceOps.CompositeOver(layer.Surface, pasted, 0, 0);
+        SurfaceOps.CompositeOver(layer.Surface, source, 0, 0);
         Canvas.SetActiveLayer(layer);
 
         Canvas.History.Push(new DelegateMemento("Paste Into New Layer",

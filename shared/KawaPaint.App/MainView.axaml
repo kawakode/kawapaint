@@ -493,7 +493,9 @@
                     <Button Content="{app:Icon Close}" Padding="4,0" Tag="Tools:Hidden" Click="OnPanelPlace"
                             ToolTip.Tip="Hide (View ▸ Panels to restore)" />
                 </StackPanel>
-                <WrapPanel x:Name="ToolPalette" Orientation="Horizontal" Margin="4" />
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="ToolPalette" Orientation="Vertical" Margin="4" />
+                </ScrollViewer>
             </DockPanel>
         </Border>
 

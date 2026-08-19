@@ -480,3 +480,70 @@ public sealed class FreeformShapeTool : ITool
 
     public void PointerUp(ToolContext c) => _points.Clear();
 }
+
+public sealed class StarTool : ShapeToolBase
+{
+    public override string Name => "Star";
+    protected override void Draw(ToolContext c, double x0, double y0, double x1, double y1)
+    {
+        var points = StarPoints(x0, y0, x1, y1);
+        if (c.FillShapes) ShapeOps.FillPolygon(c.Layer.Surface, points, c.PrimaryColor);
+        else ShapeOps.DrawPolygon(c.Layer.Surface, points, c.BrushWidth / 2, c.PrimaryColor, c.Antialias);
+    }
+
+    /// <summary>Five-point star inscribed in the drag's bounding box, alternating outer/inner
+    /// vertices at the golden-ratio radius that gives a regular star its points.</summary>
+    private static List<(double X, double Y)> StarPoints(double x0, double y0, double x1, double y1)
+    {
+        double cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+        double rx = Math.Abs(x1 - x0) / 2, ry = Math.Abs(y1 - y0) / 2;
+        const int spikes = 5;
+        const double innerRatio = 0.382;
+
+        var points = new List<(double, double)>(spikes * 2);
+        for (int i = 0; i < spikes * 2; i++)
+        {
+            double angle = -Math.PI / 2 + i * Math.PI / spikes;
+            double r = i % 2 == 0 ? 1.0 : innerRatio;
+            points.Add((cx + Math.Cos(angle) * rx * r, cy + Math.Sin(angle) * ry * r));
+        }
+        return points;
+    }
+}
+
+public sealed class ArrowTool : ShapeToolBase
+{
+    public override string Name => "Arrow";
+    protected override void Draw(ToolContext c, double x0, double y0, double x1, double y1)
+    {
+        var points = ArrowPoints(x0, y0, x1, y1, c.BrushWidth);
+        if (c.FillShapes) ShapeOps.FillPolygon(c.Layer.Surface, points, c.PrimaryColor);
+        else ShapeOps.DrawPolygon(c.Layer.Surface, points, c.BrushWidth / 2, c.PrimaryColor, c.Antialias);
+    }
+
+    /// <summary>Seven-point arrow polygon: a shaft of half-width scaled to the brush, capped by a
+    /// triangular head sized off that same shaft so thicker brushes draw proportionally bigger heads.</summary>
+    private static List<(double X, double Y)> ArrowPoints(double x0, double y0, double x1, double y1, int brushWidth)
+    {
+        double dx = x1 - x0, dy = y1 - y0;
+        double len = Math.Max(1, Math.Sqrt(dx * dx + dy * dy));
+        double ux = dx / len, uy = dy / len;
+        double nx = -uy, ny = ux;
+
+        double shaftHalf = Math.Max(2, brushWidth * 0.6);
+        double headHalf = shaftHalf * 2.5;
+        double headLen = Math.Min(len * 0.5, headHalf * 2);
+        double bx = x1 - ux * headLen, by = y1 - uy * headLen;
+
+        return new List<(double, double)>
+        {
+            (x0 + nx * shaftHalf, y0 + ny * shaftHalf),
+            (bx + nx * shaftHalf, by + ny * shaftHalf),
+            (bx + nx * headHalf, by + ny * headHalf),
+            (x1, y1),
+            (bx - nx * headHalf, by - ny * headHalf),
+            (bx - nx * shaftHalf, by - ny * shaftHalf),
+            (x0 - nx * shaftHalf, y0 - ny * shaftHalf),
+        };
+    }
+}

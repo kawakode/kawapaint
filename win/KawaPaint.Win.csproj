@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\shared\KawaPaint.App\Assets\icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

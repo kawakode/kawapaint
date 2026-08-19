@@ -1,10 +1,13 @@
 // KawaPaint — a minimal About/Credits dialog, mirroring README.md's Credits section.
 
+using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 
 namespace KawaPaint.App;
 
@@ -17,6 +20,7 @@ public sealed class AboutDialog : Window
         Height = 460;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Icon = new WindowIcon(AssetLoader.Open(new Uri("avares://KawaPaint.App/Assets/icon.ico")));
 
         TextBlock Header(string text) => new()
         {
@@ -35,7 +39,14 @@ public sealed class AboutDialog : Window
         {
             Children =
             {
-                new TextBlock { Text = "KawaPaint", FontSize = 20, FontWeight = FontWeight.Bold },
+                new Image
+                {
+                    Source = new Bitmap(AssetLoader.Open(new Uri("avares://KawaPaint.App/Assets/logo.png"))),
+                    Width = 220,
+                    Stretch = Stretch.Uniform,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Margin = new Thickness(0, 0, 0, 4)
+                },
                 Body("A Paint.NET-inspired image editor, maintained by Kawa."),
 
                 Header("Fork"),

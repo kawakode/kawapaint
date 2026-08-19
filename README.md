@@ -1,4 +1,4 @@
-# KawaPaint
+<img src="kawapaint-main.png" alt="KawaPaint" width="360" />
 
 A modern, cross-platform image editor compatible with Paint.NET 3.36 file format. KawaPaint is a clean rewrite built on a shared C#/SkiaSharp engine with Avalonia UI, running natively on Windows, Linux, and in the browser via WebAssembly.
 

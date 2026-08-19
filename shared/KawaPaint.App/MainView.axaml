@@ -181,6 +181,21 @@
                 <MenuItem Header="Edge _Detect" Tag="edge" Click="OnEffect" Icon="{app:Icon EdgeDetect}" />
                 <MenuItem Header="_Posterize…" Tag="posterize" Click="OnAdjust" Icon="{app:Icon Posterize}" />
                 <MenuItem Header="Add _Noise…" Tag="noise" Click="OnAdjust" Icon="{app:Icon Noise}" />
+                <Separator />
+                <MenuItem Header="Distort">
+                    <MenuItem Header="_Bulge…" Tag="bulge" Click="OnAdjust" />
+                    <MenuItem Header="T_wist…" Tag="twist" Click="OnAdjust" />
+                    <MenuItem Header="_Polar Inversion…" Tag="polarinv" Click="OnAdjust" />
+                    <MenuItem Header="_Tile…" Tag="tile" Click="OnAdjust" />
+                    <MenuItem Header="Frosted _Glass…" Tag="frostedglass" Click="OnAdjust" />
+                    <MenuItem Header="Pi_xelate…" Tag="pixelate" Click="OnAdjust" />
+                </MenuItem>
+                <MenuItem Header="Stylize">
+                    <MenuItem Header="_Median…" Tag="median" Click="OnAdjust" />
+                    <MenuItem Header="_Outline…" Tag="outline" Click="OnAdjust" />
+                    <MenuItem Header="Re_lief…" Tag="relief" Click="OnAdjust" />
+                    <MenuItem Header="Vi_gnette…" Tag="vignette" Click="OnAdjust" />
+                </MenuItem>
             </MenuItem>
         </Menu>
         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" Margin="6,0" VerticalAlignment="Center">

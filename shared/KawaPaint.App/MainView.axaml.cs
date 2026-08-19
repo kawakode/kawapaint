@@ -750,6 +750,64 @@ public partial class MainView : UserControl
                 new AdjustmentDialog.SliderSpec("Amount", 0, 100, 25, "0")
             }, v => new NoiseEffect((int)v[0])),
 
+            "bulge" => new AdjustmentDialog(Canvas, "Bulge", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Amount", -200, 100, 45, "0")
+            }, v => new BulgeEffect(v[0])),
+
+            "twist" => new AdjustmentDialog(Canvas, "Twist", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Amount", -200, 200, 30, "0"),
+                new AdjustmentDialog.SliderSpec("Size", 0.01, 2.0, 1.0, "0.00")
+            }, v => new TwistEffect(v[0], v[1])),
+
+            "polarinv" => new AdjustmentDialog(Canvas, "Polar Inversion", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Amount", -4, 4, 1, "0.00")
+            }, v => new PolarInversionEffect(v[0])),
+
+            "tile" => new AdjustmentDialog(Canvas, "Tile", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Rotation", -180, 180, 30, "0"),
+                new AdjustmentDialog.SliderSpec("Square Size", 1, 300, 40, "0"),
+                new AdjustmentDialog.SliderSpec("Curvature", -100, 100, 8, "0")
+            }, v => new TileEffect(v[0], v[1], v[2])),
+
+            "frostedglass" => new AdjustmentDialog(Canvas, "Frosted Glass", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Min Radius", 0, 50, 0, "0.0"),
+                new AdjustmentDialog.SliderSpec("Max Radius", 0, 50, 3, "0.0"),
+                new AdjustmentDialog.SliderSpec("Samples", 1, 8, 2, "0")
+            }, v => new FrostedGlassEffect(v[0], v[1], (int)v[2])),
+
+            "pixelate" => new AdjustmentDialog(Canvas, "Pixelate", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Cell Size", 1, 100, 8, "0")
+            }, v => new PixelateEffect((int)v[0])),
+
+            "median" => new AdjustmentDialog(Canvas, "Median", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Radius", 1, 30, 5, "0"),
+                new AdjustmentDialog.SliderSpec("Percentile", 0, 100, 50, "0")
+            }, v => new MedianEffect((int)v[0], (int)v[1])),
+
+            "outline" => new AdjustmentDialog(Canvas, "Outline", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Thickness", 1, 30, 3, "0"),
+                new AdjustmentDialog.SliderSpec("Intensity", 0, 100, 50, "0")
+            }, v => new OutlineEffect((int)v[0], (int)v[1])),
+
+            "relief" => new AdjustmentDialog(Canvas, "Relief", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Angle", -180, 180, 45, "0")
+            }, v => new ReliefEffect(v[0])),
+
+            "vignette" => new AdjustmentDialog(Canvas, "Vignette", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Amount", 0, 1, 1, "0.00"),
+                new AdjustmentDialog.SliderSpec("Radius", 0.1, 4.0, 0.5, "0.00")
+            }, v => new VignetteEffect(v[0], v[1])),
+
             _ => new AdjustmentDialog(Canvas, "Gaussian Blur", new[]
             {
                 new AdjustmentDialog.SliderSpec("Radius", 1, 30, 5, "0")

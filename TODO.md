@@ -62,20 +62,90 @@ panel defaults or redo-binding looks wrong later):
 ### 2.1 — Effect catalogue
 Port from paint.net 3.36's `src/Effects/` (MIT-licensed). The original source is preserved on the
 `origin/3.36pdn` branch — verified it's actually there:
-`git ls-tree -r origin/3.36pdn --name-only | grep Effects/` lists ~30 files; pull one with
-`git show origin/3.36pdn:src/Effects/BulgeEffect.cs`. (The `src/` directory in the current
-working tree is unrelated leftover, not this — don't confuse the two.) Follow the existing
-`IEffect`/`PerPixelEffect` pattern in
-`shared/KawaPaint.Engine/Effects.cs`. Full remaining list:
-- **Artistic:** Ink Sketch, Oil Painting, Pencil Sketch
-- **Blurs/Distort/Noise:** Fragment, Motion, Radial, Surface, Unfocus, Zoom, Bulge, Dents, Frosted
-  Glass, Pixelate, Polar Inversion, Tile Reflection, Twist, Median, Reduce Noise
-- **Photo/Render/Stylize:** Glow, Red Eye Removal, Soft Portrait, Vignette, Clouds (Perlin), Julia
-  and Mandelbrot fractals, Outline, Relief
-- **Tools that came bundled with these in pdn:** Clone Stamp, Recolor, freeform/rounded shapes
+`git ls-tree -r origin/3.36pdn --name-only | grep Effects/` lists ~30 files. **Gotcha: don't pull
+files with `git show origin/3.36pdn:path`** — some of these files are UTF-16-encoded blobs and
+`git show` (unlike `git cat-file -p`) silently applies EOL conversion that corrupts the UTF-16
+byte alignment, producing garbage. Use `git cat-file -p $(git rev-parse origin/3.36pdn:path)`
+instead, which returns the raw blob untouched; the Read tool then auto-detects UTF-8 vs UTF-16
+correctly. (The `src/` directory in the current working tree is unrelated leftover, not this —
+don't confuse the two.)
 
-Lowest-risk Tier 2 item — mechanical, no new architecture, each effect is independent so it can
-be done incrementally alongside anything else rather than as one block.
+**10 effects done 2026-08-19** (Distort: Bulge, Twist, Polar Inversion, Tile, Frosted Glass,
+Pixelate; Stylize: Median, Outline, Relief, Vignette) — algorithms transcribed from the real pdn
+source (not reinvented), wired into new `Effects > Distort` / `Effects > Stylize` submenus in
+`MainView.axaml` via the existing `AdjustmentDialog`/`OnAdjust` live-preview pattern, same as
+Brightness/Contrast etc. Not a literal file port: pdn's classes are built on
+WinForms/IndirectUI/PropertySystem plumbing that doesn't exist here, so each effect's core
+`OnRender`/`InverseTransform` math was ported onto KawaPaint's own `IEffect` shape instead.
+
+New shared engine infrastructure, reusable for the effects still remaining below:
+- `Surface.GetBilinearSampleClamped`/`GetBilinearSampleWrapped` (`Surface.cs`) — KawaPaint had no
+  bilinear sampling at all before this; pdn's warp-style effects all depend on it.
+- `WarpEffect` abstract base (`Effects.Distort.cs`) — mirrors pdn's `WarpEffectBase`: given a
+  destination pixel's position relative to image center, subclasses return the center-relative
+  source position to sample (inverse mapping), clamped or wrapped per `EdgeMode`. Bulge/Twist/
+  Polar Inversion/Tile all just implement `InverseTransform`.
+- `LocalHistogramEffect` abstract base (`Effects.Stylize.cs`) — mirrors pdn's
+  `LocalHistogramEffect`: builds a per-channel 256-bin histogram over a circular neighborhood
+  around each pixel, subclasses turn that into an output color. Median/Outline both use it.
+
+Deliberate simplifications vs. the pdn originals (flag if any turn out to matter):
+- No anti-aliased supersampling (pdn's `Utility.GetRgssOffsets`) — single-sample bilinear only,
+  matching this file's existing style (`BoxBlurEffect` etc. don't AA either).
+- Warp effects always center on the image; pdn's optional pan/offset property was dropped.
+- `LocalHistogramEffect` recomputes each pixel's histogram from scratch
+  (O(radius²)-per-pixel) rather than porting pdn's incremental row-sliding window. Fine at the
+  radii a paint app's UI actually exposes (dialog defaults: Median radius 5, Outline thickness 3,
+  both capped at 30 in the UI vs. pdn's 200) but would need the sliding-window version if a user
+  wants very large radii to stay snappy on big canvases.
+- `VignetteEffect` drops pdn's sRGB-linear round-trip (`SrgbUtility.ToLinear`/`ToSrgbClamped`) and
+  multiplies directly in sRGB byte space, consistent with every other effect in this codebase
+  (Sepia, Brightness/Contrast, etc. all do the same).
+- `PixelateEffect` averages each full cell rather than porting pdn's 4-corner bilinear-weighted
+  blend — simpler and arguably more correct for a "pixelate" effect.
+- `OutlineEffect`'s alpha-channel bound-scan uses `ha` throughout; the original pdn source
+  actually reads `hb` (blue histogram) for that one loop's leading-zero skip — a real upstream
+  bug, invisible on typical fully-opaque images since the alpha histogram is a single spike.
+  Ported correctly here rather than faithfully copying the bug.
+
+**Verified for real, not just "it compiles":** all 10 added to `KawaPaint.Sandbox/Program.cs`'s
+smoke-test `effects[]` array (runs the full apply→clip→history pipeline through real
+`KawaPaint.Engine` types) — passes. A separate scratch harness applied each effect to a 64×64
+test-pattern surface, confirmed every one actually changes pixels (not a silent no-op), eyeballed
+the PNG output for each (bulge visibly bulges, twist/polar-inversion produce coherent swirl/
+kaleidoscope patterns, median visibly removes the thin diagonal test line while preserving block
+edges, outline highlights exactly the color-block boundaries, vignette darkens the corners —
+all correct), and ran all 10 against deliberately degenerate sizes (1×1, 2×2, 3×7, 1×40) to catch
+divide-by-zero/out-of-range crashes from `maxRadius==0`, wrap-modulo on a 1px-wide image, etc. —
+no crashes. Beyond the headless checks, also built and launched the real Windows desktop app
+(`win/KawaPaint.Win.csproj`) and drove it live: confirmed the `Distort`/`Stylize` submenus list
+all 10 items, opened the Bulge dialog and dragged its slider — the live preview visibly bulged the
+test image in real time — clicked OK and confirmed it committed (status bar showed "Bulge", title
+bar picked up the unsaved-changes `*`, no crash), and opened the Vignette dialog to confirm its
+sliders default to pdn's own defaults (Amount 1.00, Radius 0.50).
+**Windows UI-automation gotcha for next time:** this box has no input-automation tool preinstalled
+either (same as the Linux note below), but plain PowerShell + `user32.dll` P/Invoke
+(`SetCursorPos`/`mouse_event` for clicks, `GetWindowRect`/`SetForegroundWindow` for the target
+window, `System.Drawing.Graphics.CopyFromScreen` for screenshots) works fine for driving a real
+Avalonia window and needs no extra install. **Also hit and worth remembering:** `dotnet build` on
+this repo's `win/` project writes to *two* separate output dirs —
+`win/bin/Debug/net10.0/KawaPaint.Win.exe` (plain build) and a stale
+`win/bin/Debug/net10.0/win-x64/KawaPaint.Win.exe` left over from an earlier RID-specific
+build/publish — only the former gets refreshed by a plain `dotnet build`. Launching the `win-x64`
+one silently ran yesterday's binary with none of today's changes; always check both paths'
+timestamps (or delete the stale one) rather than assuming the first exe `find` turns up is current.
+
+**Still open — remaining pdn effects, same porting approach:**
+- **Artistic:** Ink Sketch, Oil Painting, Pencil Sketch
+- **Blurs/Noise:** Fragment, Motion Blur, Radial Blur, Surface Blur, Unfocus, Zoom Blur, Dents,
+  Reduce Noise (Dents and Clouds below both need a Perlin-noise helper — pdn's own
+  `PerlinNoise2D.cs` is on the `3.36pdn` branch alongside everything else, not yet ported)
+- **Photo/Render:** Glow, Red Eye Removal, Soft Portrait, Clouds (Perlin), Julia and Mandelbrot
+  fractals
+- **Tools that came bundled with these in pdn, not effects:** Clone Stamp, Recolor,
+  freeform/rounded shapes
+
+Each remaining effect is still independent and can be done incrementally alongside anything else.
 
 ### 2.3 — Git-backed history + forge integrations
 **Local half done 2026-08-19 (Windows machine, same session as the JP2 codec above); forge half

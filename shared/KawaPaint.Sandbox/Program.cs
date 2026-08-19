@@ -29,7 +29,10 @@ IEffect[] effects =
     new InvertEffect(), new GrayscaleEffect(), new SepiaEffect(), new BrightnessContrastEffect(10, 1.1),
     new HueSaturationEffect(30, 1.2, 0.1), new LevelsEffect(10, 240, 1.1), new AutoLevelsEffect(),
     new BoxBlurEffect(3), new SharpenEffect(), new EmbossEffect(), new EdgeDetectEffect(),
-    new PosterizeEffect(5), new NoiseEffect(10), new CurvesEffect(BuildIdentityLut())
+    new PosterizeEffect(5), new NoiseEffect(10), new CurvesEffect(BuildIdentityLut()),
+    new BulgeEffect(45), new TwistEffect(30, 1.0), new PolarInversionEffect(1.0),
+    new TileEffect(30, 12, 8), new FrostedGlassEffect(0, 3, 2), new PixelateEffect(6),
+    new MedianEffect(4), new OutlineEffect(3, 50), new ReliefEffect(45), new VignetteEffect(0.7, 0.5)
 };
 foreach (var fx in effects)
 {

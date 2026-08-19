@@ -178,6 +178,43 @@ public sealed unsafe class Surface : IDisposable
         return copy;
     }
 
+    /// <summary>Bilinear-samples at (x,y); out-of-range coordinates clamp to the nearest edge pixel.</summary>
+    public ColorBgra GetBilinearSampleClamped(float x, float y) => BilinearAt(x, y, wrap: false);
+
+    /// <summary>Bilinear-samples at (x,y); out-of-range coordinates wrap around to the opposite edge.</summary>
+    public ColorBgra GetBilinearSampleWrapped(float x, float y) => BilinearAt(x, y, wrap: true);
+
+    private ColorBgra BilinearAt(float x, float y, bool wrap)
+    {
+        int x0 = (int)MathF.Floor(x), y0 = (int)MathF.Floor(y);
+        float fx = x - x0, fy = y - y0;
+
+        ColorBgra Sample(int sx, int sy)
+        {
+            if (wrap)
+            {
+                sx = ((sx % Width) + Width) % Width;
+                sy = ((sy % Height) + Height) % Height;
+            }
+            else
+            {
+                sx = Math.Clamp(sx, 0, Width - 1);
+                sy = Math.Clamp(sy, 0, Height - 1);
+            }
+            return *GetPointPointer(sx, sy);
+        }
+
+        ColorBgra c00 = Sample(x0, y0), c10 = Sample(x0 + 1, y0);
+        ColorBgra c01 = Sample(x0, y0 + 1), c11 = Sample(x0 + 1, y0 + 1);
+
+        static double Lerp(double a, double b, double t) => a + (b - a) * t;
+        double b = Lerp(Lerp(c00.B, c10.B, fx), Lerp(c01.B, c11.B, fx), fy);
+        double g = Lerp(Lerp(c00.G, c10.G, fx), Lerp(c01.G, c11.G, fx), fy);
+        double r = Lerp(Lerp(c00.R, c10.R, fx), Lerp(c01.R, c11.R, fx), fy);
+        double a = Lerp(Lerp(c00.A, c10.A, fx), Lerp(c01.A, c11.A, fx), fy);
+        return ColorBgra.FromBgra(Clamp.B(b), Clamp.B(g), Clamp.B(r), Clamp.B(a));
+    }
+
     /// <summary>Returns a new Surface containing the (x,y,w,h) region of this one (out-of-bounds = transparent).</summary>
     public Surface Crop(int x, int y, int w, int h)
     {

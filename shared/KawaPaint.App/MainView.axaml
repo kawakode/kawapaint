@@ -189,12 +189,37 @@
                     <MenuItem Header="_Tile…" Tag="tile" Click="OnAdjust" />
                     <MenuItem Header="Frosted _Glass…" Tag="frostedglass" Click="OnAdjust" />
                     <MenuItem Header="Pi_xelate…" Tag="pixelate" Click="OnAdjust" />
+                    <MenuItem Header="_Dents…" Tag="dents" Click="OnAdjust" />
                 </MenuItem>
                 <MenuItem Header="Stylize">
                     <MenuItem Header="_Median…" Tag="median" Click="OnAdjust" />
                     <MenuItem Header="_Outline…" Tag="outline" Click="OnAdjust" />
                     <MenuItem Header="Re_lief…" Tag="relief" Click="OnAdjust" />
                     <MenuItem Header="Vi_gnette…" Tag="vignette" Click="OnAdjust" />
+                    <MenuItem Header="Red_uce Noise…" Tag="reducenoise" Click="OnAdjust" />
+                </MenuItem>
+                <MenuItem Header="Blurs">
+                    <MenuItem Header="_Motion Blur…" Tag="motionblur" Click="OnAdjust" />
+                    <MenuItem Header="_Radial Blur…" Tag="radialblur" Click="OnAdjust" />
+                    <MenuItem Header="_Zoom Blur…" Tag="zoomblur" Click="OnAdjust" />
+                    <MenuItem Header="_Surface Blur…" Tag="surfaceblur" Click="OnAdjust" />
+                    <MenuItem Header="_Unfocus…" Tag="unfocus" Click="OnAdjust" />
+                    <MenuItem Header="F_ragment…" Tag="fragment" Click="OnAdjust" />
+                </MenuItem>
+                <MenuItem Header="Render">
+                    <MenuItem Header="_Clouds…" Tag="clouds" Click="OnAdjust" />
+                    <MenuItem Header="_Julia Fractal…" Tag="julia" Click="OnAdjust" />
+                    <MenuItem Header="_Mandelbrot Fractal…" Tag="mandelbrot" Click="OnAdjust" />
+                </MenuItem>
+                <MenuItem Header="Photo">
+                    <MenuItem Header="_Glow…" Tag="glow" Click="OnAdjust" />
+                    <MenuItem Header="_Red Eye Removal…" Tag="redeye" Click="OnAdjust" />
+                    <MenuItem Header="_Soften Portrait…" Tag="softenportrait" Click="OnAdjust" />
+                </MenuItem>
+                <MenuItem Header="Artistic">
+                    <MenuItem Header="_Ink Sketch…" Tag="inksketch" Click="OnAdjust" />
+                    <MenuItem Header="_Pencil Sketch…" Tag="pencilsketch" Click="OnAdjust" />
+                    <MenuItem Header="_Oil Painting…" Tag="oilpainting" Click="OnAdjust" />
                 </MenuItem>
             </MenuItem>
         </Menu>

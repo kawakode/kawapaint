@@ -6,7 +6,7 @@
 
 namespace KawaPaint.Engine;
 
-public enum WarpEdgeMode { Clamp, Wrap }
+public enum WarpEdgeMode { Clamp, Wrap, Reflect }
 
 /// <summary>
 /// Base for effects that resample each destination pixel from a transformed source location
@@ -30,7 +30,7 @@ public abstract class WarpEffect : IEffect
         int w = s.Width, h = s.Height;
         double hw = w / 2.0, hh = h / 2.0;
         double maxRadius = Math.Min(hw, hh);
-        bool wrap = EdgeMode == WarpEdgeMode.Wrap;
+        WarpEdgeMode edge = EdgeMode;
 
         System.Threading.Tasks.Parallel.For(0, h, y =>
         {
@@ -41,9 +41,25 @@ public abstract class WarpEffect : IEffect
                 double rx = x - hw;
                 var (sx, sy) = InverseTransform(rx, ry, hw, hh, maxRadius);
                 float px = (float)(sx + hw), py = (float)(sy + hh);
-                dst[x] = wrap ? src.GetBilinearSampleWrapped(px, py) : src.GetBilinearSampleClamped(px, py);
+                dst[x] = edge switch
+                {
+                    WarpEdgeMode.Wrap => src.GetBilinearSampleWrapped(px, py),
+                    WarpEdgeMode.Reflect => src.GetBilinearSampleClamped(ReflectCoord(px, w - 1), ReflectCoord(py, h - 1)),
+                    _ => src.GetBilinearSampleClamped(px, py)
+                };
             }
         });
+    }
+
+    /// <summary>Mirror-folds a coordinate back into [0,max] by bouncing off the edges, so a warp
+    /// that would sample outside the image reflects rather than smearing or wrapping.</summary>
+    private static float ReflectCoord(float value, int max)
+    {
+        if (max <= 0) return 0; // a 1px-wide/tall image: value += 0 / -= 0 would never converge below
+        bool reflect = false;
+        while (value < 0) { value += max; reflect = !reflect; }
+        while (value > max) { value -= max; reflect = !reflect; }
+        return reflect ? max - value : value;
     }
 }
 
@@ -230,5 +246,42 @@ public sealed class PixelateEffect : IEffect
                 }
             }
         });
+    }
+}
+
+/// <summary>Ripples the image through Perlin noise, like a dented sheet of metal. Reflects at
+/// edges (matches pdn's choice — better than a clamp-smear for a noise-driven ripple).</summary>
+public sealed class DentsEffect : WarpEffect
+{
+    private readonly double _scale, _refraction, _roughnessRaw, _theta;
+    private readonly byte _seed;
+
+    public DentsEffect(double scale, double refraction, double roughness, double tension, int seed)
+    {
+        _scale = Math.Max(1, scale);
+        _refraction = refraction;
+        _roughnessRaw = roughness;
+        _theta = Math.PI * 2.0 * tension / 10.0;
+        _seed = unchecked((byte)(DateTime.Now.Ticks ^ seed));
+    }
+    public override string Name => "Dents";
+    protected override WarpEdgeMode EdgeMode => WarpEdgeMode.Reflect;
+
+    protected override (double X, double Y) InverseTransform(double x, double y, double hw, double hh, double maxRadius)
+    {
+        double scaleR = (400.0 / maxRadius) / _scale;
+        double refractionScale = (_refraction / 100.0) / scaleR;
+        double roughness = _roughnessRaw / 100.0;
+
+        // Perlin's own octave count grows with detail; keep it below the Nyquist limit for this
+        // scale so high-frequency octaves don't just alias into noise.
+        double detail = 1.0 + (_roughnessRaw / 10.0);
+        double maxDetail = Math.Floor(Math.Log(scaleR) / Math.Log(0.5));
+        if (detail > maxDetail && maxDetail >= 1.0) detail = maxDetail;
+
+        double ix = x * scaleR, iy = y * scaleR;
+        double bumpAngle = _theta * PerlinNoise2D.Noise(ix, iy, detail, roughness, _seed);
+
+        return (x + refractionScale * Math.Sin(-bumpAngle), y + refractionScale * Math.Cos(bumpAngle));
     }
 }

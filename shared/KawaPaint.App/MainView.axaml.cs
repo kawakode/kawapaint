@@ -808,6 +808,112 @@ public partial class MainView : UserControl
                 new AdjustmentDialog.SliderSpec("Radius", 0.1, 4.0, 0.5, "0.00")
             }, v => new VignetteEffect(v[0], v[1])),
 
+            "dents" => new AdjustmentDialog(Canvas, "Dents", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Scale", 1, 200, 25, "0"),
+                new AdjustmentDialog.SliderSpec("Refraction", 0, 200, 50, "0"),
+                new AdjustmentDialog.SliderSpec("Roughness", 0, 100, 10, "0"),
+                new AdjustmentDialog.SliderSpec("Tension", 0, 100, 10, "0")
+            }, v => new DentsEffect(v[0], v[1], v[2], v[3], 0)),
+
+            "reducenoise" => new AdjustmentDialog(Canvas, "Reduce Noise", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Radius", 1, 30, 6, "0"),
+                new AdjustmentDialog.SliderSpec("Strength", 0, 1, 0.4, "0.00")
+            }, v => new ReduceNoiseEffect((int)v[0], v[1])),
+
+            "motionblur" => new AdjustmentDialog(Canvas, "Motion Blur", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Angle", -180, 180, 25, "0"),
+                new AdjustmentDialog.SliderSpec("Distance", 1, 100, 10, "0")
+            }, v => new MotionBlurEffect(v[0], (int)v[1])),
+
+            "radialblur" => new AdjustmentDialog(Canvas, "Radial Blur", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Angle", 0, 90, 5, "0")
+            }, v => new RadialBlurEffect(v[0])),
+
+            "zoomblur" => new AdjustmentDialog(Canvas, "Zoom Blur", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Amount", 0, 100, 10, "0")
+            }, v => new ZoomBlurEffect((int)v[0])),
+
+            "surfaceblur" => new AdjustmentDialog(Canvas, "Surface Blur", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Radius", 1, 30, 6, "0"),
+                new AdjustmentDialog.SliderSpec("Threshold", 1, 100, 15, "0")
+            }, v => new SurfaceBlurEffect((int)v[0], (int)v[1])),
+
+            "unfocus" => new AdjustmentDialog(Canvas, "Unfocus", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Radius", 1, 30, 4, "0")
+            }, v => new UnfocusEffect((int)v[0])),
+
+            "fragment" => new AdjustmentDialog(Canvas, "Fragment", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Fragments", 2, 50, 4, "0"),
+                new AdjustmentDialog.SliderSpec("Rotation", 0, 360, 0, "0"),
+                new AdjustmentDialog.SliderSpec("Distance", 0, 100, 8, "0")
+            }, v => new FragmentEffect((int)v[0], v[1], (int)v[2])),
+
+            "clouds" => new AdjustmentDialog(Canvas, "Clouds", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Scale", 2, 500, 200, "0"),
+                new AdjustmentDialog.SliderSpec("Power", 0, 1, 0.5, "0.00")
+            }, v => new CloudsEffect((int)v[0], v[1], 0, Canvas.BrushColor, Canvas.SecondaryColor)),
+
+            "julia" => new AdjustmentDialog(Canvas, "Julia Fractal", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Factor", 1, 10, 4, "0.0"),
+                new AdjustmentDialog.SliderSpec("Zoom", 0.1, 20, 1, "0.00"),
+                new AdjustmentDialog.SliderSpec("Angle", -180, 180, 0, "0")
+            }, v => new JuliaFractalEffect(v[0], v[1], v[2])),
+
+            "mandelbrot" => new AdjustmentDialog(Canvas, "Mandelbrot Fractal", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Factor", 1, 10, 1, "0"),
+                new AdjustmentDialog.SliderSpec("Zoom", 0, 100, 10, "0"),
+                new AdjustmentDialog.SliderSpec("Angle", -180, 180, 0, "0")
+            }, v => new MandelbrotFractalEffect((int)v[0], v[1], v[2])),
+
+            "glow" => new AdjustmentDialog(Canvas, "Glow", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Radius", 1, 20, 6, "0"),
+                new AdjustmentDialog.SliderSpec("Brightness", -100, 100, 10, "0"),
+                new AdjustmentDialog.SliderSpec("Contrast", -100, 100, 10, "0")
+            }, v => new GlowEffect((int)v[0], (int)v[1], (int)v[2])),
+
+            "redeye" => new AdjustmentDialog(Canvas, "Red Eye Removal", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Tolerance", 0, 100, 70, "0"),
+                new AdjustmentDialog.SliderSpec("Saturation", 0, 100, 90, "0")
+            }, v => new RedEyeRemoveEffect((int)v[0], (int)v[1])),
+
+            "softenportrait" => new AdjustmentDialog(Canvas, "Soften Portrait", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Softness", 0, 10, 5, "0"),
+                new AdjustmentDialog.SliderSpec("Lighting", -20, 20, 0, "0"),
+                new AdjustmentDialog.SliderSpec("Warmth", 0, 20, 10, "0")
+            }, v => new SoftenPortraitEffect((int)v[0], (int)v[1], (int)v[2])),
+
+            "inksketch" => new AdjustmentDialog(Canvas, "Ink Sketch", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Ink Outline", 0, 99, 50, "0"),
+                new AdjustmentDialog.SliderSpec("Coloring", 0, 100, 50, "0")
+            }, v => new InkSketchEffect((int)v[0], (int)v[1])),
+
+            "pencilsketch" => new AdjustmentDialog(Canvas, "Pencil Sketch", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Pencil Tip Size", 1, 20, 2, "0"),
+                new AdjustmentDialog.SliderSpec("Color Range", -20, 20, 0, "0")
+            }, v => new PencilSketchEffect((int)v[0], (int)v[1])),
+
+            "oilpainting" => new AdjustmentDialog(Canvas, "Oil Painting", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Brush Size", 1, 8, 3, "0"),
+                new AdjustmentDialog.SliderSpec("Coarseness", 3, 255, 50, "0")
+            }, v => new OilPaintingEffect((int)v[0], (int)v[1])),
+
             _ => new AdjustmentDialog(Canvas, "Gaussian Blur", new[]
             {
                 new AdjustmentDialog.SliderSpec("Radius", 1, 30, 5, "0")

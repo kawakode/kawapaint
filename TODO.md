@@ -47,7 +47,9 @@ coverage-based rasterizer rewrite + graded `Selection.Clip` blending — real wo
 Layer Properties dialog (redundant, panel already has name/opacity/blend/visibility inline),
 dedicated Zoom/Pan tool buttons (already covered by Ctrl+wheel/keys and middle/right-drag pan).
 
-**Tier 2, started:** 2.2 custom dock done — see `MainView`'s "Dock" panel, `DockEditorDialog`,
+**Tier 2, started:** 2.1 effect catalogue done (30 effects, both passes 2026-08-19 — see its own
+section below for the full account, including a real infinite-loop bug found and fixed during
+verification) and 2.2 custom dock done — see `MainView`'s "Dock" panel, `DockEditorDialog`,
 `Core/DockEntry.cs`. Hidden by default, `Ctrl+\`` or top-right icon summons it Floating.
 
 Two real bugs found+fixed while building the dock (not just features — read if something about
@@ -135,17 +137,91 @@ build/publish — only the former gets refreshed by a plain `dotnet build`. Laun
 one silently ran yesterday's binary with none of today's changes; always check both paths'
 timestamps (or delete the stale one) rather than assuming the first exe `find` turns up is current.
 
-**Still open — remaining pdn effects, same porting approach:**
-- **Artistic:** Ink Sketch, Oil Painting, Pencil Sketch
-- **Blurs/Noise:** Fragment, Motion Blur, Radial Blur, Surface Blur, Unfocus, Zoom Blur, Dents,
-  Reduce Noise (Dents and Clouds below both need a Perlin-noise helper — pdn's own
-  `PerlinNoise2D.cs` is on the `3.36pdn` branch alongside everything else, not yet ported)
-- **Photo/Render:** Glow, Red Eye Removal, Soft Portrait, Clouds (Perlin), Julia and Mandelbrot
-  fractals
-- **Tools that came bundled with these in pdn, not effects:** Clone Stamp, Recolor,
-  freeform/rounded shapes
+**Remaining 17 effects done 2026-08-19 (second pass, same day)** — Blurs: Motion Blur, Radial
+Blur, Zoom Blur, Surface Blur, Unfocus, Fragment; Distort: Dents; Stylize: Reduce Noise; Render:
+Clouds, Julia Fractal, Mandelbrot Fractal; Photo: Glow, Red Eye Removal, Soften Portrait; Artistic:
+Ink Sketch, Pencil Sketch, Oil Painting. This closes out the full pdn effect list from the original
+plan — **2.1 effect catalogue is done** (30 effects total across both passes), modulo the
+"Tools that came bundled with these in pdn, not effects" item below, which was never in scope as
+an effect.
 
-Each remaining effect is still independent and can be done incrementally alongside anything else.
+New files: `PerlinNoise2D.cs` (shared by Dents and Clouds — ported from pdn's own
+`PerlinNoise2D.cs`), `Effects.Blur.cs`, `Effects.Noise.cs`, `Effects.Render.cs`, `Effects.Photo.cs`
+(also defines internal `BlendOps` — Screen/Overlay/Darken/ColorDodge, standard two-layer blend-mode
+formulas used in place of pdn's alpha-compositing-aware `UserBlendOps`, since here one side of
+every blend is always effectively opaque), `Effects.Artistic.cs`. `WarpEffect` (`Effects.Distort.cs`)
+gained a third `WarpEdgeMode.Reflect` for Dents (pdn's own choice for it — avoids the smeared look
+Clamp gives a noise-driven ripple at the image edge).
+
+Compositional reuse, matching how pdn itself builds these on top of each other: `GlowEffect` is
+blur+brightness/contrast+Screen-blend, and `InkSketchEffect` calls `GlowEffect` directly for its
+background pass, exactly like the pdn original does. `PencilSketchEffect`/`SoftenPortraitEffect`
+similarly compose the existing `BoxBlurEffect`/`BrightnessContrastEffect`/`InvertEffect`/
+`GrayscaleEffect` rather than duplicating blur/adjust logic.
+
+**A real bug was found and fixed during verification, not just during review:** `WarpEffect`'s new
+`ReflectCoord` helper (`value += max` / `value -= max` to bounce a coordinate back into range)
+infinite-loops whenever `max <= 0` — i.e. whenever the image is exactly 1px wide or 1px tall, since
+adding/subtracting zero never converges. This is invisible on any normal canvas size and only
+`DentsEffect` uses Reflect mode, which is exactly why the project's boundary-size test battery
+(1×1, 1×40, 40×1, ...) exists — a plain "does it look right" check on a 64×64 test image would
+never have caught it. Root-caused by timing each effect against each boundary size individually
+after the full batch run hung with zero output (confirmed the hang was real CPU-bound spinning, not
+a slow build, via `Get-Process`'s CPU-seconds counter climbing continuously) rather than assuming
+a cause. Fixed with a one-line early return (`if (max <= 0) return 0`); re-ran the full boundary
+battery clean afterward.
+
+**Other simplifications vs. pdn, same "flag if it turns out to matter" spirit as the first pass:**
+- `MotionBlurEffect`/`RadialBlurEffect`/`ZoomBlurEffect` drop pdn's fixed-point rotation-matrix
+  math (a perf trick from 2007-era hardware) for plain `Math.Cos`/`Math.Sin` per sample — same
+  visual result, much simpler to read and verify.
+- `UnfocusEffect` is a genuinely circular-kernel *unweighted* mean (reusing `LocalHistogramEffect`),
+  not pdn's alpha-weighted premultiplied version — matches this codebase's existing
+  non-alpha-weighted convention (`BoxBlurEffect` already averages B/G/R/A independently, not
+  alpha-weighted either), and is the real reason to have Unfocus at all alongside the existing
+  square/separable Gaussian Blur menu entry: a genuinely round kernel, visible at hard silhouette
+  edges.
+- `JuliaFractalEffect`/`MandelbrotFractalEffect` drop pdn's quality-supersampling loop (single
+  sample per pixel, consistent with dropping AA everywhere else in this catalogue).
+  `MandelbrotFractalEffect`'s `InvertColors` checkbox was dropped from the dialog entirely (always
+  false) — `AdjustmentDialog` only has sliders, no checkbox control; flag if worth adding.
+- The `BlendOps` formulas (Screen/Overlay/Darken/ColorDodge) are the standard documented two-layer
+  blend-mode math, not a transcription of pdn's `UserBlendOps.Generated.cs` — that file is
+  macro-generated fixed-point code whose complexity is almost entirely about correct alpha
+  compositing for general layer blending, which these effects don't need (one side of each blend
+  is always the fully-opaque result of a prior step). Double-checked the base/blend argument order
+  against pdn's actual `ColorDodgeBlendOp.Apply(lhs,rhs)` generated code (confirmed `lhs`=base,
+  `rhs`=blend) rather than assuming — this mattered: an initial guess at `SoftenPortraitEffect`'s
+  Overlay argument order was backwards and got corrected once the real generated code was checked.
+- `RedEyeRemoveEffect` ported `UnaryPixelOps.RedEyeRemove` faithfully, including a detail worth
+  knowing if it looks weirdly aggressive/timid in practice: the saturation *slider* only controls
+  how much residual redness survives removal — detection itself uses a hardcoded 100/255 threshold
+  in `GetSaturation()`, unrelated to any slider. That's pdn's actual behavior, not a shortcut.
+
+**Verified the same way as the first pass, no shortcuts taken on rigor:** all 17 added to
+`KawaPaint.Sandbox/Program.cs`'s smoke test (41 effects total now, full pipeline). A second scratch
+harness ran all 17 against the same 64×64 test pattern + a dedicated strongly-red test surface for
+`RedEyeRemoveEffect` (the quadrant pattern has no red pixel saturated enough to trigger it) +
+the same degenerate-size battery — this is what caught the ReflectCoord hang. `SurfaceBlurEffect`
+showed `changed=False` on the quadrant test image; rather than accepting that, re-tested it against
+a noisy-flat image instead (piecewise-constant blocks have no soft gradient for an edge-preserving
+blur to act on) — confirmed real: noise variance in a flat region dropped from 24.26 to 0.41 while
+the hard region boundary stayed exactly crisp (59 vs. 201, no bleed), proving the "no visible
+change" on the first test was correct edge-preserving behavior, not a dead effect. All 17 outputs
+individually eyeballed (Clouds renders a real cloud texture, Julia/Mandelbrot render actual
+fractals, PencilSketch looks convincingly like a graphite sketch, RedEyeRemove darkened only the
+saturated-red test surface). Live in the real Windows app: all 6 new submenus (Blurs/Render/
+Photo/Artistic plus the extra Distort/Stylize entries) list the right items; opened Clouds,
+confirmed the OK-without-touching-a-slider case is a pre-existing `AdjustmentDialog` quirk (Preview
+only runs on a slider's `ValueChanged`, so committing untouched does nothing — true for every
+adjustment dialog in the app, not new) rather than mistaking it for a bug in the new effect; dragged
+the Power slider and confirmed a real black/white cloud pattern rendered live using the canvas's
+actual current Fg/Bg colors, committed it, no crash.
+
+**Genuinely still open, not part of the ported catalogue:** the "Tools that came bundled with these
+in pdn" — Clone Stamp, Recolor, freeform/rounded shapes — are tools (need cursor/drag interaction
+via the Tools panel), not one-shot `IEffect`s, so they don't fit the `AdjustmentDialog` pattern
+this whole file used. Separate scoping needed if wanted.
 
 ### 2.3 — Git-backed history + forge integrations
 **Local half done 2026-08-19 (Windows machine, same session as the JP2 codec above); forge half

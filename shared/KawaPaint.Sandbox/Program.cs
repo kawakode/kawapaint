@@ -32,7 +32,13 @@ IEffect[] effects =
     new PosterizeEffect(5), new NoiseEffect(10), new CurvesEffect(BuildIdentityLut()),
     new BulgeEffect(45), new TwistEffect(30, 1.0), new PolarInversionEffect(1.0),
     new TileEffect(30, 12, 8), new FrostedGlassEffect(0, 3, 2), new PixelateEffect(6),
-    new MedianEffect(4), new OutlineEffect(3, 50), new ReliefEffect(45), new VignetteEffect(0.7, 0.5)
+    new MedianEffect(4), new OutlineEffect(3, 50), new ReliefEffect(45), new VignetteEffect(0.7, 0.5),
+    new DentsEffect(25, 50, 10, 10, 0), new MotionBlurEffect(25, 10), new RadialBlurEffect(15),
+    new ZoomBlurEffect(20), new FragmentEffect(4, 0, 8), new SurfaceBlurEffect(4, 15), new UnfocusEffect(4),
+    new ReduceNoiseEffect(6, 0.4), new CloudsEffect(120, 0.5, 0, ColorBgra.White, ColorBgra.FromBgr(200, 120, 40)),
+    new JuliaFractalEffect(4.0, 1.0, 0), new MandelbrotFractalEffect(1, 10, 0),
+    new GlowEffect(6, 10, 10), new RedEyeRemoveEffect(70, 90), new SoftenPortraitEffect(5, 0, 10),
+    new InkSketchEffect(50, 50), new PencilSketchEffect(2, 0), new OilPaintingEffect(3, 50)
 };
 foreach (var fx in effects)
 {

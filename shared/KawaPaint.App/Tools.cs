@@ -19,6 +19,7 @@ public sealed class ToolContext
     public required int FillTolerance { get; init; }
     public required bool GlobalFill { get; init; }
     public required bool FillShapes { get; init; }
+    public required bool CtrlHeld { get; init; }
 
     public double X { get; set; }
     public double Y { get; set; }
@@ -352,4 +353,130 @@ public sealed class LassoSelectTool : ITool
         c.Selection.Combine(c.CombineMode, _shape);
         c.SelectionChanged();
     }
+}
+
+/// <summary>
+/// Clone Stamp: Ctrl+click sets the source point (no painting — a click that only sets the
+/// anchor shouldn't leave an undo step). A plain click-drag afterward paints from that source,
+/// re-anchoring the source-to-cursor offset at the start of each stroke so repeated strokes stay
+/// relative to the same fixed source point rather than drifting. Samples from PreStroke (the
+/// layer as it was before this stroke began) rather than the live surface, so painting over a
+/// source area mid-stroke can't feed back into itself as a smear.
+/// </summary>
+public sealed class CloneStampTool : ITool
+{
+    private (int X, int Y)? _source;
+    private int _offsetX, _offsetY;
+    private bool _painting;
+    private double _lx, _ly;
+    public string Name => "Clone Stamp";
+
+    public void PointerDown(ToolContext c)
+    {
+        if (c.CtrlHeld)
+        {
+            _source = (c.IX, c.IY);
+            _painting = false;
+            return;
+        }
+
+        if (_source is not { } src) { _painting = false; return; }   // no source set yet
+
+        _offsetX = src.X - c.IX;
+        _offsetY = src.Y - c.IY;
+        _painting = true;
+        _lx = c.X; _ly = c.Y;
+
+        c.PushHistory();
+        BrushOps.CloneDisc(c.Layer.Surface, c.PreStroke, c.IX, c.IY, _offsetX, _offsetY, c.BrushWidth / 2, c.Antialias);
+        c.Composite();
+    }
+
+    public void PointerMove(ToolContext c)
+    {
+        if (!_painting) return;
+        BrushOps.CloneLine(c.Layer.Surface, c.PreStroke, _lx, _ly, c.X, c.Y, _offsetX, _offsetY, c.BrushWidth / 2, c.Antialias);
+        _lx = c.X; _ly = c.Y;
+        c.Composite();
+    }
+
+    public void PointerUp(ToolContext c) => _painting = false;
+}
+
+/// <summary>
+/// Recolor: brushes areas close to the background color over to the foreground color, adding the
+/// Bg→Fg offset onto each pixel's actual value rather than flattening to a flat color, so
+/// shading/antialiasing at the edge of what's being recolored carries through unscathed. Tolerance
+/// is capped at the Fg/Bg color difference so a second pass over already-recolored pixels can't
+/// keep "recoloring" them and drift — same guard paint.net's original Recolor tool uses.
+/// </summary>
+public sealed class RecolorTool : ITool
+{
+    private double _lx, _ly;
+    public string Name => "Recolor";
+
+    public void PointerDown(ToolContext c)
+    {
+        c.PushHistory();
+        _lx = c.X; _ly = c.Y;
+        BrushOps.RecolorDisc(c.Layer.Surface, c.IX, c.IY, c.BrushWidth / 2, c.SecondaryColor, c.PrimaryColor, EffectiveTolerance(c), c.Antialias);
+        c.Composite();
+    }
+
+    public void PointerMove(ToolContext c)
+    {
+        BrushOps.RecolorLine(c.Layer.Surface, _lx, _ly, c.X, c.Y, c.BrushWidth / 2, c.SecondaryColor, c.PrimaryColor, EffectiveTolerance(c), c.Antialias);
+        _lx = c.X; _ly = c.Y;
+        c.Composite();
+    }
+
+    public void PointerUp(ToolContext c) { }
+
+    private static int EffectiveTolerance(ToolContext c)
+    {
+        ColorBgra a = c.PrimaryColor, b = c.SecondaryColor;
+        int selfDiff = Math.Max(Math.Max(Math.Abs(a.B - b.B), Math.Abs(a.G - b.G)), Math.Max(Math.Abs(a.R - b.R), Math.Abs(a.A - b.A)));
+        return Math.Min(c.FillTolerance, selfDiff);
+    }
+}
+
+public sealed class RoundedRectangleTool : ShapeToolBase
+{
+    public override string Name => "Rounded Rectangle";
+    protected override void Draw(ToolContext c, double x0, double y0, double x1, double y1)
+    {
+        double corner = Math.Max(8, c.BrushWidth * 2);
+        if (c.FillShapes) ShapeOps.FillRoundedRectangle(c.Layer.Surface, x0, y0, x1, y1, corner, c.PrimaryColor);
+        else ShapeOps.DrawRoundedRectangle(c.Layer.Surface, x0, y0, x1, y1, corner, c.BrushWidth / 2, c.PrimaryColor, c.Antialias);
+    }
+}
+
+/// <summary>Freeform shape: accumulates points while dragging, like the lasso, but stamps a
+/// filled/outlined polygon onto the layer at pointer-up instead of selecting.</summary>
+public sealed class FreeformShapeTool : ITool
+{
+    private readonly List<(double X, double Y)> _points = new();
+    private bool _pushed;
+    public string Name => "Freeform Shape";
+
+    public void PointerDown(ToolContext c)
+    {
+        _points.Clear();
+        _points.Add((c.X, c.Y));
+        _pushed = false;
+    }
+
+    public void PointerMove(ToolContext c)
+    {
+        _points.Add((c.X, c.Y));
+        if (_points.Count < 2) return;
+
+        if (!_pushed) { c.PushHistory(); _pushed = true; }
+        c.Layer.Surface.CopyFrom(c.PreStroke);
+        if (c.FillShapes) ShapeOps.FillPolygon(c.Layer.Surface, _points, c.PrimaryColor);
+        else ShapeOps.DrawPolygon(c.Layer.Surface, _points, c.BrushWidth / 2, c.PrimaryColor, c.Antialias);
+        c.Composite();
+    }
+
+    public void PointerUp(ToolContext c) => _points.Clear();
 }

@@ -367,7 +367,7 @@ public sealed class SurfaceView : Control
 
     private Point ControlToImage(Point p) => new((p.X - _origin.X) / _zoom, (p.Y - _origin.Y) / _zoom);
 
-    private bool ShowsBrushCursor => CurrentTool is PencilTool or EraserTool;
+    private bool ShowsBrushCursor => CurrentTool is PencilTool or EraserTool or CloneStampTool or RecolorTool;
 
     protected override void OnPointerExited(PointerEventArgs e)
     {
@@ -437,6 +437,7 @@ public sealed class SurfaceView : Control
                 FillTolerance = FillTolerance,
                 GlobalFill = GlobalFill,
                 FillShapes = FillShapes,
+                CtrlHeld = e.KeyModifiers.HasFlag(KeyModifiers.Control),
                 X = img.X,
                 Y = img.Y,
                 PushHistory = () =>

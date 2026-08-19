@@ -13,6 +13,11 @@ BrushOps.FillDisc(bg.Surface, 20, 20, 8, ColorBgra.Black, StampMode.Blend, true)
 BrushOps.DrawLine(bg.Surface, 0, 0, 63, 47, 2, ColorBgra.FromBgr(200, 0, 0), StampMode.Blend, true);
 ShapeOps.DrawRectangle(bg.Surface, 5, 5, 40, 30, 1, ColorBgra.FromBgr(0, 150, 0));
 ShapeOps.FillEllipse(bg.Surface, 30, 20, 55, 40, ColorBgra.FromBgra(0, 0, 255, 128));
+BrushOps.CloneDisc(bg.Surface, bg.Surface, 50, 10, -30, 10, 5, true);
+BrushOps.RecolorDisc(bg.Surface, 45, 5, 4, ColorBgra.White, ColorBgra.FromBgr(255, 220, 0), 40, true);
+ShapeOps.FillRoundedRectangle(bg.Surface, 2, 34, 20, 46, 5, ColorBgra.FromBgra(0, 200, 0, 180));
+ShapeOps.DrawRoundedRectangle(bg.Surface, 22, 34, 40, 46, 5, 1, ColorBgra.FromBgr(0, 0, 0), true);
+ShapeOps.FillPolygon(bg.Surface, [(46.0, 34.0), (58.0, 38.0), (54.0, 46.0), (44.0, 44.0)], ColorBgra.FromBgra(200, 0, 200, 180));
 GradientOps.LinearGradient(bg.Surface, 0, 0, 64, 0, ColorBgra.FromBgra(0, 0, 0, 60), ColorBgra.Transparent);
 TextOps.DrawText(bg.Surface, "Hi", 4, 4, 14, ColorBgra.Black);
 FloodFill.Fill(bg.Surface, 62, 46, ColorBgra.FromBgr(240, 240, 200), 20);

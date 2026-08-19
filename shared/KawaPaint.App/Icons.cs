@@ -28,6 +28,10 @@ public static class Icons
         ["EllipseSel"] = ("M12 6 a8 6 0 1 0 0.1 0 Z", false),    // dashed
         ["Lasso"]      = ("M6 16 a6 5 0 1 1 8 3 L12 22", false),
         ["Wand"]       = ("M4 20 L13 11 L16 14 L7 20 M13 11 L16 14 M17 4 L17 7 M17 9 L17 12 M13.5 5.5 L15.5 7.5 M18.5 8.5 L20.5 10.5 M20.5 5.5 L18.5 7.5 M15.5 8.5 L13.5 10.5", false),
+        ["Clone"]      = ("M9 15 L15 15 L15 21 L9 21 Z M8 15 L16 15 L13 6 L11 6 Z M11 6 L11 3 L13 3 L13 6", false),
+        ["Recolor"]    = ("M6 12 a3 3 0 1 0 0.1 0 Z M15 12 a3 3 0 1 0 0.1 0 Z M9.5 12 L16 12 M16 12 L13 9 M16 12 L13 15", false),
+        ["RoundRect"]  = ("M9 5 L15 5 a4 4 0 0 1 4 4 L19 15 a4 4 0 0 1 -4 4 L9 19 a4 4 0 0 1 -4 -4 L5 9 a4 4 0 0 1 4 -4 Z", false),
+        ["Freeform"]   = ("M4 15 L8 7 L14 10 L20 5 L18 16 L12 21 L6 19 Z", false),
 
         // Top-right panel-visibility toggles.
         ["PanelTools"]      = ("M4 4 L10 4 L10 10 L4 10 Z M14 4 L20 4 L20 10 L14 10 Z M4 14 L10 14 L10 20 L4 20 Z M14 14 L20 14 L20 20 L14 20 Z", false),

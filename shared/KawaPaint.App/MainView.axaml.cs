@@ -1020,7 +1020,8 @@ public partial class MainView : UserControl
             (Key.P, "Pencil", "Pencil"), (Key.E, "Eraser", "Eraser"), (Key.F, "Fill", "Paint Bucket"),
             (Key.K, "Pick", "Color Picker"), (Key.L, "Line", "Line"), (Key.R, "Rect", "Rectangle"),
             (Key.O, "Ellipse", "Ellipse"), (Key.G, "Gradient", "Gradient"), (Key.T, "Text", "Text"),
-            (Key.M, "Move", "Move")
+            (Key.M, "Move", "Move"), (Key.C, "Clone", "Clone Stamp"), (Key.N, "Recolor", "Recolor"),
+            (Key.U, "RoundRect", "Rounded Rectangle"), (Key.D, "Freeform", "Freeform Shape")
         })
         {
             string toolTag = tag;
@@ -1809,7 +1810,9 @@ public partial class MainView : UserControl
         ("Ellipse", "Ellipse", "O"), ("Gradient", "Gradient", "G"), ("Text", "Text", "T"),
         ("Move", "Move", "M"), ("RectSel", "Rectangle Select", "S"),
         ("EllipseSel", "Ellipse Select", "S S"), ("Lasso", "Lasso Select", "S S S"),
-        ("Wand", "Magic Wand", "S S S S")
+        ("Wand", "Magic Wand", "S S S S"), ("Clone", "Clone Stamp", "C"),
+        ("Recolor", "Recolor", "N"), ("RoundRect", "Rounded Rectangle", "U"),
+        ("Freeform", "Freeform Shape", "D")
     };
 
     private readonly System.Collections.Generic.List<ToggleButton> _toolButtons = new();
@@ -1856,6 +1859,10 @@ public partial class MainView : UserControl
             "EllipseSel" => new EllipseSelectTool(),
             "Lasso" => new LassoSelectTool(),
             "Wand" => new MagicWandTool(),
+            "Clone" => new CloneStampTool(),
+            "Recolor" => new RecolorTool(),
+            "RoundRect" => new RoundedRectangleTool(),
+            "Freeform" => new FreeformShapeTool(),
             _ => new PencilTool()
         };
         Canvas.CurrentTool = tool;
@@ -1866,10 +1873,10 @@ public partial class MainView : UserControl
     /// <summary>Greys out toolbar options the active tool ignores.</summary>
     private void UpdateToolOptions(string tag)
     {
-        SizeGroup.IsEnabled = tag is "Pencil" or "Eraser" or "Line" or "Rect" or "Ellipse";
-        ShapeGroup.IsEnabled = tag is "Pencil" or "Line" or "Rect" or "Ellipse";
-        FillShapesCheck.IsEnabled = tag is "Rect" or "Ellipse";
-        BucketGroup.IsEnabled = tag is "Fill" or "Wand";
+        SizeGroup.IsEnabled = tag is "Pencil" or "Eraser" or "Line" or "Rect" or "Ellipse" or "Clone" or "Recolor" or "RoundRect" or "Freeform";
+        ShapeGroup.IsEnabled = tag is "Pencil" or "Line" or "Rect" or "Ellipse" or "Clone" or "Recolor" or "RoundRect" or "Freeform";
+        FillShapesCheck.IsEnabled = tag is "Rect" or "Ellipse" or "RoundRect" or "Freeform";
+        BucketGroup.IsEnabled = tag is "Fill" or "Wand" or "Recolor";
         SelectGroup.IsEnabled = tag is "RectSel" or "EllipseSel" or "Lasso" or "Wand";
     }
 

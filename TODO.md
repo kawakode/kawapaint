@@ -47,10 +47,11 @@ coverage-based rasterizer rewrite + graded `Selection.Clip` blending — real wo
 Layer Properties dialog (redundant, panel already has name/opacity/blend/visibility inline),
 dedicated Zoom/Pan tool buttons (already covered by Ctrl+wheel/keys and middle/right-drag pan).
 
-**Tier 2, started:** 2.1 effect catalogue done (30 effects, both passes 2026-08-19 — see its own
-section below for the full account, including a real infinite-loop bug found and fixed during
-verification) and 2.2 custom dock done — see `MainView`'s "Dock" panel, `DockEditorDialog`,
-`Core/DockEntry.cs`. Hidden by default, `Ctrl+\`` or top-right icon summons it Floating.
+**Tier 2, started:** 2.1 effect catalogue + bundled tools done — 30 effects plus Clone Stamp/
+Recolor/Rounded Rectangle/Freeform Shape, all three passes 2026-08-19 — see its own section below
+for the full account, including a real infinite-loop bug found and fixed during verification. 2.2
+custom dock also done — see `MainView`'s "Dock" panel, `DockEditorDialog`, `Core/DockEntry.cs`.
+Hidden by default, `Ctrl+\`` or top-right icon summons it Floating.
 
 Two real bugs found+fixed while building the dock (not just features — read if something about
 panel defaults or redo-binding looks wrong later):
@@ -218,10 +219,105 @@ adjustment dialog in the app, not new) rather than mistaking it for a bug in the
 the Power slider and confirmed a real black/white cloud pattern rendered live using the canvas's
 actual current Fg/Bg colors, committed it, no crash.
 
-**Genuinely still open, not part of the ported catalogue:** the "Tools that came bundled with these
-in pdn" — Clone Stamp, Recolor, freeform/rounded shapes — are tools (need cursor/drag interaction
-via the Tools panel), not one-shot `IEffect`s, so they don't fit the `AdjustmentDialog` pattern
-this whole file used. Separate scoping needed if wanted.
+**The four bundled tools are also done, 2026-08-19 (same day, third pass).** Clone Stamp, Recolor,
+Rounded Rectangle, and Freeform Shape — the pdn "Tools that came bundled with these" item flagged
+above as genuinely out of scope for the effect catalogue turned out to fit this codebase's existing
+`ITool` architecture (`Tools.cs`) cleanly once actually looked at: unlike `IEffect`, `ITool` already
+gets live pointer input (`PointerDown`/`PointerMove`/`PointerUp`) via `ToolContext`, so these were
+never blocked on `AdjustmentDialog` at all — that framing in the paragraph above was about the
+*effects*, not a real blocker for the tools themselves. Real source this time came from
+`origin/3.36pdn`'s `src/tools/` (not `src/Effects/`) — `CloneStampTool.cs`, `RecoloringTool.cs`,
+`RoundedRectangleTool.cs`, `FreeformShapeTool.cs`, `ShapeTool.cs` — fetched the same
+`git cat-file -p $(git rev-parse ...)` way as the effects (all five turned out to be plain UTF-8,
+no repeat of the encoding gotcha). These are real WinForms `Tool` subclasses with hundreds of lines
+of cursor/undo/GDI+ plumbing per file; only the core per-pixel/per-path algorithm was ported from
+each, same "not a literal file port" approach as the effects.
+
+New engine primitives (`BrushOps.cs`: `CloneDisc`/`CloneLine`, `RecolorDisc`/`RecolorLine`;
+`ShapeOps.cs`: `FillRoundedRectangle`/`DrawRoundedRectangle`, `FillPolygon`/`DrawPolygon`) plus four
+new `ITool`s in `Tools.cs`, wired into the Tools panel (new icons in `Icons.cs`) with fresh
+shortcuts C/N/U/D (P/E/F/K/L/R/O/G/T/M/S were already taken).
+
+- **Clone Stamp**: Ctrl+click sets the source point (no undo step — nothing was painted), then a
+  plain drag paints from that source, offset re-anchored at the start of each stroke so repeated
+  strokes stay relative to the same fixed source. `ToolContext` gained a `CtrlHeld` field
+  (`SurfaceView.OnPointerPressed` reads `e.KeyModifiers`) since no existing tool needed keyboard
+  modifier state before this. Samples from `PreStroke` (the layer as it was before the current
+  stroke began), not the live surface, so stamping over the source area mid-stroke can't feed back
+  into itself as a smear — pdn's own tool has the same property structurally (it snapshots into
+  `PlacedSurface`s), confirmed by reasoning about the source rather than by inspection of a
+  specific line, since the actual C++/GDI+ plumbing doesn't translate directly.
+- **Recolor**: brushes areas close to the *background* color over to the *foreground* color,
+  adding the Bg→Fg offset onto each pixel's actual value rather than flattening to a flat color —
+  so antialiasing/shading at the edge of what's being recolored carries through unscathed. Ported
+  pdn's `RecoloringTool.DrawOverPoints`'s core color-adjustment math
+  (`adjusted = lifted + (replacing - toReplace)`, clamped per channel) faithfully, but the
+  tolerance test reuses this codebase's own `FloodFill`-style per-channel max-difference metric
+  (already what the Tolerance slider means everywhere else in the app — Paint Bucket, Magic Wand)
+  rather than porting pdn's separate, differently-scaled `Utility.ColorDifference`. Also ported
+  pdn's `RestrictTolerance()` guard: tolerance is capped at the Fg/Bg color difference so a second
+  pass over already-recolored pixels can't keep "recoloring" them and drift/oscillate.
+- **Rounded Rectangle**: pdn's original doesn't expose a corner-radius control at all (hardcoded
+  `radius = 10`) — matched that "just works, no new UI" spirit with a fixed formula
+  (`Math.Max(8, BrushWidth * 2)`) instead of porting its GDI+ arc-path/capsule-fallback
+  construction. The rasterizer here is a from-scratch raster-native replacement, not a port: a
+  single clamped-distance-to-corner test (`InsideRoundedRect`) handles straight edges and all four
+  rounded corners without branching, and — this is the part that isn't just a simplification, it's
+  a correctness observation pdn needed a special `GetCapsule` fallback for — the same test
+  naturally degrades to a capsule or circle once the radius reaches half the shorter side, with no
+  special-casing needed. The outline uses a proper "rounded box" signed-distance-field for the
+  stroke ring (`RoundedRectDistance`, the standard SDF formula), which is *more* capable than the
+  raw inside-test alone: it's what lets `DrawRoundedRectangle` antialias its edge the same way
+  `BrushOps`' round brush already does, at no extra design cost.
+- **Freeform Shape**: accumulates points while dragging exactly like the existing `LassoSelectTool`
+  (this codebase already had the right shape for this), but stamps a filled/outlined polygon onto
+  the layer at release instead of replacing the selection. `ShapeOps.FillPolygon` is the same
+  even-odd scanline algorithm already in `Selection.ReplaceWithPolygon`, just writing pixels
+  instead of mask bits — reused the algorithm, not the code, since one operates on a `Surface` and
+  the other on a mask array.
+
+**Verified with the same rigor as the effects passes.** Engine primitives first, headlessly,
+against a dedicated scratch harness (not folded into the visual-pattern harness the effects used,
+since these needed different setups per primitive): clone-stamped a distinctive 6×6 patch to a
+known offset and confirmed the destination pixels matched while pixels outside the brush radius
+stayed untouched; recolored a patch and confirmed (a) the bulk of it flipped to the target color,
+(b) an unrelated nearby color was left alone, and (c) a deliberately pre-shaded pixel landed
+somewhere between the old and new color rather than flattening to either exactly (debug-printed the
+actual channel values to confirm this by eye, not just by the boolean assertion) — two of the
+initial assertions in this harness were themselves wrong (mismeasured which point fell inside a
+12px brush radius, and misread which of BGR channel was dominant in the test colors), caught by
+checking the debug output before accepting a FAIL as a real bug, not by assuming the first failure
+must be in the new code. Rounded-rectangle and polygon fill/outline were checked both by pixel
+assertion (corner pixel empty vs. edge-center pixel filled; radius 0 behaves like a sharp rectangle;
+an oversized radius doesn't throw) and by eye against saved PNGs. All of the above also run against
+degenerate 1×1 surfaces and radius-0/point-count-0 inputs — no crashes. Beyond the headless layer,
+also **added the new primitives to `KawaPaint.Sandbox`'s permanent smoke test** (unlike the effects,
+which got their own scratch harness only — these were cheap enough to fold into the permanent one
+directly) alongside the existing brush/shape calls.
+
+Live in the real Windows app, all four were driven through an actual full gesture, not just opened:
+Clone Stamp — Ctrl+clicked a red square to set the source, dragged over a distant green area, and
+the composited screenshot shows an unmistakable red stroke following the drag path with the brush
+cursor circle correctly tracking the pointer. Recolor — set Bg to the square's red and Fg to white
+via the palette swatches, dragged across the square; at the default Tolerance (32) nothing visibly
+changed (the layer's actual raw color didn't fall within 32 of the exact swatch hex — a real
+pixel-value gap worth knowing about, not a bug in the tool), raising Tolerance to 200 and repeating
+produced a clean white diagonal stroke cutting through the square exactly along the drag path.
+Rounded Rectangle — dragged out a shape small enough that the fixed corner radius exceeded half its
+shorter side, and it correctly rendered as a stadium/capsule shape rather than anything jagged,
+confirming the corner-radius-clamping behavior live, not just in the headless assertion. Freeform
+Shape — dragged a seven-point irregular path and it rendered as a correctly closed, filled polygon
+matching the traced path exactly, snapping shut back to the start point as intended.
+
+**Small UI-automation lesson from this pass, for next time:** an editable Avalonia `ComboBox`
+(the Size/Tolerance boxes) can be set reliably from PowerShell with a click to focus +
+`[System.Windows.Forms.SendKeys]::SendWait("^a"); SendKeys::SendWait("<value>{ENTER}")` — no need
+for anything fancier. Also, `Add-Type`'s embedded C# compiler is old enough to reject tuple-type
+parameters (`(int,int)[]`) and needs `System.Drawing.Point` pulled in explicitly via
+`-AssemblyName System.Drawing` if you want `Point[]` instead of two parallel `int[]` arrays for a
+multi-waypoint drag helper — parallel arrays were less fuss than chasing the assembly reference.
+
+This closes out every remaining item from the original 2.1 scope, tools included.
 
 ### 2.3 — Git-backed history + forge integrations
 **Local half done 2026-08-19 (Windows machine, same session as the JP2 codec above); forge half

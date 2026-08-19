@@ -69,6 +69,79 @@ public static class DocumentFile
         return Load(file);
     }
 
+    /// <summary>
+    /// Directory form of the same format: <paramref name="directoryPath"/>/manifest.json plus
+    /// <paramref name="directoryPath"/>/layers/N.png, uncompressed by any outer archive. Unlike
+    /// <see cref="Save(Document,string)"/>'s single opaque zip, a git commit here only touches the
+    /// files that actually changed — that's the whole point of this form existing.
+    /// </summary>
+    public static void SaveExploded(Document doc, string directoryPath)
+    {
+        Directory.CreateDirectory(directoryPath);
+        string layersDir = Path.Combine(directoryPath, "layers");
+        Directory.CreateDirectory(layersDir);
+
+        // Layer count can shrink between saves; stale files from a since-deleted layer must not
+        // linger (LoadExploded would never see them, but they'd sit there confusing a git diff).
+        foreach (string existing in Directory.EnumerateFiles(layersDir, "*.png"))
+            File.Delete(existing);
+
+        var manifest = new Manifest { Width = doc.Width, Height = doc.Height, Dpi = doc.Dpi };
+        foreach (var layer in doc.Layers)
+        {
+            manifest.Layers.Add(new LayerInfo
+            {
+                Name = layer.Name,
+                Opacity = layer.Opacity,
+                Visible = layer.Visible,
+                BlendMode = layer.BlendMode.ToString()
+            });
+        }
+
+        string manifestPath = Path.Combine(directoryPath, "manifest.json");
+        File.WriteAllText(manifestPath, JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
+
+        for (int i = 0; i < doc.LayerCount; i++)
+        {
+            using var fs = File.Create(Path.Combine(layersDir, $"{i}.png"));
+            doc.Layers[i].Surface.Encode(fs);
+        }
+    }
+
+    public static Document LoadExploded(string directoryPath)
+    {
+        string manifestPath = Path.Combine(directoryPath, "manifest.json");
+        if (!File.Exists(manifestPath))
+            throw new InvalidDataException("not a KawaPaint project directory (missing manifest.json)");
+
+        var manifest = JsonSerializer.Deserialize<Manifest>(File.ReadAllText(manifestPath))
+            ?? throw new InvalidDataException("corrupt manifest.json");
+
+        var doc = new Document(manifest.Width, manifest.Height) { Dpi = manifest.Dpi };
+        string layersDir = Path.Combine(directoryPath, "layers");
+        for (int i = 0; i < manifest.Layers.Count; i++)
+        {
+            var info = manifest.Layers[i];
+            string layerPath = Path.Combine(layersDir, $"{i}.png");
+            if (!File.Exists(layerPath))
+                throw new InvalidDataException($"missing layer image layers/{i}.png");
+
+            Surface surface;
+            using (var fs = File.OpenRead(layerPath))
+                surface = Surface.Decode(fs);
+
+            var layer = new Layer(surface, info.Name)
+            {
+                Opacity = info.Opacity,
+                Visible = info.Visible,
+                BlendMode = Enum.TryParse<BlendMode>(info.BlendMode, out var bm) ? bm : BlendMode.Normal
+            };
+            doc.AddLayer(layer);
+        }
+
+        return doc;
+    }
+
     public static Document Load(Stream stream)
     {
         using var zip = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);

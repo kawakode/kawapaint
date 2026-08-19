@@ -55,6 +55,13 @@ public sealed class FileSettingsStore : ISettingsStore
         catch { return null; }
     }
 
+    /// <summary>Points at an explicit directory rather than the per-user app data folder. For tests.</summary>
+    public static FileSettingsStore Create(string root)
+    {
+        Directory.CreateDirectory(root);
+        return new FileSettingsStore(root);
+    }
+
     /// <summary>The directory holding every persisted file. Git tracking (when enabled) points here.</summary>
     public string Root => _root;
 

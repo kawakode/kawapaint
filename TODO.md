@@ -1,6 +1,6 @@
 # KawaPaint — resume-here notes
 
-Status snapshot: 2026-08-18, branch `master`. Full roadmap/rationale lives in Claude memory
+Status snapshot: 2026-08-19, branch `master`. Full roadmap/rationale lives in Claude memory
 (`feature-roadmap-tiers`) and the published plan:
 https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
 
@@ -78,24 +78,98 @@ Lowest-risk Tier 2 item — mechanical, no new architecture, each effect is inde
 be done incrementally alongside anything else rather than as one block.
 
 ### 2.3 — Git-backed history + forge integrations
-**Blocker to solve first:** `.kwp` is currently a ZIP of PNGs (see `DocumentFile.cs`) — opaque to
-git, full rewrite every save. Needs an **exploded save mode**: a directory of `manifest.json` +
-`layers/N.png`, so a commit only touches the layers that actually changed. Design sketch (not yet
-built): a second `DocumentFile.SaveExploded(doc, directoryPath)` / `LoadExploded` pair alongside
-the existing zip-based Save/Load, sharing the same `Manifest`/`LayerInfo` shape. `AppSettings.Git`
-already exists (`Enabled`, `TrackConfiguration`, `TrackProjects`, `CommitOnSave`,
-`CommitOnAutosave`, `RepositoryWarnSizeMegabytes`, `RemoteProvider`, `RemoteUrl`) but nothing
-reads it yet.
+**Local half done 2026-08-19 (Windows machine, same session as the JP2 codec above); forge half
+deliberately not started — scoped down explicitly with the user before starting, see below.**
+
+**The blocker is solved.** `.kwp` was a ZIP of PNGs — opaque to git, full rewrite every save.
+`shared/KawaPaint.Engine/DocumentFile.cs` now has `SaveExploded(doc, directoryPath)`/
+`LoadExploded(directoryPath)` alongside the original zip Save/Load, writing plain
+`manifest.json` + `layers/N.png` (no outer archive), sharing the same private `Manifest`/
+`LayerInfo` shape as the zip path. Verified for real, not just "it compiles": a 3-layer, odd-sized
+(23×17) document round-trips byte-exact through `SaveExploded`→`LoadExploded`; layer metadata
+(opacity etc.) survives; and re-saving with fewer layers deletes the now-stale `layers/N.png`
+files rather than leaving orphans behind for git to keep confusedly tracking.
+
+**`AppSettings.Git` now has a real reader.** New `shared/KawaPaint.App/Core/GitService.cs`
+(static, LibGit2Sharp-backed): `EnsureRepository(path)` (git-inits if missing, no-ops if already a
+repo), `CommitAll(path, message)` (stages everything, commits, returns `false` — not an error —
+when nothing actually changed, so a save that re-encodes to byte-identical PNGs doesn't create an
+empty commit), `EnsureGitIgnore(path, patterns)`. Every method swallows its own failures and
+reports back via an `out string? error` rather than throwing, same "must never interrupt the
+user's actual work" rule `AutosaveService` already follows — a failed commit is a lost convenience,
+not a lost save.
+
+Two consumers wire it to the two settings that were previously dead:
+- **`TrackConfiguration`** — new `shared/KawaPaint.App/Core/ConfigGitTracker.cs`, constructed
+  alongside `AutosaveService` in `MainView`'s constructor. Subscribes to
+  `SettingsService.Changed`; the first time `Git.Enabled && Git.TrackConfiguration`, it git-inits
+  `AppPaths.Root` (the same directory `settings.json`, `recovery/`, `history-cache/`, and
+  `presets/` already live in — see `AppPaths.cs`'s own comment: "turning on git tracking means
+  tracking one location") and writes a `.gitignore` excluding `recovery/` (timestamped binary
+  autosave snapshots — noise, not history) and `history-cache/` (pure scratch, already deleted on
+  every startup). Every subsequent settings save commits.
+- **`TrackProjects` / `CommitOnSave` / `CommitOnAutosave`** — a project opts in by explicitly
+  linking a folder (new "Link Git Project Folder..." command in `MainView`, `file.linkGitProject`,
+  no default gesture), which calls `DocumentSession.SetGitProjectDirectory` (new nullable property
+  + setter on `DocumentSession`, cleared on `Reset` so New/Open don't inherit a stale link). This
+  is **additive, not a replacement**: the linked folder is a mirror the exploded format gets
+  written into and committed, entirely separate from whatever `.kwp` file the document's normal
+  Ctrl+S still saves to unchanged. `SaveProjectAsync`'s success path and `AutosaveService.Saved`
+  each call a small `CommitGitProject(autosave: bool)` helper in `MainView` that no-ops instantly
+  for the overwhelming majority of documents that were never linked, and otherwise
+  `SaveExploded`s into the linked folder and commits, gated on the matching `CommitOnSave`/
+  `CommitOnAutosave` flag.
+
+**Why additive-mirror instead of making the exploded folder the primary save format:** the
+alternative — having `.kwp` open/save work on directories instead of files when git tracking is on
+— touches the file-picker flow, the `IStorageFile _currentFile` field threaded through ~10 call
+sites in `MainView.axaml.cs`, the recent-files MRU list, and the open dialog's folder-vs-file
+picker choice. That's a real UX redesign with regression risk for the 95% of users who will never
+turn git on, to save what amounts to one extra file-copy step for the 5% who do. Flag if the user
+wants that fuller integration later — the mirror approach doesn't block it, it just doesn't
+preclude keeping today's save flow exactly as-is either.
+
+**Verified for real** (`scratchpad/gitspike`, not committed — same `ProjectReference`-to-the-real-
+project pattern as the codec spikes): `GitService.EnsureRepository`/`CommitAll` produce an actual
+`.git` directory and real commits (inspected via LibGit2Sharp's own `Repository.Commits`, not by
+re-parsing our own output); the core "a commit only touches the layers that actually changed"
+claim was checked by diffing two real commits' trees (`repo.Diff.Compare<TreeChanges>`) after
+editing one pixel in one of three layers — the second commit's tree diff contains exactly
+`layers/1.png` and nothing else; a same-content re-save produces no commit at all (checked as a
+commit-count-unchanged assertion, not just a return value); and `ConfigGitTracker` was driven
+through a real `SettingsService` (a new `FileSettingsStore.Create(root)` test-only overload was
+added to `ISettingsStore.cs` so this could point at a scratch directory instead of the user's real
+`%APPDATA%\KawaPaint` — the existing `TryCreate()` factory hardcoded that path with no way to
+override it) — confirmed `Git.Enabled` defaults false and nothing touches the filesystem until
+it's turned on, and confirmed `recovery/`/`history-cache/` end up in the tracked commit's tree
+listing exactly zero times once gitignored.
+
+**Verified the WASM/browser build still works with `LibGit2Sharp` as a dependency of the *shared*
+`KawaPaint.App` project** (which `KawaPaint.Web.csproj` also references) — a real risk since
+LibGit2Sharp ships native `libgit2` binaries with no `browser-wasm` RID asset. Did not assume this
+was fine; ran both `dotnet build` and a full `dotnet publish -c Release` of `web/KawaPaint.Web.csproj`
+before committing to the single-project design (rather than the alternative of isolating git code
+into a separate desktop-only project) — both succeeded, no native-asset resolution error, same
+graceful-absence pattern the JXL/JP2 P/Invoke codecs already rely on for platforms without their
+native library.
+
+**Signature note:** commits use `repo.Config.BuildSignature` (the user's own configured
+`user.name`/`user.email` from git config, so `git log` looks like theirs), falling back to a fixed
+`KawaPaint <kawapaint@localhost>` identity only if `BuildSignature` throws (no git identity
+configured anywhere on the machine) — `BuildSignature` throws rather than degrading on its own, so
+this fallback is required, not defensive-for-its-own-sake.
 
 Scope per the user's ruling: git-compatible history **beats** arbitrary history editing — so this
 stays on **snapshot mementos + truncate-only deletion** (already how `HistoryStack` works), not a
 replayable command log. Don't revisit that trade without asking.
 
-Repo git library: none chosen yet. libgit2sharp is the obvious pick (mature, cross-platform) —
-not yet added as a dependency.
-
-**Forge integrations (GitHub/GitLab/Gitea):** design as one small interface so a new provider is
-additive, not a rewrite:
+**Forge integrations (GitHub/GitLab/Gitea) — explicitly out of scope for this pass, not forgotten.**
+Before starting 2.3 the user was asked how far to take it in one session: local git only, vs. local
+git plus forge integration with an OAuth/token design decided now. They chose local-only — the
+forge half has real unresolved design questions (device-flow OAuth vs. personal access tokens,
+where to store tokens safely per-platform: keychain/secret-service/DPAPI, none wired yet) that
+deserve their own scoping pass rather than being decided as a side effect of finishing the local
+half. Design sketch, unchanged from before:
 ```csharp
 interface IForgeProvider {
     string Id { get; } // "github" | "gitlab" | "gitea"
@@ -105,8 +179,6 @@ interface IForgeProvider {
     string ResolveCloneUrl(RepoInfo repo);
 }
 ```
-Open question flagged but not resolved: device-flow OAuth vs. personal access tokens for v1, and
-where to store tokens safely per-platform (keychain/secret-service/DPAPI — nothing wired yet).
 
 ### 2.4 — Native plugin API
 Not started at all. Rough shape discussed: effect/codec/tool contributions loaded from a
@@ -183,48 +255,96 @@ failure reporting.
   needs bundled natives shipped with the app on those platforms before this is actually usable off
   this box.
 
-  **JP2 resume plan — not started, but scoped 2026-08-19 so this isn't a cold start next time.**
-  Header: `/usr/include/openjpeg-2.5/openjpeg.h` on a system with the `openjpeg2` package (this
-  dev box has 2.5.4); `pkg-config --cflags --libs libopenjp2` gives `-I.../openjpeg-2.5 -lopenjp2`
-  elsewhere. New file should be `shared/KawaPaint.Engine/Codecs/Jp2Codec.cs`, same
-  `IImageCodec`/`LibraryImport` pattern as `JxlCodec.cs`, registered in `CodecRegistry.cs` next to
-  it.
+  **JP2 — actually wired in, 2026-08-19 (same day, different machine — see the machine-switch note
+  below), not just spiked.** `shared/KawaPaint.Engine/Codecs/Jp2Codec.cs`, registered in
+  `CodecRegistry`. Same `IImageCodec`/`LibraryImport` pattern as `JxlCodec.cs`.
 
-  **This is a materially bigger lift than JXL was — two real differences, not just "same thing
-  again":**
-  1. **No simple buffer-in/buffer-out API.** libjxl's `JxlDecoderSetInput(dec, data, size)` has no
-     openjpeg equivalent. Reading/writing memory (rather than a file path via
-     `opj_stream_create_default_file_stream`) means building an `opj_stream_t` with
-     `opj_stream_create` and wiring `opj_stream_set_read_function` /
-     `opj_stream_set_write_function` / `opj_stream_set_skip_function` /
-     `opj_stream_set_seek_function` / `opj_stream_set_user_data` to native callback function
-     pointers. In .NET that means `[UnmanagedCallersOnly]` static methods (not managed delegates —
-     those need `GetFunctionPointerForDelegate` and careful GC-lifetime pinning to not get
-     collected mid-decode), reading/writing against a pinned buffer or `GCHandle`-tracked stream
-     wrapper. Worth a small standalone spike first, same as JXL got, before wiring it into the
-     codec proper — this callback-marshalling part is the part most likely to have a rough edge.
-  2. **Planar, not interleaved, pixel buffers.** `opj_image_t` holds one `opj_image_comp_t` per
-     channel (`image->comps[i].data`, a separate `OPJ_INT32*` per component, each with its own
-     `dx`/`dy` subsampling and `prec`/`sgnd`), not a single interleaved RGBA/BGRA buffer like
-     libjxl's `JxlPixelFormat`. Decode needs to gather 3-4 separate component planes into
-     `Surface`'s interleaved BGRA; encode needs to split BGRA into 3-4 planar `OPJ_INT32` arrays
-     (component depth 8-bit, unsigned, no subsampling needed for a straightforward RGB(A) encode —
-     don't reach for chroma subsampling, it is lossy-only and not what an image editor wants
-     regardless of format).
+  The two differences flagged in the old resume plan were real and both got solved:
+  1. **No buffer-in/buffer-out API** — solved with an `opj_stream_t` wired to
+     `[UnmanagedCallersOnly]` read/write/skip/seek callbacks against a `GCHandle`-tracked state
+     object (`Native.StreamState`). Decode reads sequentially out of a `byte[]` already buffered
+     from the input `Stream` (same as `JxlCodec.Decode`, sidesteps needing the caller's stream to
+     be seekable). Encode writes into an internal `MemoryStream` — required, not a style choice:
+     `opj_end_compress` seeks *backward* mid-write to patch box-length headers, which only a
+     random-access sink supports — then copies the finished bytes to the real output `Stream` in
+     one sequential pass at the end, so the caller's stream never needs to support seeking either.
+  2. **Planar pixel buffers** — solved with a per-component gather/scatter loop against `Surface`'s
+     interleaved BGRA, folding in the same R/B swizzle `JxlCodec` needs (`OPJ_CLRSPC_SRGB` implies
+     component order R,G,B,[A]). Decode handles 1/2/3/4-component images (gray, gray+alpha, RGB,
+     RGBA) and rescales non-8-bit `prec` by shifting rather than assuming 8-bit blindly.
 
-  Core call sequence once the stream is sorted, for reference: decode is
-  `opj_create_decompress(OPJ_CODEC_JP2)` → `opj_setup_decoder` → `opj_read_header` → `opj_decode`
-  → `opj_end_decompress` → `opj_image_destroy` + `opj_destroy_codec` + `opj_stream_destroy`.
-  Encode is `opj_create_compress(OPJ_CODEC_JP2)` → `opj_setup_encoder` (takes `opj_cparameters_t`,
-  a large struct — for lossless set `.irreversible = OPJ_FALSE` and use the 5-3 wavelet, which is
-  openjpeg's default; don't hand-tune `tcp_rates`/`tcp_numlayers` beyond what's needed for a
-  lossless-or-quality-N knob matching `EncodeOptions`) → `opj_start_compress` → `opj_encode` →
-  `opj_end_compress`.
+  **The actual hard part turned out to be `opj_cparameters_t`'s layout, not the two flagged
+  risks.** It's ~18.7KB with 100+ fields, including a 32-element array of nested `opj_poc_t`
+  structs (148 bytes each, itself hand-computed) sitting *before* every field this codec actually
+  sets (`irreversible`, `tcp_numlayers`, `tcp_rates`, `numresolution`) — so a single wrong offset
+  anywhere in the first 4.8KB would have silently misaligned every field after it. No C compiler
+  was available on the Windows box this got built on (no cl.exe/gcc/clang, no vcpkg/choco/scoop —
+  checked), so there was no `offsetof()` ground truth to check the hand-transliteration against, the
+  way a normal port of a struct like this would get verified. Solved by cross-checking at runtime
+  against the real `openjp2.dll` instead: `opj_set_default_encoder_parameters`'s doc comment
+  explicitly lists its defaults ("Lossless / 1 tile / 64x64 code-block / 6 resolutions / LRCP / no
+  ROI upshifted"), so calling it and reading back `prog_order`, `cblockw_init`, `cblockh_init`,
+  `numresolution`, `irreversible`, `roi_compno`, etc. at their hand-computed offsets against those
+  documented values is a real correctness check, not a guess — and if any offset upstream were
+  wrong, at least one of these would read back garbage. All of them matched on the first run after
+  a copy-paste fix (see bugs below), across the smallest fields (`tile_size_on` at offset 0) through
+  the ones sitting right after the 4.8KB POC block (`numresolution`, `irreversible`) — meaning the
+  offset chain is correct through the field furthest from the start that this codec touches.
 
-  Header-sniff signature for `MatchesHeader` (`.jp2` container, not raw J2K codestream — match
-  what the encoder writes): `00 00 00 0C 6A 50 20 20 0D 0A 87 0A` (the JP2 signature box). Verify
-  this by grep against the real header rather than trusting this from memory before wiring it in —
-  same "verify, don't guess" bar the JXL work was held to.
+  **Verification, real round trips, not just the struct-layout check:** downloaded the official
+  `uclouvain/openjpeg` v2.5.4 Windows x64 release (prebuilt `openjp2.dll` + headers + the
+  `opj_compress`/`opj_decompress` reference CLI tools) for a from-scratch spike project
+  (`scratchpad/jp2spike`, not committed) with a `ProjectReference` to the real
+  `KawaPaint.Engine.csproj`. Checked, in order: (1) our encoder's output decodes correctly with the
+  *real* `opj_decompress.exe`, not just our own decoder; (2) our own encode→decode round trip is
+  byte-exact lossless, including a 37×29 (odd, non-power-of-two) surface with a full BGR random
+  sweep and a 0–255 alpha ramp, run through the actual `CodecRegistry.Encode`/`.Decode` — not the
+  spike's own bindings — with decode header-sniffed (no filename given), matching the bar the JXL
+  codec was held to; (3) our decoder correctly reads the *real* `opj_compress.exe`'s output,
+  byte-exact — closes the loop the other direction, so a bug that happened to be symmetric between
+  our own encode and decode paths couldn't hide; (4) lossy path produces smaller output and stays
+  visually close on a worst-case random-noise image; (5) tiny images down to 1×1 round-trip
+  byte-exact (see bug 2 below); (6) with `openjp2.dll` removed from the output directory,
+  `Jp2Codec.IsAvailable` returns `false` without throwing and the format silently drops out of
+  `CodecRegistry.Encoders`/`.Decoders` — the graceful-degradation path actually works, not just in
+  theory.
+
+  **Two real bugs found and fixed during verification (both would have shipped silently broken
+  without the round-trip tests above — the struct-layout check alone would not have caught
+  either):**
+  1. The write callback wrote into the output `MemoryStream` without first syncing its `Position`
+     to the codec's own tracked position. `opj_end_compress` seeks backward to patch box-length
+     headers, and `MemoryStream.Write` only advances *its own* internal position — never told about
+     the seek, so post-seek writes landed at the wrong offset and silently corrupted the box
+     headers. Symptom: both the real `opj_decompress.exe` and our own decoder failed identically
+     ("Expected a SOC marker") on our encoder's output. Fixed by setting
+     `output.Position = state.Position` before every write, matching what the read callback already
+     did.
+  2. openjpeg's default `numresolution = 6` requires `2^(numresolutions-1) <= min(width, height)`,
+     i.e. the short side must be at least 32px — fails outright ("Number of resolutions is too high
+     in comparison to the size of tiles") on anything smaller, which includes ordinary icon-sized
+     images. Fixed with a `ClampResolutions(width, height)` helper (`shared/KawaPaint.Engine/Codecs/
+     Jp2Codec.cs`) that picks the largest valid resolution count, always applied rather than only
+     for small images. Verified against 16×16, 4×4, 3×7, and 1×1.
+
+  Quality mapping: unlike JPEG's IJG 1-100 scale or JXL's `JxlEncoderDistanceFromQuality`, JP2 has
+  no standard "quality" concept — `EncodeOptions.Quality` maps onto a compression ratio
+  (`tcp_rates[0] = 101 - quality`, `cp_disto_alloc = 1`), a documented judgment call, not a
+  perceptual calibration. Revisit if real images show it's poorly scaled in practice.
+
+  Still open, same as JXL: bundled natives for Windows/macOS (this box now has real Windows x64
+  `openjp2.dll` + dependent MSVC runtime DLLs sitting in the spike's scratchpad from the
+  verification above — not yet copied anywhere the app itself would find them at runtime). Until
+  then `IsAvailable` correctly degrades to false off dev boxes with the library preinstalled.
+
+  **Mid-project machine switch, worth knowing if something here looks inconsistent:** the JXL work
+  and this file's original resume plan were written on a Linux (CachyOS) box; this JP2 work was
+  done in the very next session, same day, on a Windows box instead — different filesystem, no
+  system package manager for native libs, and initially no C compiler of any kind (see above). The
+  dotnet SDK *is* installed on this Windows box (10.0.400) but is not on `PATH` in a fresh shell —
+  invoke it via its full path, `C:\Program Files\dotnet\dotnet.exe`, or add that directory to
+  `PATH` for the session, or things like `dotnet build` will fail with a plain "not recognized"
+  error that has nothing to do with the project itself.
 
 ### 4.x — Deferred, gated on other decisions
 Branching/non-linear history and git-as-literal-undo-timeline are gated on revisiting the
@@ -253,3 +373,10 @@ prioritized git-compat truncate-only over this.
   (or `dotnet linux/bin/Debug/net10.0/KawaPaint.Linux.dll` after a build, faster for repeat runs).
 - Settings/state live at `~/.config/KawaPaint/` on Linux — delete it to reset to defaults when
   testing first-run behavior (several bugs above only showed up on a truly fresh install).
+- **On Windows** (this box, as of the 2026-08-19 JP2 session): `dotnet` is installed (10.0.400) but
+  not on `PATH` in a fresh shell — use the full path `C:\Program Files\dotnet\dotnet.exe`, or
+  `$env:PATH += ';C:\Program Files\dotnet'` for the session. Desktop project is
+  `win/KawaPaint.Win.csproj`, not the Linux one. No C compiler (cl.exe/gcc/clang) and no
+  vcpkg/choco/scoop were present — checked directly, don't assume any of them exist without
+  checking again. Network access to github.com worked fine for pulling reference native libraries
+  when a spike genuinely needed real ground truth to verify against (see the JP2 entry above).

@@ -35,6 +35,20 @@ public sealed class DocumentSession
     /// <summary>Full path when the document came from or was written to a real file, else null.</summary>
     public string? FilePath { get; private set; }
 
+    /// <summary>
+    /// Directory this document mirrors into as the exploded (git-diffable) format, or null if it
+    /// isn't linked to one. Independent of <see cref="FilePath"/> — the primary .kwp save is
+    /// unaffected either way; this is purely an additional target the App layer writes to and
+    /// commits, per <c>GitSettings.TrackProjects</c>.
+    /// </summary>
+    public string? GitProjectDirectory { get; private set; }
+
+    public void SetGitProjectDirectory(string? directoryPath)
+    {
+        GitProjectDirectory = directoryPath;
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
     /// <summary>Shown in the title bar. Falls back to "untitled" for a document with no file.</summary>
     public string DisplayName { get; private set; }
 
@@ -103,6 +117,7 @@ public sealed class DocumentSession
         Document = document;
         FilePath = filePath;
         DisplayName = displayName ?? DeriveName(filePath);
+        GitProjectDirectory = null;
         _dirty = false;
         Reason = DirtyReason.None;
         LastSavedUtc = null;

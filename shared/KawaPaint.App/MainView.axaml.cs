@@ -44,6 +44,7 @@ public partial class MainView : UserControl
     private PanelManager _panels = null!;   // built in the constructor, once the AXAML tree exists
     private readonly CommandRegistry _commands = new();
     private AutosaveService? _autosave;
+    private ConfigGitTracker? _configGit;
 
     public static readonly int[] BrushSizePresets = { 1, 2, 3, 5, 8, 10, 15, 20, 25, 30, 40, 50, 64, 75, 100, 150, 200 };
     private const int MinBrushSize = 1;
@@ -153,6 +154,9 @@ public partial class MainView : UserControl
 
         _autosave = new AutosaveService(_settings, () => _session);
         _autosave.Saved += name => StatusText.Text = $"Autosaved {name} at {DateTime.Now:HH:mm}";
+        _autosave.Saved += _ => CommitGitProject(autosave: true);
+
+        _configGit = new ConfigGitTracker(_settings);
 
         // Deferred: on desktop this needs a Window to own the dialog, which is only available
         // once this view is attached (OwnerWindow is null during the constructor).
@@ -241,11 +245,11 @@ public partial class MainView : UserControl
         UpdateTitle();
     }
 
-    /// <summary>Real filesystem path behind a picker result, or null under the browser sandbox.</summary>
-    private static string? LocalPathOf(IStorageFile? file)
+    /// <summary>Real filesystem path behind a picker result (file or folder), or null under the browser sandbox.</summary>
+    private static string? LocalPathOf(IStorageItem? item)
     {
-        if (file is null) return null;
-        try { return file.Path.IsAbsoluteUri && file.Path.IsFile ? file.Path.LocalPath : null; }
+        if (item is null) return null;
+        try { return item.Path.IsAbsoluteUri && item.Path.IsFile ? item.Path.LocalPath : null; }
         catch { return null; }
     }
 
@@ -421,6 +425,57 @@ public partial class MainView : UserControl
         }
     }
 
+    /// <summary>
+    /// Links the open document to a folder that KawaPaint mirrors into as the exploded (git-diffable)
+    /// format and commits to on save/autosave, per GitSettings. Independent of the primary .kwp
+    /// file this document may also be saved to -- linking doesn't change what Ctrl+S writes there.
+    /// </summary>
+    private async Task OnLinkGitProjectAsync()
+    {
+        if (_session is null) return;
+
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Choose (or create) a folder to track this project in git",
+            AllowMultiple = false
+        });
+        var folder = folders.FirstOrDefault();
+        string? path = folder is null ? null : LocalPathOf(folder);
+        if (path is null) return;
+
+        if (!GitService.EnsureRepository(path, out string? error))
+        {
+            StatusText.Text = "Could not set up git repository: " + error;
+            return;
+        }
+
+        _session.SetGitProjectDirectory(path);
+        CommitGitProject(autosave: false); // confirms the link actually works, right away
+        StatusText.Text = "Linked git project folder: " + path;
+    }
+
+    /// <summary>
+    /// Mirrors the current document into the linked git project folder (if any) and commits,
+    /// gated on GitSettings.Enabled/TrackProjects/CommitOnSave/CommitOnAutosave. A no-op for the
+    /// large majority of documents, which have no linked folder at all.
+    /// </summary>
+    private void CommitGitProject(bool autosave)
+    {
+        if (Canvas.Document is null || _session?.GitProjectDirectory is not { } dir) return;
+
+        var git = _settings.Settings.Git;
+        if (!git.Enabled || !git.TrackProjects) return;
+        if (autosave ? !git.CommitOnAutosave : !git.CommitOnSave) return;
+
+        try
+        {
+            DocumentFile.SaveExploded(Canvas.Document, dir);
+            string message = (autosave ? "Autosave" : "Save") + $": {_session.DisplayName}";
+            GitService.CommitAll(dir, message, out _);
+        }
+        catch { /* a git commit failing must never interrupt the user's actual work */ }
+    }
+
     private async void OnSaveProject(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => await SaveProjectAsync();
 
     /// <summary>Saves the project (to the known file, or prompts). Returns true if saved.</summary>
@@ -446,6 +501,7 @@ public partial class MainView : UserControl
                 DocumentFile.Save(Canvas.Document, stream);
             SetClean(file);
             StatusText.Text = "Saved project " + file.Name;
+            CommitGitProject(autosave: false);
             return true;
         }
         catch (Exception ex)
@@ -751,6 +807,7 @@ public partial class MainView : UserControl
         Add("file.openProject", "Open Project", "File", () => OnOpenProject(this, empty), CtrlShift(Key.O));
         Add("file.saveProject", "Save Project", "File", () => OnSaveProject(this, empty), Ctrl(Key.S));
         Add("file.export", "Export Flattened", "File", () => OnSaveAs(this, empty), CtrlShift(Key.S));
+        Add("file.linkGitProject", "Link Git Project Folder...", "File", () => _ = OnLinkGitProjectAsync());
 
         // Edit — these stay with a focused text field, which has its own undo and select-all.
         Add("edit.undo", "Undo", "Edit", () => Canvas.Undo(), Ctrl(Key.Z), suppressInTextInput: true, icon: "Undo");

@@ -222,6 +222,9 @@
                     <MenuItem Header="_Oil Painting…" Tag="oilpainting" Click="OnAdjust" />
                 </MenuItem>
             </MenuItem>
+            <MenuItem Header="_Help" Classes="topbar">
+                <MenuItem Header="_About KawaPaint…" Click="OnAbout" />
+            </MenuItem>
         </Menu>
         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" Margin="6,0" VerticalAlignment="Center">
             <StackPanel.Styles>

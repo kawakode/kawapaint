@@ -1556,6 +1556,12 @@ public partial class MainView : UserControl
     // No-op under the browser single-view host (no desktop window to close).
     private void OnExit(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => OwnerWindow?.Close();
 
+    private async void OnAbout(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (OwnerWindow is not { } owner) return;
+        await new AboutDialog().ShowDialog(owner);
+    }
+
     // ---- toolbar ----------------------------------------------------------
 
     private void OnColor(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

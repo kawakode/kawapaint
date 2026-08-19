@@ -1,8 +1,9 @@
-// KawaPaint — original line-art tool/action icons (themeable Avalonia geometry, 24x24 grid).
-// Not derived from Paint.NET artwork; simple stroked glyphs.
+// KawaPaint — tool/action icons, adapted from Lucide (https://lucide.dev), ISC/MIT licensed.
+// Path geometry is Lucide's icon-node data re-expressed for Avalonia's Geometry mini-language,
+// one Geometry per original SVG node so each keeps its own coordinate origin. See README.md
+// -> Credits for full attribution.
 
 using System.Collections.Generic;
-using Avalonia.Collections;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Media;
@@ -11,114 +12,116 @@ namespace KawaPaint.App;
 
 public static class Icons
 {
-    // key -> (path data, filled?)
-    private static readonly Dictionary<string, (string Data, bool Fill)> Defs = new()
+    // key -> (per-node path fragments, filled?)
+    private static readonly Dictionary<string, (string[] Data, bool Fill)> Defs = new()
     {
-        ["Pencil"]     = ("M4 20 L4 16 L15 5 L19 9 L8 20 Z M14 6 L18 10", false),
-        ["Eraser"]     = ("M4 15 L11 8 a2 2 0 0 1 3 0 L20 14 L14 20 L8 20 Z M4 20 L20 20", false),
-        ["Fill"]       = ("M11 3 L11 8 M6 8 L11 6 L18 13 L11 20 a2 2 0 0 1-3 0 L4 13 Z M20 14 c0 2-3 4-3 6", false),
-        ["Pick"]       = ("M15 5 L19 9 M17 7 L9 15 L6 18 L5 19 L5 20 L6 20 L7 19 L10 16 Z", false),
-        ["Line"]       = ("M4 20 L20 4", false),
-        ["Rect"]       = ("M4 6 L20 6 L20 18 L4 18 Z", false),
-        ["Ellipse"]    = ("M12 6 a8 6 0 1 0 0.1 0 Z", false),
-        ["Gradient"]   = ("M4 6 L20 6 L20 18 L4 18 Z M4 6 L20 18", false),
-        ["Text"]       = ("M5 20 L12 5 L19 20 M8 14 L16 14", false),
-        ["Move"]       = ("M12 3 L12 21 M3 12 L21 12 M12 3 L9 6 M12 3 L15 6 M12 21 L9 18 M12 21 L15 18 M3 12 L6 9 M3 12 L6 15 M21 12 L18 9 M21 12 L18 15", false),
-        ["RectSel"]    = ("M4 6 L20 6 L20 18 L4 18 Z", false),   // dashed applied via stroke
-        ["EllipseSel"] = ("M12 6 a8 6 0 1 0 0.1 0 Z", false),    // dashed
-        ["Lasso"]      = ("M6 16 a6 5 0 1 1 8 3 L12 22", false),
-        ["Wand"]       = ("M4 20 L13 11 L16 14 L7 20 M13 11 L16 14 M17 4 L17 7 M17 9 L17 12 M13.5 5.5 L15.5 7.5 M18.5 8.5 L20.5 10.5 M20.5 5.5 L18.5 7.5 M15.5 8.5 L13.5 10.5", false),
-        ["Clone"]      = ("M9 15 L15 15 L15 21 L9 21 Z M8 15 L16 15 L13 6 L11 6 Z M11 6 L11 3 L13 3 L13 6", false),
-        ["Recolor"]    = ("M6 12 a3 3 0 1 0 0.1 0 Z M15 12 a3 3 0 1 0 0.1 0 Z M9.5 12 L16 12 M16 12 L13 9 M16 12 L13 15", false),
-        ["RoundRect"]  = ("M9 5 L15 5 a4 4 0 0 1 4 4 L19 15 a4 4 0 0 1 -4 4 L9 19 a4 4 0 0 1 -4 -4 L5 9 a4 4 0 0 1 4 -4 Z", false),
-        ["Freeform"]   = ("M4 15 L8 7 L14 10 L20 5 L18 16 L12 21 L6 19 Z", false),
+        ["Pencil"] = (new[] { "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z", "m15 5 4 4" }, false),
+        ["Eraser"] = (new[] { "M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21", "m5.082 11.09 8.828 8.828" }, false),
+        ["Fill"] = (new[] { "M11 7 6 2", "M18.992 12H2.041", "M21.145 18.38A3.34 3.34 0 0 1 20 16.5a3.3 3.3 0 0 1-1.145 1.88c-.575.46-.855 1.02-.855 1.595A2 2 0 0 0 20 22a2 2 0 0 0 2-2.025c0-.58-.285-1.13-.855-1.595", "m8.5 4.5 2.148-2.148a1.205 1.205 0 0 1 1.704 0l7.296 7.296a1.205 1.205 0 0 1 0 1.704l-7.592 7.592a3.615 3.615 0 0 1-5.112 0l-3.888-3.888a3.615 3.615 0 0 1 0-5.112L5.67 7.33" }, false),
+        ["Pick"] = (new[] { "m12 9-8.414 8.414A2 2 0 0 0 3 18.828v1.344a2 2 0 0 1-.586 1.414A2 2 0 0 1 3.828 21h1.344a2 2 0 0 0 1.414-.586L15 12", "m18 9 .4.4a1 1 0 1 1-3 3l-3.8-3.8a1 1 0 1 1 3-3l.4.4 3.4-3.4a1 1 0 1 1 3 3z", "m2 22 .414-.414" }, false),
+        ["Line"] = (new[] { "M22 2 2 22" }, false),
+        ["Rect"] = (new[] { "M5 3 L19 3 A2 2 0 0 1 21 5 L21 19 A2 2 0 0 1 19 21 L5 21 A2 2 0 0 1 3 19 L3 5 A2 2 0 0 1 5 3 Z" }, false),
+        ["Ellipse"] = (new[] { "M2 12 a10 10 0 1 0 20 0 a10 10 0 1 0 -20 0" }, false),
+        ["Gradient"] = (new[] { "M2 9 a7 7 0 1 0 14 0 a7 7 0 1 0 -14 0", "M8 15 a7 7 0 1 0 14 0 a7 7 0 1 0 -14 0" }, false),
+        ["Text"] = (new[] { "M12 4v16", "M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2", "M9 20h6" }, false),
+        ["Move"] = (new[] { "M12 2v20", "m15 19-3 3-3-3", "m19 9 3 3-3 3", "M2 12h20", "m5 9-3 3 3 3", "m9 5 3-3 3 3" }, false),
+        ["RectSel"] = (new[] { "M5 3a2 2 0 0 0-2 2", "M19 3a2 2 0 0 1 2 2", "M21 19a2 2 0 0 1-2 2", "M5 21a2 2 0 0 1-2-2", "M9 3h1", "M9 21h1", "M14 3h1", "M14 21h1", "M3 9v1", "M21 9v1", "M3 14v1", "M21 14v1" }, false),
+        ["EllipseSel"] = (new[] { "M10.1 2.182a10 10 0 0 1 3.8 0", "M13.9 21.818a10 10 0 0 1-3.8 0", "M17.609 3.721a10 10 0 0 1 2.69 2.7", "M2.182 13.9a10 10 0 0 1 0-3.8", "M20.279 17.609a10 10 0 0 1-2.7 2.69", "M21.818 10.1a10 10 0 0 1 0 3.8", "M3.721 6.391a10 10 0 0 1 2.7-2.69", "M6.391 20.279a10 10 0 0 1-2.69-2.7" }, false),
+        ["Lasso"] = (new[] { "M3.704 14.467a10 8 0 1 1 3.115 2.375", "M7 22a5 5 0 0 1-2-3.994", "M3 16 a2 2 0 1 0 4 0 a2 2 0 1 0 -4 0" }, false),
+        ["Wand"] = (new[] { "m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72", "m14 7 3 3", "M5 6v4", "M19 14v4", "M10 2v2", "M7 8H3", "M21 16h-4", "M11 3H9" }, false),
+        ["Clone"] = (new[] { "M14 13V8.5C14 7 15 7 15 5a3 3 0 0 0-6 0c0 2 1 2 1 3.5V13", "M20 15.5a2.5 2.5 0 0 0-2.5-2.5h-11A2.5 2.5 0 0 0 4 15.5V17a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1z", "M5 22h14" }, false),
+        ["Recolor"] = (new[] { "M4 2 L16 2 A2 2 0 0 1 18 4 L18 6 A2 2 0 0 1 16 8 L4 8 A2 2 0 0 1 2 6 L2 4 A2 2 0 0 1 4 2 Z", "M10 16v-2a2 2 0 0 1 2-2h8a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2", "M9 16 L11 16 A1 1 0 0 1 12 17 L12 21 A1 1 0 0 1 11 22 L9 22 A1 1 0 0 1 8 21 L8 17 A1 1 0 0 1 9 16 Z" }, false),
+        ["RoundRect"] = (new[] { "M21 11a8 8 0 0 0-8-8", "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" }, false),
+        ["Freeform"] = (new[] { "M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z", "m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18", "m2.3 2.3 7.286 7.286", "M9 11 a2 2 0 1 0 4 0 a2 2 0 1 0 -4 0" }, false),
 
         // Top-right panel-visibility toggles.
-        ["PanelTools"]      = ("M4 4 L10 4 L10 10 L4 10 Z M14 4 L20 4 L20 10 L14 10 Z M4 14 L10 14 L10 20 L4 20 Z M14 14 L20 14 L20 20 L14 20 Z", false),
-        ["PanelColors"]     = ("M12 3 C12 3 6 10.5 6 14.5 a6 6 0 0 0 12 0 C18 10.5 12 3 12 3 Z", false),
-        ["PanelColorWheel"] = ("M12 4 a8 8 0 1 0 0.1 0 Z M12 4 L12 20 M4 12 L20 12", false),
-        ["PanelLayers"]     = ("M12 3 L20 8 L12 13 L4 8 Z M4 12 L12 17 L20 12 M4 16 L12 21 L20 16", false),
-        ["PanelHistory"]    = ("M12 4 a8 8 0 1 1-6.9 4 M5 3 L5 8 L10 8 M12 8 L12 12 L15 14", false),
-        ["PanelDock"]       = ("M4 4 L20 4 L20 20 L4 20 Z M4 9 L20 9 M8 9 L8 20", false),
+        ["PanelTools"] = (new[] { "M12 3v18", "M3 12h18", "M5 3 L19 3 A2 2 0 0 1 21 5 L21 19 A2 2 0 0 1 19 21 L5 21 A2 2 0 0 1 3 19 L3 5 A2 2 0 0 1 5 3 Z" }, false),
+        ["PanelColors"] = (new[] { "M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z" }, false),
+        ["PanelColorWheel"] = (new[] { "M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z", "M13 6.5 a0.5 0.5 0 1 0 1 0 a0.5 0.5 0 1 0 -1 0", "M17 10.5 a0.5 0.5 0 1 0 1 0 a0.5 0.5 0 1 0 -1 0", "M6 12.5 a0.5 0.5 0 1 0 1 0 a0.5 0.5 0 1 0 -1 0", "M8 7.5 a0.5 0.5 0 1 0 1 0 a0.5 0.5 0 1 0 -1 0" }, false),
+        ["PanelLayers"] = (new[] { "M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z", "M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12", "M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" }, false),
+        ["PanelHistory"] = (new[] { "M12 6v6l2 1", "M12.337 21.994a10 10 0 1 1 9.588-8.767", "m14 18 4 4 4-4", "M18 14v8" }, false),
+        ["PanelDock"] = (new[] { "M4 4 L20 4 A2 2 0 0 1 22 6 L22 18 A2 2 0 0 1 20 20 L4 20 A2 2 0 0 1 2 18 L2 6 A2 2 0 0 1 4 4 Z", "M10 4v4", "M2 8h20", "M6 4v4" }, false),
 
         // Per-panel float/dock toggle.
-        ["Float"] = ("M4 10 L4 20 L14 20 L14 14 M9 15 L20 4 M13 4 L20 4 L20 11", false),
+        ["Float"] = (new[] { "M15 3h6v6", "M10 14 21 3", "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" }, false),
 
         // File menu.
-        ["New"]         = ("M6 3 L14 3 L18 7 L18 21 L6 21 Z M14 3 L14 7 L18 7", false),
-        ["Open"]        = ("M3 6 L9 6 L11 8 L21 8 L21 18 L3 18 Z", false),
-        ["OpenProject"] = ("M3 6 L9 6 L11 8 L21 8 L21 18 L3 18 Z M9 12 L15 12 L15 16 L9 16 Z", false),
-        ["Save"]        = ("M5 4 L16 4 L20 8 L20 20 L5 20 Z M8 4 L8 9 L16 9 L16 4 M7 20 L7 13 L17 13 L17 20", false),
-        ["Export"]      = ("M4 15 L4 20 L20 20 L20 15 M12 14 L12 3 M7 8 L12 3 L17 8", false),
-        ["Exit"]        = ("M14 4 L6 4 L6 20 L14 20 M9 12 L20 12 M16 8 L20 12 L16 16", false),
+        ["New"] = (new[] { "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z", "M14 2v5a1 1 0 0 0 1 1h5", "M9 15h6", "M12 18v-6" }, false),
+        ["Open"] = (new[] { "m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" }, false),
+        ["OpenProject"] = (new[] { "m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2", "M13 15 a1 1 0 1 0 2 0 a1 1 0 1 0 -2 0" }, false),
+        ["Save"] = (new[] { "M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z", "M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7", "M7 3v4a1 1 0 0 0 1 1h7" }, false),
+        ["Export"] = (new[] { "M12 15V3", "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", "m7 10 5 5 5-5" }, false),
+        ["Exit"] = (new[] { "m16 17 5-5-5-5", "M21 12H9", "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" }, false),
 
         // Edit menu.
-        ["Undo"] = ("M7 7 L3 11 L7 15 M3 11 L15 11 a6 6 0 1 1 -4.5 10", false),
-        ["Redo"] = ("M17 7 L21 11 L17 15 M21 11 L9 11 a6 6 0 1 0 4.5 10", false),
+        ["Undo"] = (new[] { "M9 14 4 9l5-5", "M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11" }, false),
+        ["Redo"] = (new[] { "m15 14 5-5-5-5", "M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13" }, false),
 
         // Select menu.
-        ["SelectAll"] = ("M4 9 L4 4 L9 4 M15 4 L20 4 L20 9 M20 15 L20 20 L15 20 M9 20 L4 20 L4 15", false),
-        ["InvertSel"] = ("M5 5 L19 5 L5 19 L19 19 Z", false),
-        ["Deselect"]  = ("M4 4 L20 4 L20 20 L4 20 Z M8 8 L16 16 M16 8 L8 16", false),
+        ["SelectAll"] = (new[] { "M12.034 12.681a.498.498 0 0 1 .647-.647l9 3.5a.5.5 0 0 1-.033.943l-3.444 1.068a1 1 0 0 0-.66.66l-1.067 3.443a.5.5 0 0 1-.943.033z", "M5 3a2 2 0 0 0-2 2", "M19 3a2 2 0 0 1 2 2", "M5 21a2 2 0 0 1-2-2", "M9 3h1", "M9 21h2", "M14 3h1", "M3 9v1", "M21 9v2", "M3 14v1" }, false),
+        ["InvertSel"] = (new[] { "M2 12 a10 10 0 1 0 20 0 a10 10 0 1 0 -20 0", "M12 18a6 6 0 0 0 0-12v12z" }, false),
+        ["Deselect"] = (new[] { "M5 3 L19 3 A2 2 0 0 1 21 5 L21 19 A2 2 0 0 1 19 21 L5 21 A2 2 0 0 1 3 19 L3 5 A2 2 0 0 1 5 3 Z", "M9 15 L15 9" }, false),
 
         // View menu.
-        ["ZoomIn"]     = ("M11 4 a7 7 0 1 0 0.1 0 Z M16 16 L21 21 M11 8 L11 14 M8 11 L14 11", false),
-        ["ZoomOut"]    = ("M11 4 a7 7 0 1 0 0.1 0 Z M16 16 L21 21 M8 11 L14 11", false),
-        ["ZoomFit"]    = ("M4 10 L4 4 L10 4 M4 4 L9 9 M14 4 L20 4 L20 10 M20 4 L15 9 M20 14 L20 20 L14 20 M20 20 L15 15 M10 20 L4 20 L4 14 M4 20 L9 15", false),
-        ["ZoomActual"] = ("M11 4 a7 7 0 1 0 0.1 0 Z M16 16 L21 21 M8.5 8.5 L13.5 8.5 L13.5 13.5 L8.5 13.5 Z", false),
+        ["ZoomIn"] = (new[] { "M3 11 a8 8 0 1 0 16 0 a8 8 0 1 0 -16 0", "M21 21 L16.65 16.65", "M11 8 L11 14", "M8 11 L14 11" }, false),
+        ["ZoomOut"] = (new[] { "M3 11 a8 8 0 1 0 16 0 a8 8 0 1 0 -16 0", "M21 21 L16.65 16.65", "M8 11 L14 11" }, false),
+        ["ZoomFit"] = (new[] { "M3 7V5a2 2 0 0 1 2-2h2", "M17 3h2a2 2 0 0 1 2 2v2", "M21 17v2a2 2 0 0 1-2 2h-2", "M7 21H5a2 2 0 0 1-2-2v-2" }, false),
+        ["ZoomActual"] = (new[] { "m21 21-4.34-4.34", "M3 11 a8 8 0 1 0 16 0 a8 8 0 1 0 -16 0" }, false),
 
         // Image menu.
-        ["Resize"]    = ("M4 4 L20 4 L20 20 L4 20 Z M9 15 L15 9 M9 15 L9 11 M9 15 L13 15 M15 9 L15 13 M15 9 L11 9", false),
-        ["CanvasSize"] = ("M3 3 L21 3 L21 21 L3 21 Z M8 8 L16 8 L16 16 L8 16 Z", false),
-        ["Crop"]      = ("M6 2 L6 18 L22 18 M2 6 L18 6 L18 22", false),
-        ["FlipH"]     = ("M12 3 L12 21 M4 12 L8 8 L8 16 Z M20 12 L16 8 L16 16 Z", false),
-        ["FlipV"]     = ("M3 12 L21 12 M12 4 L8 8 L16 8 Z M12 20 L8 16 L16 16 Z", false),
-        ["RotateCW"]  = ("M20 8 a8 8 0 1 0 0.5 6 M20 4 L20 8 L16 8", false),
-        ["RotateCCW"] = ("M4 8 a8 8 0 1 1 -0.5 6 M4 4 L4 8 L8 8", false),
-        ["Flatten"]   = ("M12 3 L20 8 L12 13 L4 8 Z M12 13 L12 19 M8 16 L12 20 L16 16", false),
+        ["Resize"] = (new[] { "M11 19H5v-6", "M13 5h6v6", "M19 5 5 19" }, false),
+        ["CanvasSize"] = (new[] { "M8 3H5a2 2 0 0 0-2 2v3", "M21 8V5a2 2 0 0 0-2-2h-3", "M3 16v3a2 2 0 0 0 2 2h3", "M16 21h3a2 2 0 0 0 2-2v-3" }, false),
+        ["Crop"] = (new[] { "M6 2v14a2 2 0 0 0 2 2h14", "M18 22V8a2 2 0 0 0-2-2H2" }, false),
+        ["FlipH"] = (new[] { "m3 7 5 5-5 5V7", "m21 7-5 5 5 5V7", "M12 20v2", "M12 14v2", "M12 8v2", "M12 2v2" }, false),
+        ["FlipV"] = (new[] { "m17 3-5 5-5-5h10", "m17 21-5-5-5 5h10", "M4 12H2", "M10 12H8", "M16 12h-2", "M22 12h-2" }, false),
+        ["RotateCW"] = (new[] { "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8", "M21 3v5h-5" }, false),
+        ["RotateCCW"] = (new[] { "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", "M3 3v5h5" }, false),
+        ["Flatten"] = (new[] { "m8 6 4-4 4 4", "M12 2v10.3a4 4 0 0 1-1.172 2.872L4 22", "m20 22-5-5" }, false),
 
         // Effects & adjustments menu.
-        ["EffectInvert"] = ("M12 4 a8 8 0 1 0 0.1 0 Z M12 4 L12 20", false),
-        ["EffectGray"]   = ("M12 3 C8 9 5 13 5 16 a7 7 0 0 0 14 0 C19 13 16 9 12 3 Z M4 20 L20 4", false),
-        ["EffectSepia"]  = ("M12 8 a4 4 0 1 0 0.1 0 Z M12 5 L12 2 M12 22 L12 19 M5 12 L2 12 M22 12 L19 12 M7 7 L5 5 M17 17 L19 19 M17 7 L19 5 M7 17 L5 19", false),
-        ["Adjust"]       = ("M4 8 L20 8 M14 5 L14 11 M4 16 L20 16 M9 13 L9 19", false),
-        ["HueSat"]       = ("M12 4 a8 8 0 1 0 0.1 0 Z M12 4 L12 12 L18 8 Z", false),
-        ["Levels"]       = ("M4 20 L4 6 L12 16 L20 4 M4 20 L20 20", false),
-        ["Curves"]       = ("M4 20 L4 4 M4 20 L20 20 M5 19 C9 19 8 9 12 9 C16 9 15 5 19 5", false),
-        ["AutoLevels"]   = ("M4 20 L20 20 M5 20 L5 10 M9 20 L9 6 M13 20 L13 13 M17 20 L17 8", false),
-        ["Blur"]         = ("M12 5 a7 7 0 1 0 0.1 0 Z", false),
-        ["Sharpen"]      = ("M12 3 L14 10 L21 10 L15 14 L17 21 L12 16 L7 21 L9 14 L3 10 L10 10 Z", false),
-        ["Emboss"]       = ("M6 10 L16 10 L16 20 L6 20 Z M9 6 L19 6 L19 16", false),
-        ["EdgeDetect"]   = ("M4 4 L20 4 L20 20 L4 20 Z M4 4 L4 11 M4 4 L11 4", false),
-        ["Posterize"]    = ("M4 20 L4 14 L9 14 L9 8 L14 8 L14 4 L20 4", false),
-        ["Noise"]        = ("M6 6 L6.05 6 M12 5 L12.05 5 M18 7 L18.05 7 M5 12 L5.05 12 M11 11 L11.05 11 M17 13 L17.05 13 M7 17 L7.05 17 M13 18 L13.05 18 M19 17 L19.05 17", false),
+        ["EffectInvert"] = (new[] { "M2 12 a10 10 0 1 0 20 0 a10 10 0 1 0 -20 0", "M12 18a6 6 0 0 0 0-12v12z" }, false),
+        ["EffectGray"] = (new[] { "M18.715 13.186C18.29 11.858 17.384 10.607 16 9.5c-2-1.6-3.5-4-4-6.5a10.7 10.7 0 0 1-.884 2.586", "m2 2 20 20", "M8.795 8.797A11 11 0 0 1 8 9.5C6 11.1 5 13 5 15a7 7 0 0 0 13.222 3.208" }, false),
+        ["EffectSepia"] = (new[] { "M8 12 a4 4 0 1 0 8 0 a4 4 0 1 0 -8 0", "M12 2v2", "M12 20v2", "m4.93 4.93 1.41 1.41", "m17.66 17.66 1.41 1.41", "M2 12h2", "M20 12h2", "m6.34 17.66-1.41 1.41", "m19.07 4.93-1.41 1.41" }, false),
+        ["Adjust"] = (new[] { "M10 5H3", "M12 19H3", "M14 3v4", "M16 17v4", "M21 12h-9", "M21 19h-5", "M21 5h-7", "M8 10v4", "M8 12H3" }, false),
+        ["HueSat"] = (new[] { "M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z", "M13 6.5 a0.5 0.5 0 1 0 1 0 a0.5 0.5 0 1 0 -1 0", "M17 10.5 a0.5 0.5 0 1 0 1 0 a0.5 0.5 0 1 0 -1 0", "M6 12.5 a0.5 0.5 0 1 0 1 0 a0.5 0.5 0 1 0 -1 0", "M8 7.5 a0.5 0.5 0 1 0 1 0 a0.5 0.5 0 1 0 -1 0" }, false),
+        ["Levels"] = (new[] { "M5 21v-6", "M12 21V9", "M19 21V3" }, false),
+        ["Curves"] = (new[] { "M3 3v16a2 2 0 0 0 2 2h16", "M7 16c.5-2 1.5-7 4-7 2 0 2 3 4 3 2.5 0 4.5-5 5-7" }, false),
+        ["AutoLevels"] = (new[] { "m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72", "m14 7 3 3", "M5 6v4", "M19 14v4", "M10 2v2", "M7 8H3", "M21 16h-4", "M11 3H9" }, false),
+        ["Blur"] = (new[] { "M2 12 a10 10 0 1 0 20 0 a10 10 0 1 0 -20 0", "m14.31 8 5.74 9.94", "M9.69 8h11.48", "m7.38 12 5.74-9.94", "M9.69 16 3.95 6.06", "M14.31 16H2.83", "m16.62 12-5.74 9.94" }, false),
+        ["Sharpen"] = (new[] { "M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" }, false),
+        ["Emboss"] = (new[] { "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z", "m3.3 7 8.7 5 8.7-5", "M12 22V12" }, false),
+        ["EdgeDetect"] = (new[] { "M3 7V5a2 2 0 0 1 2-2h2", "M17 3h2a2 2 0 0 1 2 2v2", "M21 17v2a2 2 0 0 1-2 2h-2", "M7 21H5a2 2 0 0 1-2-2v-2", "M9 12 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0", "m16 16-1.9-1.9" }, false),
+        ["Posterize"] = (new[] { "M4 10c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2", "M10 16c-1.1 0-2-.9-2-2v-4c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2", "M16 14 L20 14 A2 2 0 0 1 22 16 L22 20 A2 2 0 0 1 20 22 L16 22 A2 2 0 0 1 14 20 L14 16 A2 2 0 0 1 16 14 Z" }, false),
+        ["Noise"] = (new[] { "M11 5 a1 1 0 1 0 2 0 a1 1 0 1 0 -2 0", "M18 5 a1 1 0 1 0 2 0 a1 1 0 1 0 -2 0", "M4 5 a1 1 0 1 0 2 0 a1 1 0 1 0 -2 0", "M11 12 a1 1 0 1 0 2 0 a1 1 0 1 0 -2 0", "M18 12 a1 1 0 1 0 2 0 a1 1 0 1 0 -2 0", "M4 12 a1 1 0 1 0 2 0 a1 1 0 1 0 -2 0", "M11 19 a1 1 0 1 0 2 0 a1 1 0 1 0 -2 0", "M18 19 a1 1 0 1 0 2 0 a1 1 0 1 0 -2 0", "M4 19 a1 1 0 1 0 2 0 a1 1 0 1 0 -2 0" }, false),
 
         // Layers panel.
-        ["Plus"]        = ("M12 5 L12 19 M5 12 L19 12", false),
-        ["Copy"]        = ("M6 6 L16 6 L16 16 L6 16 Z M8 8 L18 8 L18 18 L8 18 Z", false),
-        ["Cut"]         = ("M9 9 L20 20 M20 9 L14 15 M9.5 14.5 L4 20 M6.5 6.5 a2.5 2.5 0 1 0 0.05 0 Z M6.5 17.5 a2.5 2.5 0 1 0 0.05 0 Z M9 9 L6.9 8 M9.5 14.5 L6.9 15.5", false),
-        ["Paste"]       = ("M9 4 L15 4 L15 6 L9 6 Z M6 6 L18 6 L18 21 L6 21 Z M9 11 L15 11 M9 15 L15 15", false),
-        ["Trash"]       = ("M5 7 L19 7 M9 7 L9 4 L15 4 L15 7 M7 7 L7 20 L17 20 L17 7 M10 10 L10 17 M14 10 L14 17", false),
-        ["Settings"]    = ("M12 8 a4 4 0 1 0 0.1 0 Z M12 2 L12 5 M12 19 L12 22 M2 12 L5 12 M19 12 L22 12 M4.9 4.9 L7 7 M17 17 L19.1 19.1 M19.1 4.9 L17 7 M7 17 L4.9 19.1", false),
-        ["MergeDown"]   = ("M8 4 L8 10 L12 14 L16 10 L16 4 M12 14 L12 20", false),
-        ["ChevronUp"]   = ("M6 15 L12 9 L18 15", false),
-        ["ChevronDown"] = ("M6 9 L12 15 L18 9", false),
+        ["Plus"] = (new[] { "M5 12h14", "M12 5v14" }, false),
+        ["Copy"] = (new[] { "M10 8 L20 8 A2 2 0 0 1 22 10 L22 20 A2 2 0 0 1 20 22 L10 22 A2 2 0 0 1 8 20 L8 10 A2 2 0 0 1 10 8 Z", "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }, false),
+        ["Cut"] = (new[] { "M3 6 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0", "M8.12 8.12 12 12", "M20 4 8.12 15.88", "M3 18 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0", "M14.8 14.8 20 20" }, false),
+        ["Paste"] = (new[] { "M11 14h10", "M16 4h2a2 2 0 0 1 2 2v1.344", "m17 18 4-4-4-4", "M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 1.793-1.113", "M9 2 L15 2 A1 1 0 0 1 16 3 L16 5 A1 1 0 0 1 15 6 L9 6 A1 1 0 0 1 8 5 L8 3 A1 1 0 0 1 9 2 Z" }, false),
+        ["Trash"] = (new[] { "M10 11v6", "M14 11v6", "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6", "M3 6h18", "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" }, false),
+        ["Settings"] = (new[] { "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915", "M9 12 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0" }, false),
+        ["MergeDown"] = (new[] { "m7 6 5 5 5-5", "m7 13 5 5 5-5" }, false),
+        ["ChevronUp"] = (new[] { "m18 15-6-6-6 6" }, false),
+        ["ChevronDown"] = (new[] { "m6 9 6 6 6-6" }, false),
 
         // Misc.
-        ["Swap"]  = ("M4 8 L16 8 M12 4 L16 8 L12 12 M20 16 L8 16 M12 12 L8 16 L12 20", false),
-        ["Close"] = ("M5 5 L19 19 M19 5 L5 19", false),
+        ["Swap"] = (new[] { "M8 3 4 7l4 4", "M4 7h16", "m16 21 4-4-4-4", "M20 17H4" }, false),
+        ["Close"] = (new[] { "M18 6 6 18", "m6 6 12 12" }, false),
     };
-
-    private static readonly HashSet<string> Dashed = new() { "RectSel", "EllipseSel" };
 
     public static Control Create(string key, double size = 18)
     {
         if (!Defs.TryGetValue(key, out var def))
             return new TextBlock { Text = "?" };
 
+        var group = new GeometryGroup();
+        foreach (var fragment in def.Data)
+            group.Children.Add(Geometry.Parse(fragment));
+
         var path = new Path
         {
-            Data = Geometry.Parse(def.Data),
+            Data = group,
             Stretch = Stretch.Uniform,
             StrokeThickness = 1.7,
             StrokeJoin = PenLineJoin.Round,
@@ -126,7 +129,6 @@ public static class Icons
             Stroke = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xDC)),
             Fill = def.Fill ? new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xDC)) : null
         };
-        if (Dashed.Contains(key)) path.StrokeDashArray = new AvaloniaList<double>(2, 2);
 
         return new Viewbox { Width = size, Height = size, Child = path };
     }

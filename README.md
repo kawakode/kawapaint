@@ -70,6 +70,10 @@ Open `KawaPaint.slnx` to build any platform; all share the same engine and UI co
 - [Avalonia.Fonts.Inter](https://github.com/AvaloniaUI/Avalonia) — Inter font package
 - [Avalonia.Browser](https://github.com/AvaloniaUI/Avalonia) — WebAssembly browser support
 
+**Icons**
+
+- [Lucide](https://lucide.dev) — Toolbox, panel, and menu icons ([shared/KawaPaint.App/Icons.cs](shared/KawaPaint.App/Icons.cs)) are adapted from the Lucide icon set, ISC License (with portions under the MIT-licensed Feather Icons this project forked from). See [Lucide's license](https://github.com/lucide-icons/lucide/blob/main/LICENSE).
+
 ## License
 
 KawaPaint is licensed under the MIT License, consistent with Paint.NET 3.36. See LICENSE file for details.

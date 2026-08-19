@@ -32,6 +32,7 @@ public partial class MainView : UserControl
     private bool _editingSecondary;   // true while the wheel edits the background color
     private double _value = 0;        // HSV value, owned by ValueSlider
     private double _alpha = 1;        // alpha, owned by AlphaSlider
+    private SolidColorBrush? _valueCursorBrush;   // fills the Value slider's thumb; see ValueSliderCursorBrush
 
     private Palette _palette = new();
 
@@ -74,6 +75,8 @@ public partial class MainView : UserControl
     public MainView()
     {
         InitializeComponent();
+
+        _valueCursorBrush = this.Resources["ValueSliderCursorBrush"] as SolidColorBrush;
 
         BlendCombo.ItemsSource = Enum.GetValues<BlendMode>();
         // Posted rather than called inline: DocumentChanged can fire from inside LayerList's own
@@ -1590,6 +1593,25 @@ public partial class MainView : UserControl
         var hsv = ColorWheel.HsvColor;
         var c = new HsvColor(_alpha, hsv.H, hsv.S, _value).ToRgb();
         SetActiveColor(c);
+        UpdateValueCursorColor();
+    }
+
+    /// <summary>Keeps the Value slider's track and thumb following the wheel's hue/saturation.
+    /// The slider only redraws its own gradient from its own HsvColor, which nothing else keeps
+    /// current as the wheel moves, so both the bar and the (separately brushed, see
+    /// ValueSliderCursorBrush) thumb would otherwise go stale until the panel next resyncs. The
+    /// thumb brush uses _value (its own position along the bar) rather than full brightness, so
+    /// it shows the color actually at that point on the gradient.</summary>
+    private void UpdateValueCursorColor()
+    {
+        var hsv = ColorWheel.HsvColor;
+
+        _suppressColor = true;
+        ValueSlider.HsvColor = new HsvColor(1, hsv.H, hsv.S, _value);
+        _suppressColor = false;
+
+        if (_valueCursorBrush is not null)
+            _valueCursorBrush.Color = new HsvColor(1, hsv.H, hsv.S, _value).ToRgb();
     }
 
     private void OnSpectrumChanged(object? sender, Avalonia.Controls.ColorChangedEventArgs e) => CommitWheelColor();
@@ -1670,6 +1692,7 @@ public partial class MainView : UserControl
         ValueSlider.HsvColor = hsv;
         AlphaSlider.HsvColor = hsv;
         _suppressColor = false;
+        UpdateValueCursorColor();
     }
 
     /// <summary>Repaints the Fg/Bg swatches, the active-target outline, and the hex box.</summary>

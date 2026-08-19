@@ -40,7 +40,17 @@
         <Style Selector="Button.swatch:pressed /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{TemplateBinding Background}" />
         </Style>
+        <!-- The Fluent ColorSlider theme leaves its thumb transparent (just an outline) rather
+             than filling it with the color at that position, so the Value slider's cursor is a
+             plain white ring no matter what hue/saturation the wheel above has selected. Paint it
+             with a brush this code-behind keeps in sync with the wheel instead. -->
+        <Style Selector="ColorSlider#ValueSlider /template/ Thumb">
+            <Setter Property="Background" Value="{DynamicResource ValueSliderCursorBrush}" />
+        </Style>
     </UserControl.Styles>
+    <UserControl.Resources>
+        <SolidColorBrush x:Key="ValueSliderCursorBrush" Color="Black" />
+    </UserControl.Resources>
     <Panel>
     <DockPanel x:Name="RootDock">
         <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Background="#282828">
@@ -386,7 +396,8 @@
 
                     <TextBlock Text="Value" Foreground="#A0A0A0" FontSize="11" />
                     <ColorSlider x:Name="ValueSlider" ColorModel="Hsva" ColorComponent="Component3"
-                                 IsAlphaVisible="False" Height="18" ColorChanged="OnValueSliderChanged" />
+                                 IsAlphaVisible="False" IsPerceptive="False" Height="18"
+                                 ColorChanged="OnValueSliderChanged" />
 
                     <TextBlock Text="Alpha" Foreground="#A0A0A0" FontSize="11" />
                     <ColorSlider x:Name="AlphaSlider" ColorModel="Hsva" ColorComponent="Alpha"

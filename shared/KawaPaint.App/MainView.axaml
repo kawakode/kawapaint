@@ -20,14 +20,13 @@
              MenuFlyoutItemForeground theme resource rather than the control's own Foreground, and
              that resource resolves inconsistently once an Icon is set on some (but not all) items
              in this popup-heavy menu bar — some items render with washed-out, low-contrast text.
-             Pin the header text part directly so every item is legible regardless. This only
-             targets dropdown/submenu items (their popups render on a light background); the
-             top-level bar items below are handled separately since they sit on the dark bar. -->
+             Pin the header text part directly so every item is legible regardless. Light, because
+             App.axaml pins the theme variant to Dark: dropdown popups are dark like the rest of
+             the app, and Icons.cs's light-grey glyphs sit on that same dark ground. -->
         <Style Selector="MenuItem MenuItem /template/ ContentPresenter#PART_HeaderPresenter">
-            <Setter Property="Foreground" Value="#1A1A1A" />
+            <Setter Property="Foreground" Value="#F0F0F0" />
         </Style>
-        <!-- Top-level bar items (File/Edit/Select/…) always sit on the hardcoded dark bar
-             background, so unlike their dropdown contents they need light text, not dark. -->
+        <!-- Top-level bar items (File/Edit/Select/…) sit on the hardcoded dark bar background. -->
         <Style Selector="MenuItem.topbar /template/ ContentPresenter#PART_HeaderPresenter">
             <Setter Property="Foreground" Value="White" />
         </Style>
@@ -238,6 +237,14 @@
                 <Separator />
                 <MenuItem Header="_Manage Plugins…" Click="OnManagePlugins" />
             </MenuItem>
+            <MenuItem Header="Se_ttings" Classes="topbar">
+                <MenuItem Header="_Preferences…" Click="OnPreferences" Icon="{app:Icon Settings}" />
+                <Separator />
+                <MenuItem Header="Customize _Dock…" Click="OnCustomizeDock" Icon="{app:Icon PanelDock}" />
+                <MenuItem Header="_Manage Plugins…" Click="OnManagePlugins" Icon="{app:Icon Plugin}" />
+                <Separator />
+                <MenuItem Header="_Reset Layout" Click="OnResetLayout" />
+            </MenuItem>
             <MenuItem Header="_Help" Classes="topbar">
                 <MenuItem Header="_About KawaPaint…" Click="OnAbout" />
             </MenuItem>
@@ -302,6 +309,14 @@
                               SelectionChanged="OnSizePresetSelected"
                               KeyDown="OnSizeKeyDown" LostFocus="OnSizeTextCommit"
                               ToolTip.Tip="Brush / outline thickness — pick a size or type your own; scroll to nudge it" />
+                </StackPanel>
+                <StackPanel x:Name="BrushGroup" Classes="group">
+                    <TextBlock Text="Hardness:" />
+                    <ComboBox x:Name="HardnessBox" Width="86" IsEditable="True" VerticalAlignment="Center"
+                              ItemsSource="{x:Static app:MainView.HardnessPresets}"
+                              SelectionChanged="OnHardnessPresetSelected"
+                              KeyDown="OnHardnessKeyDown" LostFocus="OnHardnessTextCommit"
+                              ToolTip.Tip="Paintbrush edge, in percent — 100 is a hard edge, 0 fades across the whole radius; scroll to nudge it" />
                 </StackPanel>
                 <StackPanel x:Name="ShapeGroup" Classes="group">
                     <CheckBox x:Name="AntialiasCheck" Content="AA" IsChecked="True"

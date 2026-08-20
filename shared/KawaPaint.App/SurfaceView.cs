@@ -41,6 +41,10 @@ public sealed class SurfaceView : Control
     public ColorBgra BrushColor { get; set; } = ColorBgra.Black;
     public ColorBgra SecondaryColor { get; set; } = ColorBgra.White;
     public int BrushWidth { get; set; } = 3;
+
+    /// <summary>Paintbrush edge falloff, 0 (fully soft) to 1 (hard). See PaintbrushTool.</summary>
+    public double BrushHardness { get; set; } = 0.75;
+
     public bool Antialias { get; set; } = true;
     public int FillTolerance { get; set; } = 32;
     public bool GlobalFill { get; set; }
@@ -455,6 +459,7 @@ public sealed class SurfaceView : Control
                 PrimaryColor = BrushColor,
                 SecondaryColor = SecondaryColor,
                 BrushWidth = BrushWidth,
+                BrushHardness = BrushHardness,
                 Antialias = Antialias,
                 FillTolerance = FillTolerance,
                 GlobalFill = GlobalFill,

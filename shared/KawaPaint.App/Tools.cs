@@ -15,6 +15,11 @@ public sealed class ToolContext
     public required ColorBgra PrimaryColor { get; init; }
     public required ColorBgra SecondaryColor { get; init; }
     public required int BrushWidth { get; init; }
+
+    /// <summary>Paintbrush edge falloff, 0 (fully soft) to 1 (hard). Only the paintbrush reads it;
+    /// every other sized tool draws a hard-or-antialiased disc governed by <see cref="Antialias"/>.</summary>
+    public required double BrushHardness { get; init; }
+
     public required bool Antialias { get; init; }
     public required int FillTolerance { get; init; }
     public required bool GlobalFill { get; init; }
@@ -72,6 +77,43 @@ public sealed class PencilTool : ITool
     }
 
     public void PointerUp(ToolContext c) { }
+}
+
+/// <summary>
+/// Freehand paintbrush: a soft, size-and-hardness controlled round brush. Distinct from the pencil
+/// in more than looks — the pencil stamps each dab straight onto the layer, whereas this one
+/// accumulates the whole stroke into a <see cref="SoftBrushStroke"/> coverage mask and re-composites
+/// it over the pointer-down snapshot, so a soft edge doesn't darken where dabs overlap.
+/// </summary>
+public sealed class PaintbrushTool : ITool
+{
+    private SoftBrushStroke? _stroke;
+    private double _lx, _ly;
+    public string Name => "Paintbrush";
+
+    public void PointerDown(ToolContext c)
+    {
+        c.PushHistory();
+        _stroke = new SoftBrushStroke(c.Layer.Surface.Width, c.Layer.Surface.Height);
+        _lx = c.X; _ly = c.Y;
+        _stroke.Dab(c.X, c.Y, c.BrushWidth / 2.0, c.BrushHardness);
+        _stroke.Flush(c.Layer.Surface, c.PreStroke, c.PrimaryColor);
+        c.Composite();
+    }
+
+    public void PointerMove(ToolContext c)
+    {
+        if (_stroke is null) return;   // move without a preceding down (tool switched mid-drag)
+
+        _stroke.DabLine(_lx, _ly, c.X, c.Y, c.BrushWidth / 2.0, c.BrushHardness);
+        _lx = c.X; _ly = c.Y;
+        _stroke.Flush(c.Layer.Surface, c.PreStroke, c.PrimaryColor);
+        c.Composite();
+    }
+
+    // The mask is a canvas-sized allocation; dropping it here keeps it off the heap between
+    // strokes rather than for as long as the tool stays selected.
+    public void PointerUp(ToolContext c) => _stroke = null;
 }
 
 /// <summary>Eraser: overwrites the active layer with transparency.</summary>

@@ -51,6 +51,12 @@ public partial class MainView : UserControl
     private const int MinBrushSize = 1;
     private const int MaxBrushSize = 500;
 
+    /// <summary>Paintbrush edge hardness, as whole percent — the toolbar talks in percent while
+    /// SurfaceView.BrushHardness (and the engine below it) works in 0..1.</summary>
+    public static readonly int[] HardnessPresets = { 0, 10, 25, 50, 75, 90, 100 };
+    private const int MinHardness = 0;
+    private const int MaxHardness = 100;
+
     public static readonly int[] TolerancePresets = { 0, 4, 8, 16, 24, 32, 48, 64, 96, 128, 160, 200, 255 };
     private const int MinTolerance = 0;
     private const int MaxTolerance = 255;
@@ -135,6 +141,9 @@ public partial class MainView : UserControl
         SizeBox.AddHandler(Avalonia.Input.InputElement.PointerWheelChangedEvent, OnSizeWheel,
             Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
         ApplyBrushSize(Canvas.BrushWidth);
+        HardnessBox.AddHandler(Avalonia.Input.InputElement.PointerWheelChangedEvent, OnHardnessWheel,
+            Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
+        ApplyBrushHardness((int)Math.Round(Canvas.BrushHardness * 100));
         ToleranceBox.AddHandler(Avalonia.Input.InputElement.PointerWheelChangedEvent, OnToleranceWheel,
             Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
         ApplyTolerance(Canvas.FillTolerance);
@@ -1038,7 +1047,8 @@ public partial class MainView : UserControl
         // Tools. Bare letters, so they must not fire while a text field has focus.
         foreach (var (key, tag, label) in new (Key, string, string)[]
         {
-            (Key.P, "Pencil", "Pencil"), (Key.E, "Eraser", "Eraser"), (Key.F, "Fill", "Paint Bucket"),
+            (Key.P, "Pencil", "Pencil"), (Key.B, "Brush", "Paintbrush"),
+            (Key.E, "Eraser", "Eraser"), (Key.F, "Fill", "Paint Bucket"),
             (Key.K, "Pick", "Color Picker"), (Key.L, "Line", "Line"), (Key.R, "Rect", "Rectangle"),
             (Key.O, "Ellipse", "Ellipse"), (Key.G, "Gradient", "Gradient"), (Key.T, "Text", "Text"),
             (Key.M, "Move", "Move"), (Key.C, "Clone", "Clone Stamp"), (Key.N, "Recolor", "Recolor"),
@@ -1500,6 +1510,21 @@ public partial class MainView : UserControl
         new PluginEffectDialog(Canvas, descriptor).ShowDialog(owner);
     }
 
+    private async void OnPreferences(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (OwnerWindow is not { } owner)
+        {
+            StatusText.Text = "Preferences aren't available in the browser build yet";
+            return;
+        }
+
+        await new SettingsDialog(_settings).ShowDialog(owner);
+
+        // AutosaveService and ConfigGitTracker re-read themselves off SettingsService.Changed, but
+        // the undo stack's limits are pushed to it rather than pulled, so re-push them here.
+        ApplyHistorySettings();
+    }
+
     private async void OnManagePlugins(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (OwnerWindow is not { } owner) return;
@@ -1922,7 +1947,7 @@ public partial class MainView : UserControl
     {
         new (string Key, string Name, string Shortcut)[]
         {
-            ("Pencil", "Pencil", "P"), ("Eraser", "Eraser", "E"), ("Fill", "Paint Bucket", "F"),
+            ("Pencil", "Pencil", "P"), ("Brush", "Paintbrush", "B"), ("Eraser", "Eraser", "E"), ("Fill", "Paint Bucket", "F"),
             ("Pick", "Color Picker", "K"), ("Gradient", "Gradient", "G"), ("Clone", "Clone Stamp", "C"),
             ("Recolor", "Recolor", "N"), ("Text", "Text", "T")
         },
@@ -2064,6 +2089,7 @@ public partial class MainView : UserControl
             ? new KawaPaint.App.Core.Plugins.PluginToolAdapter(pluginTool.Create())
             : tag switch
         {
+            "Brush" => new PaintbrushTool(),
             "Eraser" => new EraserTool(),
             "Fill" => new PaintBucketTool(),
             "Pick" => new ColorPickerTool(),
@@ -2093,7 +2119,10 @@ public partial class MainView : UserControl
     /// <summary>Greys out toolbar options the active tool ignores.</summary>
     private void UpdateToolOptions(string tag)
     {
-        SizeGroup.IsEnabled = tag is "Pencil" or "Eraser" or "Line" or "Rect" or "Ellipse" or "Clone" or "Recolor" or "RoundRect" or "Freeform" or "Star" or "Arrow";
+        SizeGroup.IsEnabled = tag is "Pencil" or "Brush" or "Eraser" or "Line" or "Rect" or "Ellipse" or "Clone" or "Recolor" or "RoundRect" or "Freeform" or "Star" or "Arrow";
+        // Hardness is the paintbrush's alone; and the paintbrush is always antialiased by
+        // construction, so the AA checkbox has nothing to say about it.
+        BrushGroup.IsEnabled = tag is "Brush";
         ShapeGroup.IsEnabled = tag is "Pencil" or "Line" or "Rect" or "Ellipse" or "Clone" or "Recolor" or "RoundRect" or "Freeform" or "Star" or "Arrow";
         FillShapesCheck.IsEnabled = tag is "Rect" or "Ellipse" or "RoundRect" or "Freeform" or "Star" or "Arrow";
         BucketGroup.IsEnabled = tag is "Fill" or "Wand" or "Recolor";
@@ -2213,6 +2242,55 @@ public partial class MainView : UserControl
         int delta = Math.Sign(e.Delta.Y) * step;
         if (delta == 0) return;
         ApplyBrushSize(Canvas.BrushWidth + delta);
+        e.Handled = true;
+    }
+
+    private bool _suppressHardness;   // guards programmatic updates to HardnessBox
+
+    /// <summary>Sets the paintbrush hardness from a whole-percent value, clamped to range, and
+    /// syncs HardnessBox to match — same shape as ApplyBrushSize/ApplyTolerance above.</summary>
+    private void ApplyBrushHardness(int percent)
+    {
+        percent = Math.Clamp(percent, MinHardness, MaxHardness);
+        if (Canvas is not null) Canvas.BrushHardness = percent / 100.0;
+        if (HardnessBox is null) return;
+
+        _suppressHardness = true;
+        HardnessBox.SelectedItem = Array.IndexOf(HardnessPresets, percent) >= 0 ? percent : null;
+        HardnessBox.Text = percent.ToString();
+        _suppressHardness = false;
+    }
+
+    private int CurrentHardnessPercent => (int)Math.Round(Canvas.BrushHardness * 100);
+
+    private void OnHardnessPresetSelected(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressHardness) return;
+        if (HardnessBox.SelectedItem is int percent) ApplyBrushHardness(percent);
+    }
+
+    private void OnHardnessKeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
+    {
+        if (e.Key != Avalonia.Input.Key.Enter) return;
+        CommitHardnessText();
+        e.Handled = true;
+    }
+
+    private void OnHardnessTextCommit(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => CommitHardnessText();
+
+    private void CommitHardnessText()
+    {
+        if (_suppressHardness || HardnessBox is null) return;
+        ApplyBrushHardness(int.TryParse((HardnessBox.Text ?? "").Trim(), out int percent)
+            ? percent : CurrentHardnessPercent);
+    }
+
+    private void OnHardnessWheel(object? sender, Avalonia.Input.PointerWheelEventArgs e)
+    {
+        int step = e.KeyModifiers.HasFlag(Avalonia.Input.KeyModifiers.Shift) ? 10 : 1;
+        int delta = Math.Sign(e.Delta.Y) * step;
+        if (delta == 0) return;
+        ApplyBrushHardness(CurrentHardnessPercent + delta);
         e.Handled = true;
     }
 

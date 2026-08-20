@@ -2,10 +2,50 @@
 
 Status snapshot: 2026-08-20, branch `master` (updated post-2.4, post-JXL/JP2-Windows-packaging,
 post-3.x-classic-PDN-plugin-bridge, post-3.x-BitmapEffect-tier-spike-proven-impossible,
-post-bughunt-sweep, post-second-bughunt-pass-B1..B7-all-fixed).
+post-bughunt-sweep, post-second-bughunt-pass-B1..B7-all-fixed, post-UI-gaps-pass).
 Full roadmap/rationale lives in Claude memory
 (`feature-roadmap-tiers`) and the published plan:
 https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
+
+## UI gaps closed 2026-08-20
+
+Three user-reported gaps, all runtime-verified against the real Windows build (launched
+`win/bin/Debug/net10.0/KawaPaint.Win.exe`, drove it with the PowerShell + `user32.dll` pattern
+described in the working notes, screenshotted each result).
+
+1. **No paintbrush.** The toolbox had a Pencil but nothing soft-edged — Paint.NET's Paintbrush had
+   no counterpart here at all. Added `PaintbrushTool` (`Tools.cs`, key `B`, tag `"Brush"`) on top of
+   a new `SoftBrushStroke` in `BrushOps.cs`. It is deliberately *not* the pencil with a blurrier
+   disc: a soft dab's semi-transparent rim would blend over the previous dab's, so a slow drag would
+   darken along the stroke. Instead the whole stroke max-accumulates into one canvas-sized byte
+   coverage mask, and each flush re-composites the dirty region from `ToolContext.PreStroke`, which
+   makes overlap idempotent and caps the stroke at the brush color's own alpha. Hardness is a new
+   `ToolContext.BrushHardness` / `SurfaceView.BrushHardness` (0..1) fed by a `Hardness:` combo in the
+   toolbar's new `BrushGroup` (percent; the toolbar talks percent, the engine 0..1). The AA checkbox
+   is left disabled for it — the brush is antialiased by construction. Verified: a hardness-15,
+   size-42 stroke renders a smooth falloff with no banding or overlap darkening.
+
+2. **No settings menu.** `AppSettings` had readers since tier 0 but no UI, so every default was
+   frozen short of hand-editing `settings.json`. New `SettingsDialog.cs` (Preferences, four tabs:
+   Autosave / History / Git / Plugins) reached from a new top-level `Settings` menu, which also
+   collects the two dialogs that were previously only reachable from elsewhere (Customize Dock,
+   Manage Plugins) plus Reset Layout. Only fields something actually reads are exposed —
+   `HistorySettings.ShowThumbnails` is deliberately omitted because nothing consumes it yet. Edits
+   stage on the controls and write in one `SettingsService.Update` on OK, so Cancel really cancels
+   (Save raises `Changed`, which reschedules autosave and can trigger a config commit). Verified by
+   changing the autosave interval to 20, confirming `settings.json` on disk, and setting it back.
+
+3. **Unreadable icons in the dropdown menus.** Root cause: `App.axaml` had
+   `RequestedThemeVariant="Default"`, which follows the OS — and this box runs
+   `AppsUseLightTheme=1`. Every panel in the app paints its own hardcoded dark background, but the
+   parts Fluent themes itself (menu dropdowns, combo popups, tooltips) came out near-white, and
+   `Icons.Create` strokes every glyph `#DCDCDC`, so menu icons all but vanished. Pinned the variant
+   to `Dark` and flipped the `MenuItem MenuItem PART_HeaderPresenter` override from `#1A1A1A` to
+   `#F0F0F0` to match (that override exists because Fluent's `MenuFlyoutItemForeground` resolves
+   inconsistently once only some items in a popup carry an Icon — still true, still needed).
+   Also added the missing `"Plugin"` key to `Icons.cs`: `RebuildPluginToolButtons` asks for it by
+   name for every `ToolRegistry` tool button, and `Icons.Create` was falling through to its literal
+   `"?"` placeholder.
 
 ## Known bugs
 

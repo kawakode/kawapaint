@@ -94,14 +94,23 @@ public sealed class Selection
                 CopyFrom(shape);
                 return;
             case SelectionCombineMode.Add:
+                // Add's base is deliberately read as a physically-empty mask even when inactive
+                // (not "everything", despite IsSelected's convention) — union-with-everything would
+                // just stay everything, which would make Add-mode useless for starting a fresh
+                // selection from nothing. Producing exactly the shape is the useful behavior here.
                 for (int i = 0; i < _mask.Length; i++)
                     if (shape._mask[i] != 0) _mask[i] = 255;
                 break;
             case SelectionCombineMode.Subtract:
+                // Unlike Add, Subtract/Intersect must honor IsSelected's "inactive = everything
+                // selected" reading, or they silently no-op against the mask's actual (zeroed)
+                // bytes instead of subtracting from/intersecting with the whole canvas.
+                if (!IsActive) SelectAll();
                 for (int i = 0; i < _mask.Length; i++)
                     if (shape._mask[i] != 0) _mask[i] = 0;
                 break;
             case SelectionCombineMode.Intersect:
+                if (!IsActive) SelectAll();   // see Subtract
                 for (int i = 0; i < _mask.Length; i++)
                     if (shape._mask[i] == 0) _mask[i] = 0;
                 break;

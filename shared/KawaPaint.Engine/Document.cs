@@ -94,6 +94,24 @@ public sealed class Document : IDisposable
         return result;
     }
 
+    /// <summary>Deep copy: every layer cloned (pixels + properties, exact name), same order, same
+    /// Dpi. Used where a consistent snapshot is needed decoupled from further edits to the live
+    /// document — e.g. autosave encoding on a background thread while the user keeps painting.
+    /// Unlike <see cref="Layer.Clone"/> alone, names are copied exactly rather than getting its
+    /// " copy" suffix — that suffix is right for a user-facing Duplicate Layer, wrong for a
+    /// snapshot whose layer names get written straight into a saved file's manifest.</summary>
+    public Document Clone()
+    {
+        var copy = new Document(Width, Height) { Dpi = Dpi };
+        foreach (var layer in _layers)
+        {
+            var cloned = layer.Clone();
+            cloned.Name = layer.Name;
+            copy.AddLayer(cloned);
+        }
+        return copy;
+    }
+
     public void Dispose()
     {
         foreach (var layer in _layers) layer.Dispose();

@@ -12,6 +12,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using KawaPaint.Engine;
 using KawaPaint.Engine.Plugins;
 
@@ -25,6 +26,7 @@ public sealed class PluginEffectDialog : Window
     private readonly Dictionary<string, Func<object>> _readers = new();
     private Surface? _snapshot;
     private bool _committed;
+    private DispatcherTimer? _previewTimer;
 
     public PluginEffectDialog(SurfaceView canvas, PluginEffectDescriptor descriptor)
     {
@@ -61,7 +63,7 @@ public sealed class PluginEffectDialog : Window
 
         Height = 90 + descriptor.Parameters.Count * 46 + 52;
         Content = root;
-        Closed += (_, _) => { if (!_committed) Revert(); };
+        Closed += (_, _) => { _previewTimer?.Stop(); if (!_committed) Revert(); };
     }
 
     private Control BuildRow(PluginParameterSpec spec) => spec switch
@@ -92,7 +94,9 @@ public sealed class PluginEffectDialog : Window
         Grid.SetColumn(value, 2);
 
         string fmt = spec.Format;
-        slider.ValueChanged += (_, e) => { value.Text = e.NewValue.ToString(fmt); Preview(); };
+        // The numeric readout updates immediately (cheap); the pixel preview is debounced (see
+        // SchedulePreview) so dragging doesn't queue a full-surface Apply per intermediate value.
+        slider.ValueChanged += (_, e) => { value.Text = e.NewValue.ToString(fmt); SchedulePreview(); };
 
         _readers[spec.Key] = () => slider.Value;
         grid.Children.Add(label);
@@ -104,7 +108,7 @@ public sealed class PluginEffectDialog : Window
     private Control BuildCheckBoxRow(BoolParameterSpec spec)
     {
         var check = new CheckBox { Content = spec.Label, IsChecked = spec.Default };
-        check.IsCheckedChanged += (_, _) => Preview();
+        check.IsCheckedChanged += (_, _) => SchedulePreview();
         _readers[spec.Key] = () => check.IsChecked ?? false;
         return check;
     }
@@ -118,7 +122,7 @@ public sealed class PluginEffectDialog : Window
 
         var combo = new ComboBox { ItemsSource = spec.Options, SelectedIndex = spec.DefaultIndex };
         Grid.SetColumn(combo, 1);
-        combo.SelectionChanged += (_, _) => Preview();
+        combo.SelectionChanged += (_, _) => SchedulePreview();
 
         _readers[spec.Key] = () => combo.SelectedIndex;
         grid.Children.Add(label);
@@ -139,7 +143,7 @@ public sealed class PluginEffectDialog : Window
             HorizontalAlignment = HorizontalAlignment.Left
         };
         Grid.SetColumn(button, 1);
-        button.ColorChanged += (_, _) => Preview();
+        button.ColorChanged += (_, _) => SchedulePreview();
 
         _readers[spec.Key] = () =>
         {
@@ -158,6 +162,22 @@ public sealed class PluginEffectDialog : Window
         return new PluginParameterValues(values);
     }
 
+    /// <summary>
+    /// Coalesces a burst of parameter changes (a slider drag, or dragging within the color picker's
+    /// wheel) into one Preview() call ~60ms after the last change, capping a fast drag to at most
+    /// ~16 full-surface recomputations/sec instead of one per intermediate value.
+    /// </summary>
+    private void SchedulePreview()
+    {
+        if (_previewTimer is null)
+        {
+            _previewTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
+            _previewTimer.Tick += (_, _) => { _previewTimer!.Stop(); Preview(); };
+        }
+        _previewTimer.Stop();
+        _previewTimer.Start();
+    }
+
     private void Preview()
     {
         if (_snapshot is null || _layer is null) return;
@@ -172,6 +192,12 @@ public sealed class PluginEffectDialog : Window
     {
         if (_snapshot is not null && _layer is not null)
         {
+            // The debounce above means the layer's current pixels can lag the controls' final
+            // values by up to ~60ms — flush synchronously so OK always commits what's actually
+            // shown, not a stale in-flight preview.
+            _previewTimer?.Stop();
+            Preview();
+
             _canvas.History.Push(TileDeltaMemento.Consume(_layer, _snapshot, _descriptor.DisplayName));
             _snapshot = null;
             _committed = true;

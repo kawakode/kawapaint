@@ -220,9 +220,16 @@ public sealed class MoveTool : ITool
     {
         int dx = (int)Math.Round(c.X - _sx);
         int dy = (int)Math.Round(c.Y - _sy);
-        if (dx == 0 && dy == 0) return;          // nothing moved yet: no edit, no undo step
-        if (!_pushed) { c.PushHistory(); _pushed = true; }
+        if (!_pushed)
+        {
+            if (dx == 0 && dy == 0) return;      // nothing moved yet: no edit, no undo step
+            c.PushHistory();
+            _pushed = true;
+        }
 
+        // Once a gesture is underway, always re-shift from PreStroke — including back to (0,0) —
+        // so dragging back to the start restores the original position instead of leaving the
+        // surface at whatever the last non-zero offset was.
         SurfaceOps.ShiftInto(c.Layer.Surface, c.PreStroke, dx, dy);
         c.Composite();
     }

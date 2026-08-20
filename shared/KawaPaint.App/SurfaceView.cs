@@ -353,6 +353,22 @@ public sealed class SurfaceView : Control
         base.OnPointerWheelChanged(e);
         if (_composite is null) return;
 
+        if (e.Delta.Y == 0)
+        {
+            // A pure horizontal wheel gesture (trackpad swipe, shift+wheel) has no vertical
+            // component to read a zoom direction from — `e.Delta.Y > 0 ? in : out` below used to
+            // treat that as "out" unconditionally. Pan horizontally instead, reusing the same
+            // _origin the mouse-drag pan already uses.
+            if (e.Delta.X != 0)
+            {
+                _origin -= new Point(e.Delta.X * 60, 0);
+                InvalidateVisual();
+                ViewChanged?.Invoke();
+            }
+            e.Handled = true;
+            return;
+        }
+
         Point p = e.GetPosition(this);
         double ix = (p.X - _origin.X) / _zoom;
         double iy = (p.Y - _origin.Y) / _zoom;
@@ -516,9 +532,13 @@ public sealed class SurfaceView : Control
         History.Push(TileDeltaMemento.Create(layer, _preStroke, _pendingHistoryName));
     }
 
-    protected override void OnPointerReleased(PointerReleasedEventArgs e)
+    /// <summary>
+    /// Wraps up whatever gesture is in progress: the stroke's tool finalize + undo commit, or just
+    /// clearing the pan flag. Shared by a normal release and an involuntary capture loss (see
+    /// OnPointerCaptureLost), so neither path can leave _drawing/_preStroke stuck mid-stroke.
+    /// </summary>
+    private void FinishGesture()
     {
-        base.OnPointerReleased(e);
         if (_drawing)
         {
             if (_toolCtx is not null) CurrentTool.PointerUp(_toolCtx);
@@ -529,11 +549,27 @@ public sealed class SurfaceView : Control
             NotifyLayersChanged();   // the stroke is final: let the layer thumbnails catch up
         }
 
-        if (_panning || _drawing)
-        {
-            _panning = false;
-            _drawing = false;
-            e.Pointer.Capture(null);
-        }
+        _panning = false;
+        _drawing = false;
+    }
+
+    protected override void OnPointerReleased(PointerReleasedEventArgs e)
+    {
+        base.OnPointerReleased(e);
+        bool wasActive = _panning || _drawing;
+        FinishGesture();
+        if (wasActive) e.Pointer.Capture(null);
+    }
+
+    /// <summary>
+    /// Avalonia calls this when capture is lost involuntarily rather than via a normal release —
+    /// alt-tab, the window losing focus, or another element stealing capture mid-drag. Without this,
+    /// _drawing/_preStroke stayed set forever: the next press would dispose and silently replace
+    /// _preStroke, dropping the in-progress stroke's history with no undo step recorded.
+    /// </summary>
+    protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+    {
+        base.OnPointerCaptureLost(e);
+        FinishGesture();
     }
 }

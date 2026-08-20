@@ -91,11 +91,17 @@ public partial class MainView : UserControl
         Canvas.CursorMoved += OnCursorMoved;
         KeyDown += OnKeyDown;
 
-        OpacitySlider.AddHandler(Avalonia.Input.InputElement.PointerPressedEvent,
-            (_, _) => _opacityBefore = Canvas.ActiveLayer?.Opacity,
-            Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        // "Before" is captured lazily in OnOpacityChanged itself (the first change of a gesture,
+        // whichever input drove it), so a mouse drag and an arrow-key nudge both get a correct
+        // undo baseline. Commit fires on any gesture-end signal: PointerReleased for a drag,
+        // KeyUp/LostFocus for keyboard (arrow keys don't raise pointer events at all). KeyUp uses
+        // handledEventsToo/Bubble since Slider's arrow-key handling lives on its internal template
+        // part, not necessarily the OpacitySlider element itself.
         OpacitySlider.AddHandler(Avalonia.Input.InputElement.PointerReleasedEvent,
             OnOpacityCommitted, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        OpacitySlider.AddHandler(Avalonia.Input.InputElement.KeyUpEvent,
+            (_, _) => CommitOpacityChange(), Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
+        OpacitySlider.LostFocus += (_, _) => CommitOpacityChange();
 
         // handledEventsToo: the ListBox marks pointer events handled for its own
         // selection handling, which would otherwise hide them from these handlers.
@@ -2800,6 +2806,11 @@ public partial class MainView : UserControl
         StatusText.Text = "Erased";
     }
 
+    /// <summary>Bytes a Surface holds — used to report the memory cost of a detached Layer to
+    /// HistoryStack's budget (see the layer-lifecycle DelegateMementos below), the same way
+    /// TileDeltaMemento/LayerSurfaceMemento already report theirs.</summary>
+    private static long SurfaceBytes(Surface s) => (long)s.Stride * s.Height;
+
     private void OnAddLayer(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         var doc = Canvas.Document;
@@ -2807,9 +2818,14 @@ public partial class MainView : UserControl
         var layer = doc.AddLayer();
         Canvas.SetActiveLayer(layer);
 
+        // approximateBytes/dispose are live queries against doc.IndexOf, not captured values: which
+        // side (undo or redo) currently holds `layer` detached from the document flips with every
+        // toggle, and Dispose() must never free a Surface the Document still owns.
         Canvas.History.Push(new DelegateMemento("Add Layer",
             undo: () => { doc.RemoveLayer(layer); Canvas.SetActiveLayer(doc.Layers[^1]); },
-            redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); }));
+            redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); },
+            approximateBytes: () => doc.IndexOf(layer) < 0 ? SurfaceBytes(layer.Surface) : 0,
+            dispose: () => { if (doc.IndexOf(layer) < 0) layer.Dispose(); }));
 
         RefreshDocument();
     }
@@ -2826,7 +2842,9 @@ public partial class MainView : UserControl
 
         Canvas.History.Push(new DelegateMemento("Delete Layer",
             undo: () => { doc.InsertLayer(idx, active); Canvas.SetActiveLayer(active); },
-            redo: () => { doc.RemoveLayer(active); Canvas.SetActiveLayer(doc.Layers[Math.Clamp(idx, 0, doc.LayerCount - 1)]); }));
+            redo: () => { doc.RemoveLayer(active); Canvas.SetActiveLayer(doc.Layers[Math.Clamp(idx, 0, doc.LayerCount - 1)]); },
+            approximateBytes: () => doc.IndexOf(active) < 0 ? SurfaceBytes(active.Surface) : 0,
+            dispose: () => { if (doc.IndexOf(active) < 0) active.Dispose(); }));
 
         RefreshDocument();
     }
@@ -2844,7 +2862,9 @@ public partial class MainView : UserControl
 
         Canvas.History.Push(new DelegateMemento("Duplicate Layer",
             undo: () => { doc.RemoveLayer(dup); Canvas.SetActiveLayer(active); },
-            redo: () => { doc.InsertLayer(idx + 1, dup); Canvas.SetActiveLayer(dup); }));
+            redo: () => { doc.InsertLayer(idx + 1, dup); Canvas.SetActiveLayer(dup); },
+            approximateBytes: () => doc.IndexOf(dup) < 0 ? SurfaceBytes(dup.Surface) : 0,
+            dispose: () => { if (doc.IndexOf(dup) < 0) dup.Dispose(); }));
 
         RefreshDocument();
     }
@@ -2863,9 +2883,15 @@ public partial class MainView : UserControl
         doc.RemoveLayer(active);
         Canvas.SetActiveLayer(below);
 
+        // belowBefore is owned by this memento for its whole lifetime (both directions — it's
+        // needed for undo whether or not the step is currently applied), unlike `active`, whose
+        // detached/attached state — and so whether it's this memento's to count/dispose — flips
+        // with every toggle.
         Canvas.History.Push(new DelegateMemento("Merge Down",
             undo: () => { below.Surface.CopyFrom(belowBefore); doc.InsertLayer(idx, active); Canvas.SetActiveLayer(active); },
-            redo: () => { LayerOps.MergeInto(below, active); doc.RemoveLayer(active); Canvas.SetActiveLayer(below); }));
+            redo: () => { LayerOps.MergeInto(below, active); doc.RemoveLayer(active); Canvas.SetActiveLayer(below); },
+            approximateBytes: () => SurfaceBytes(belowBefore) + (doc.IndexOf(active) < 0 ? SurfaceBytes(active.Surface) : 0),
+            dispose: () => { belowBefore.Dispose(); if (doc.IndexOf(active) < 0) active.Dispose(); }));
 
         RefreshDocument();
     }
@@ -2908,12 +2934,15 @@ public partial class MainView : UserControl
     private void OnOpacityChanged(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
         if (_suppress || Canvas?.ActiveLayer is null) return;
+        _opacityBefore ??= Canvas.ActiveLayer.Opacity;   // first change of a gesture: remember the pre-edit value
         Canvas.ActiveLayer.Opacity = (byte)Math.Round(e.NewValue);
         Canvas.RenderComposite();
         Canvas.InvalidateVisual();
     }
 
-    private void OnOpacityCommitted(object? sender, Avalonia.Input.PointerReleasedEventArgs e)
+    private void OnOpacityCommitted(object? sender, Avalonia.Input.PointerReleasedEventArgs e) => CommitOpacityChange();
+
+    private void CommitOpacityChange()
     {
         var layer = Canvas.ActiveLayer;
         if (layer is null || _opacityBefore is null) return;

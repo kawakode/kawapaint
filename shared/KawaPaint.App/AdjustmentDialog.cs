@@ -7,6 +7,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
+using Avalonia.Threading;
 using KawaPaint.Engine;
 
 namespace KawaPaint.App;
@@ -22,6 +23,7 @@ public sealed class AdjustmentDialog : Window
     private readonly string _effectName;
     private Surface? _snapshot;
     private bool _committed;
+    private DispatcherTimer? _previewTimer;
 
     public AdjustmentDialog(SurfaceView canvas, string title, SliderSpec[] specs, Func<double[], IEffect> build)
     {
@@ -61,7 +63,10 @@ public sealed class AdjustmentDialog : Window
             Grid.SetColumn(value, 2);
 
             string fmt = spec.Format;
-            slider.ValueChanged += (_, e) => { value.Text = e.NewValue.ToString(fmt); Preview(); };
+            // The numeric readout updates immediately (cheap); the actual pixel preview is
+            // debounced (see SchedulePreview) so dragging doesn't queue a full-surface Apply for
+            // every intermediate value a fast drag passes through.
+            slider.ValueChanged += (_, e) => { value.Text = e.NewValue.ToString(fmt); SchedulePreview(); };
 
             _sliders[i] = slider;
             grid.Children.Add(label);
@@ -89,7 +94,7 @@ public sealed class AdjustmentDialog : Window
         root.Children.Add(buttons);
 
         Content = root;
-        Closed += (_, _) => { if (!_committed) Revert(); };
+        Closed += (_, _) => { _previewTimer?.Stop(); if (!_committed) Revert(); };
     }
 
     private double[] Values()
@@ -97,6 +102,23 @@ public sealed class AdjustmentDialog : Window
         var v = new double[_sliders.Length];
         for (int i = 0; i < _sliders.Length; i++) v[i] = _sliders[i].Value;
         return v;
+    }
+
+    /// <summary>
+    /// Coalesces a burst of ValueChanged events (a slider drag can fire dozens per second) into one
+    /// Preview() call ~60ms after the last change — short enough to still feel live, but it caps a
+    /// fast drag to at most ~16 full-surface recomputations/sec instead of one per intermediate
+    /// value, which is what used to queue seconds of work on a large image.
+    /// </summary>
+    private void SchedulePreview()
+    {
+        if (_previewTimer is null)
+        {
+            _previewTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
+            _previewTimer.Tick += (_, _) => { _previewTimer!.Stop(); Preview(); };
+        }
+        _previewTimer.Stop();
+        _previewTimer.Start();
     }
 
     private void Preview()
@@ -113,6 +135,12 @@ public sealed class AdjustmentDialog : Window
     {
         if (_snapshot is not null && _layer is not null)
         {
+            // The debounce above means the layer's current pixels can lag the sliders' final
+            // values by up to ~60ms — flush synchronously so OK always commits what's actually
+            // shown on the sliders, not a stale in-flight preview.
+            _previewTimer?.Stop();
+            Preview();
+
             _canvas.History.Push(TileDeltaMemento.Consume(_layer, _snapshot, _effectName));
             _snapshot = null;
             _committed = true;

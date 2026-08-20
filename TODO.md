@@ -1,7 +1,7 @@
 # KawaPaint — resume-here notes
 
-Status snapshot: 2026-08-19, branch `master` (updated post-2.4, post-JXL/JP2-Windows-packaging,
-post-3.x-classic-PDN-plugin-bridge).
+Status snapshot: 2026-08-20, branch `master` (updated post-2.4, post-JXL/JP2-Windows-packaging,
+post-3.x-classic-PDN-plugin-bridge, post-3.x-BitmapEffect-tier-spike-proven-impossible).
 Full roadmap/rationale lives in Claude memory
 (`feature-roadmap-tiers`) and the published plan:
 https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
@@ -25,6 +25,357 @@ https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
   row click on a genuinely populated list, and a layer row click) — both jump/select correctly
   with no exception, and a screenshot confirms the Layers panel visually reflects the new
   selection. Committed as `d787b35`.
+
+### Audit 2026-08-20 — open findings
+
+Full-tree read-through (engine, `SurfaceView`, `HistoryStack`, `MainView`, dialogs, codecs).
+**Evidence bar: none of these are runtime-verified.** Every one was traced through the code and
+the control flow checked by hand, but nothing below was reproduced live the way the History-panel
+crash above was. Treat each as "confirmed by reading, not by running" until it has a repro —
+especially before writing a fix that assumes the failure shape. Line numbers are as of this date.
+
+Suggested fix order was #1, #2, #5, #11 first (small, self-contained, first three lose the user's
+work). **All five High-tier bugs (#1-#5) are fixed, and Medium is done as of 2026-08-20 except #6
+(user chose to skip — see its entry for why).** #7-#11 are fixed; see each entry below for what
+changed and how it was verified. Next up is the Low-tier list (#12-#16).
+
+**High — data loss / wrong results**
+
+1. **~~Move tool leaves a phantom offset when dragged back to the start~~ — fixed 2026-08-20.**
+   `shared/KawaPaint.App/Tools.cs` — `if (dx == 0 && dy == 0) return;` fired *before* `ShiftInto`,
+   so returning the pointer to the origin skipped the restore and the surface kept the last
+   non-zero shift; pointer-up then committed a move the user had visibly undone. Fix: the zero-move
+   guard now only applies before the first push (skips creating an undo step for a click that never
+   moves); once `_pushed` is true, every `PointerMove` re-shifts from `PreStroke`, including at
+   (0,0), so dragging back to the start actually restores it. Verified: `dotnet build` on
+   `KawaPaint.App` succeeds. Not runtime-verified — no manual drag repro was run against the built
+   app in this session.
+
+2. **~~`DocumentFile.Save` destroys the old file before knowing the new one writes~~ — fixed
+   2026-08-20.** `File.Create` used to truncate the destination, *then* encode; a failure mid-encode
+   left a truncated `.kwp` — including via autosave's `WriteToOriginalFile`, unattended.
+   `SaveExploded` was worse: it deleted every existing `layers/*.png` up front, before writing any
+   replacement. Fix: `Save(Document,string)` now encodes to a temp file beside the destination and
+   `File.Move(overwrite: true)`s it in only on success. `SaveExploded` now encodes every layer to a
+   `.tmp` file first; only once *all* of them succeed does it move each onto its real name, delete
+   stale layer files from a since-shrunk layer count, and write the manifest last (via the same
+   temp+move) — so `LoadExploded`'s trusted pointer never describes a layer set that isn't fully on
+   disk. A `finally` sweeps any leftover temp files regardless of where the failure happened.
+   Verified: `dotnet build` on `KawaPaint.Engine` succeeds; the existing Sandbox smoke test's
+   Save/Load round trip still passes; and a throwaway verification project confirmed all four
+   target scenarios — normal `SaveExploded`/`LoadExploded` round trip, stale-file cleanup after a
+   layer-count shrink, and (for both `Save` and `SaveExploded`) that disposing a layer's `Surface`
+   mid-save to force an `ObjectDisposedException` leaves every on-disk byte and every manifest
+   identical to before the attempt, with no leftover `.tmp` files.
+
+3. **~~History never re-trims after undo/redo, so the memory budget silently stops applying~~ —
+   fixed 2026-08-20.** `Trim()` used to be called only from `Push`, but `StepBackward`/
+   `StepForward` call `Restore()` on spilled mementos — one un-spill per undo, with nothing
+   re-spilling them. Undoing back through a long spilled history pulled the whole thing into RAM,
+   since `MemoryBudgetBytes` was only ever consulted again on the next new edit. Fix: `Undo()`,
+   `Redo()`, and `JumpTo()` now each call `Trim()` once after moving the caret (before firing
+   `Changed`) — `JumpTo` only once at the end of its whole walk, not per step, so a long jump stays
+   O(n) rather than O(n²). `Trim()` was already written to be a no-op-safe, idempotent pass keyed
+   off the *current* `_position`, so re-running it after every caret move was the whole fix — no
+   changes to its internals. Verified with a throwaway project: pushed 40 single-tile edits (16 KB
+   each) against a 12-tile-worth budget and a real spill directory, confirmed steady-state resident
+   bytes settle at the budget, then undid all the way back to position 0 while tracking
+   `HistoryStack.ResidentBytes` after every step. With the fix, resident bytes never exceeded the
+   budget through the entire walk. **Confirmed the test was meaningful, not vacuous**: temporarily
+   disabled the three `Trim()` calls and reran the identical scenario — resident bytes peaked at
+   655 KB against a 196 KB budget (3.3×over), the exact failure mode described above, before
+   restoring the fix and reconfirming the pass.
+
+4. **~~Structural mementos pin whole surfaces the budget can't see~~ — fixed 2026-08-20.**
+   `DelegateMemento` used to report `ApproximateBytes => 0` unconditionally and had no `Dispose`
+   override — but Delete Layer captures a live `Layer`, Duplicate a clone, Add Layer a freshly
+   allocated (still full-size, even if blank) one, and Merge Down a full `Surface.Clone()` plus the
+   removed layer. On a 4000×3000 doc each such step could hold tens of MB invisible to
+   `ResidentBytes`, and dropping the step never freed it. Fix: `DelegateMemento` gained two optional
+   constructor params, `Func<long>? approximateBytes` and `Action? dispose`, both forwarded
+   unchanged through every `Undo()`-produced mirror (they're live queries against current document
+   state, not per-instance captured values, so they don't need "swapping" between directions — see
+   the doc comment on the constructor for why). The four `MainView.axaml.cs` layer-lifecycle call
+   sites (Add/Delete/Duplicate/Merge Down) now pass both: `approximateBytes` reports real bytes only
+   while `doc.IndexOf(layer) < 0` (i.e. only while the layer is actually detached and this memento
+   is its only owner — while the Document owns it, it's the Document's problem, not history's), and
+   `dispose` applies the identical check before freeing anything, since a step can be torn down
+   (e.g. `DiscardFrom` invalidating a redo branch) while its object happens to currently be the
+   live, document-owned side — disposing then would be a use-after-dispose bug reachable from the
+   live canvas. Merge Down's `belowBefore` snapshot is unconditionally owned by the step for its
+   whole lifetime (needed for undo in both directions), unlike the removed layer, whose
+   attached/detached state still flips per the same `IndexOf` check. Verified with a throwaway
+   project covering: (1) the byte report correctly flips between 0 and full bytes as a memento is
+   toggled back and forth through `Undo()`; (2) disposing a step whose layer is currently
+   *reattached* leaves the document's layer fully intact and readable — the specific double-free
+   shape being guarded against; (3) disposing a step whose layer is currently *detached* actually
+   frees it; (4) pushing ten detached-layer steps against a tight `MemoryBudgetBytes` (sized above
+   `HistoryStack`'s own resident-window floor, so the assertion is achievable by the algorithm) now
+   gets trimmed down to budget, with several of the oldest layers' surfaces genuinely freed —
+   confirmed via a deliberately-caused crash on access (`Surface`'s indexer doesn't call
+   `ThrowIfDisposed`, so a disposed surface's pixel access dereferences a null pointer and surfaces
+   as `NullReferenceException`, not `ObjectDisposedException` — a pre-existing, out-of-scope quirk
+   noted for whoever next touches `Surface`, not fixed here); and (5) a contrast run using the old
+   3-arg `DelegateMemento` shape (no byte/dispose params) on the identical scenario, confirming
+   `ResidentBytes` stays exactly zero and nothing is ever reclaimed — proof the `MainView.axaml.cs`
+   call-site changes were load-bearing, not cosmetic.
+
+5. **~~Opacity changed by keyboard leaves no undo step and doesn't mark the doc dirty~~ — fixed
+   2026-08-20.** `_opacityBefore` used to be set only from a `PointerPressed` handler, and the only
+   commit trigger was `PointerReleased` — so an arrow-key nudge on the focused `OpacitySlider` ran
+   `OnOpacityChanged`, applied the change, and pushed no history; since `MarkDirty` hangs off
+   `History.Changed`, the document kept looking saved. Fix: `OnOpacityChanged` now captures
+   `_opacityBefore` lazily (`??=`) on the first change of a gesture regardless of what drove it, so
+   both a mouse drag and a keyboard nudge get a correct undo baseline. Commit now fires on any
+   gesture-end signal — the existing `PointerReleased` for a drag, plus new `KeyUp` and `LostFocus`
+   handlers for keyboard, since arrow keys never raise pointer events at all. `KeyUp` is wired with
+   `RoutingStrategies.Bubble, handledEventsToo: true` rather than relying on `OpacitySlider`'s own
+   `LostFocus`, because Avalonia's `Slider` handles arrow-key navigation on an internal template
+   part and there's no `AutomationId` on it to confirm which element actually holds focus — bubble
+   + handledEventsToo catches the key regardless. `CommitOpacityChange()` is idempotent (no-ops once
+   `_opacityBefore` is null), so having three trigger paths is safe, not redundant-risky. Verified:
+   `dotnet build` on `KawaPaint.App` succeeds. **Not runtime-verified** — same caveat as bug #1: this
+   is UI event-wiring logic, not pure engine code, and the app has no `AutomationId`s anywhere in its
+   XAML, so a reliable GUI-automation repro would need either fragile blind-Tab-counting or adding
+   automation IDs app-wide first, both out of scope for this fix. A manual check (open a document,
+   Tab to the Opacity slider, press an arrow key, confirm the title bar gets a `*` and the History
+   panel's step count goes up) would close this out properly.
+
+**Medium — visible misbehaviour**
+
+6. **Semi-transparent strokes blotch where discs overlap — scoped, deliberately not fixed
+   2026-08-20.** `BrushOps.DrawLine` (`BrushOps.cs:78-92`) stamps discs every `radius*0.5` px and
+   each `BlendOver`s the previous, so with alpha < 255 the stroke darkens along its length and
+   piles up at polygon vertices and ellipse seams (`ShapeOps.cs:54`, `:196`). Turns out to be two
+   differently-sized problems, not one: (a) shape outlines (ellipse/polygon/rounded-rectangle/line)
+   pile up at vertices because each edge is a separate `BrushOps.DrawLine` call blending
+   independently — fixable by having each shape build one coverage buffer internally and blend
+   once, contained to `ShapeOps.cs`/`BrushOps.cs`, low risk; (b) freehand pencil-stroke darkening
+   spans many `PointerMove`-triggered calls across a whole drag gesture, which needs a persistent
+   per-gesture coverage buffer threaded through `ToolContext` and every tool that blends via
+   `BrushOps.DrawLine` (Pencil, Line, Recolor, Clone Stamp, all shape tools — 10+ call sites) — a
+   real architecture change with meaningfully more regression surface and, like everything else in
+   this codebase, no automated UI test coverage to catch a subtle stroke-rendering regression.
+   Asked the user to pick a scope (shapes-only / full fix / skip); **they chose skip**, consistent
+   with this project's own precedent of not committing to large uncertain changes without a
+   dedicated pass (see the BitmapEffect spike in this file). Revisit as its own task, not bundled
+   into a bugfix sweep.
+
+7. **~~Subtract/Intersect against an empty selection is a no-op instead of the documented
+   semantics~~ — fixed 2026-08-20.** `IsSelected` treats `!IsActive` as "everything selected", but
+   `Combine` used to operate on the raw (physically zeroed, since an inactive selection's mask is
+   never materialized) mask directly — so Intersect-dragging with nothing selected yielded empty
+   instead of the shape, and Subtract-dragging yielded no change instead of "everything minus the
+   shape," both silently ignoring the drag entirely. Fix: `Subtract` and `Intersect` now call
+   `SelectAll()` first when `!IsActive`, materializing the "everything selected" mask `IsSelected`
+   already promises before combining — a two-line change, `SelectAll()` already existed. **`Add` was
+   deliberately left alone**: reading its inactive base as "everything" would make Add-mode useless
+   for starting a fresh selection from nothing (union with everything is still everything), so it
+   keeps treating the base as the physically-empty mask it actually is, producing exactly the shape
+   — this is the existing, useful behavior, not a bug. Verified with a throwaway project: 6 cases
+   (Add/Subtract/Intersect × inactive-base and already-active-base) all confirmed correct, including
+   3 regression checks proving the already-active-base path is byte-for-byte unchanged. Confirmed
+   the test was meaningful: temporarily disabled the two `SelectAll()` calls and reran — the
+   Subtract-from-inactive case failed exactly as described (`result is active` false) — before
+   restoring the fix and reconfirming all 6 pass.
+   
+   **Pre-existing wrinkle noticed while fixing this, not fixed here** (out of scope, doesn't get
+   worse from this fix): `Combine`'s trailing `IsActive = (any mask byte nonzero)` conflates "no
+   selection was ever made" with "a selection was explicitly narrowed to literally nothing" — both
+   end up as an all-zero mask with `IsActive=false`, which `IsSelected` then reads as "everything
+   editable," the opposite of what subtracting a selection down to nothing should mean. Reachable
+   today via a plain active selection fully covered by a Subtract shape, no inactive base needed —
+   an existing property of `Combine`, not something this fix introduces.
+
+8. **~~Live-preview dialogs run the full effect synchronously per slider tick~~ — fixed
+   2026-08-20.** Each `ValueChanged`/`IsCheckedChanged`/`SelectionChanged`/`ColorChanged` did a
+   full-surface `CopyFrom`, a full `Apply`, and a full recomposite inline on the UI thread — dragging
+   a slider queued one of those per intermediate value, "seconds of work" on a large image exactly
+   as described. Fix: both `AdjustmentDialog` and `PluginEffectDialog` gained a `SchedulePreview()`
+   debounce (a 60ms `DispatcherTimer`, restarted on every change) that all four control types now
+   call instead of `Preview()` directly; the numeric slider readout still updates immediately
+   (cheap, no perf issue) so the UI doesn't feel laggy even though the pixel preview trails by up to
+   60ms. `Commit()` now flushes — stops the pending timer and calls `Preview()` synchronously once
+   more — before pushing history, so clicking OK immediately after a drag can never commit a stale
+   preview from before the debounce fired; without that flush this would have been a real
+   regression, not just an optimization. **Deliberately scoped down from the full suggestion**: this
+   fixes the number of full recomputations a drag queues (the stated complaint), not the cost of any
+   single recomputation — a genuinely expensive effect on a huge image can still cause one visible
+   hitch when the debounce fires, rather than continuous accumulating freezes throughout the drag. A
+   downscaled or viewport-bounded preview (the other half of the original suggestion) would smooth
+   that out too, but most of this engine's effects (blur/warp/radial kernels) read from anywhere in
+   the whole image, not just a local neighborhood, so bounding them to a viewport rect would need
+   `IEffect.Apply` to accept partial-surface bounds — the same order of architectural change as bug
+   #6's skipped option, not attempted here. Verified: `dotnet build` on `KawaPaint.App` succeeds.
+   Not runtime-verified — same UI-event-wiring caveat as bugs #1/#5.
+
+9. **~~Autosave blocks the UI thread~~ — fixed 2026-08-20.** `Tick` used to do the whole `.kwp`
+   write (zip + N PNG encodes) inline on the `DispatcherTimer` callback, freezing the UI thread for
+   as long as a big document took to write, on a timer the user didn't trigger. Fix: `Document`
+   gained a `Clone()` method (deep copy — every layer cloned via the existing `Layer.Clone()`, but
+   with exact names restored, since `Layer.Clone()`'s " copy" suffix is right for a user-facing
+   Duplicate Layer and wrong for a snapshot whose names get written straight into a saved file's
+   manifest — caught by the verification test below, not by inspection). `Tick` now does only the
+   layer clone (a plain memcpy, fast) synchronously — that's what actually keeps the snapshot
+   torn-free against further painting, not an optimization to skip — then backgrounds the slow part
+   (path/dir resolution, the actual encode, pruning) via `Task.Run`, resuming on the UI thread
+   (Avalonia's dispatcher `SynchronizationContext` handles that for free) to call `MarkAutosaved()`
+   and raise `Saved`. Added a `_saving` re-entrancy guard: unlike the old fully-synchronous version,
+   where a single UI thread structurally couldn't fire the timer again mid-save, a backgrounded save
+   can now genuinely still be running when the next tick lands, so something has to stop two
+   encodes from racing on the same recovery folder. **Known accepted gap, not fixed**: `Dispose()`
+   only stops the timer; it doesn't cancel an in-flight background save, so closing the app
+   mid-autosave can let one extra write complete after the service is nominally disposed. Harmless
+   (no corruption, at worst one stray "Autosaved" status message or recovery snapshot during
+   shutdown) but real — a full fix would need a `CancellationToken` threaded through `Task.Run` and
+   `DocumentFile.Save` (which doesn't currently accept one), judged disproportionate to a rare,
+   benign shutdown race. Verified: `dotnet build` on `KawaPaint.App` succeeds, and a throwaway
+   project directly exercised `Document.Clone()` — confirmed deep-copy independence in both
+   directions (post-clone edits to the original don't appear in the clone and vice versa) plus every
+   property (Dpi, order, opacity, blend mode, visibility) carries over, and specifically caught the
+   layer-name bug above before it could have silently corrupted every autosave's manifest. The
+   `DispatcherTimer`/background-task interaction itself is not runtime-verified — no Avalonia
+   dispatcher loop available to drive it outside the real app (no `Avalonia.Headless` package in
+   this repo, and standing one up was judged disproportionate to this one timer callback).
+
+10. **~~Lost pointer capture leaves the view stuck mid-stroke~~ — fixed 2026-08-20.**
+    `OnPointerReleased` was the only place `_drawing` cleared; Alt-Tab or a capture steal during a
+    drag left it true with `_preStroke` still held, so the next press disposed and silently replaced
+    `_preStroke`, dropping the in-progress stroke's history with no undo step recorded. Fix: the
+    release-handling logic was extracted into a shared `FinishGesture()` (tool finalize + undo
+    commit, or just clearing the pan flag) called from both the existing `OnPointerReleased` and a
+    new `OnPointerCaptureLost` override — so an involuntary capture loss now wraps up the gesture the
+    same way a normal release does, instead of leaving it stuck. Verified: `dotnet build` on
+    `KawaPaint.App` succeeds, and the `PointerCaptureLostEventArgs` override signature compiling
+    confirms it's a real, correctly-matched Avalonia override rather than a typo'd method that would
+    silently never be called. Not runtime-verified — forcing a genuine OS-level capture-loss event
+    (actually Alt-Tabbing mid-drag) needs a live app and wasn't attempted.
+
+11. **~~Horizontal scroll zooms out~~ — fixed 2026-08-20.** `e.Delta.Y > 0 ? 1.2 : 1/1.2` treated
+    `Delta.Y == 0` (a pure horizontal wheel/trackpad gesture) as zoom-out, since it read "not
+    positive" as "negative." Fix: a zero vertical delta now pans horizontally instead (reusing the
+    same `_origin` the mouse-drag pan already uses) rather than zooming at all. **The exact pan
+    direction/speed (`e.Delta.X * 60`) is a judgment call, not verified against real trackpad
+    output** — Avalonia's wheel-delta sign convention varies by platform and natural-scrolling
+    settings, and confirming it feels right needs a real trackpad gesture on the built app, which
+    wasn't done. The bug itself (incorrect zoom-out) is fixed regardless of whether the pan direction
+    ends up feeling backwards; if it does, flipping the sign is a one-character fix. Verified:
+    `dotnet build` on `KawaPaint.App` succeeds.
+
+**Low**
+
+12. **`Selection.CopyFrom` and `Clip` don't validate dimensions.** `Selection.cs:75` will throw or
+    silently leave a stale tail; `Clip` (`:208`) walks `Height`/`Width` rows of a surface it never
+    size-checks — an unmanaged out-of-bounds write if they ever diverge. `Adopt()` keeps them in
+    sync today, so this is a latent trap rather than a live bug. `Combine` already checks; these
+    two should match it.
+
+13. **Static registry events are never unsubscribed.** `MainView.axaml.cs:140-141` subscribes
+    `EffectRegistry.Changed`/`ToolRegistry.Changed` from instance closures. Harmless with one
+    window, a leak the moment there are two.
+
+14. **`ReflectCoord` uses unbounded `while` loops.** `Effects.Distort.cs:60` —
+    `while (value < 0) value += max;`. Bounded for current parameter ranges, but a one-line modulo
+    away from being unconditionally safe.
+
+15. **`DropOldest` decrements `_position` unconditionally.** `History.cs:591`. Both call sites
+    guard it, but the `MaxSteps` loop's guard (`_position > 0`) means the step cap can't be
+    enforced when the caret sits at 0 with steps still redoable.
+
+16. **`Surface.Resized` linear-filters unpremultiplied alpha.** `Surface.cs:158` — Skia blends BGRA
+    channels carrying no alpha weighting, so downscales pull black from fully-transparent pixels
+    into edge halos. Most visible in layer thumbnails and Paste → Scale to fit.
+
+## Optimizations
+
+From the same 2026-08-20 read-through, ordered by expected felt impact. Same evidence bar as the
+bug list — these are reasoned from the code, not profiled. **Profile before committing to any of
+the big ones**; the ordering below is a hypothesis about where the time goes, not a measurement.
+
+1. **Dirty-rect compositing.** Every brush move calls `Composite()` → `RenderComposite`
+   (`SurfaceView.cs:141`) → full `Document.RenderTo` over every layer → `RefreshBitmap` (`:148`)
+   copying the whole composite. On a 4000×3000 doc with 5 layers that's 60M blends plus a 48 MB
+   memcpy *per mouse-move event*. Track the changed rect from the tool and composite/upload only
+   that. Single biggest win in the app.
+
+2. **`Blending.Composite` fast paths.** `Blending.cs` runs three `BlendChannel` switch dispatches
+   plus double-precision math per pixel per layer. Add: Normal + opacity 255 → integer `BlendOver`;
+   first visible layer over a just-cleared dest → straight copy; hoist the mode switch out of the
+   pixel loop into per-mode specialized loops.
+
+3. **Checkerboard as a tile brush.** `DrawCheckerboard` (`SurfaceView.cs:326`) emits one
+   `FillRectangle` per 8px screen cell — ~22,000 draw ops per frame at 1600×900, repainting on
+   every pointer move because the brush cursor calls `InvalidateVisual()`. One `ImageBrush` with
+   `TileMode.Tile` over a 16×16 bitmap replaces all of it.
+
+4. **Cache marching-ants boundaries.** `DrawMarchingAnts` (`SurfaceView.cs:291`) recomputes the
+   boundary set and emits one rect per boundary pixel, 8× a second indefinitely. Compute the
+   boundary once per selection change into a `StreamGeometry`; the animation only needs the phase.
+
+5. **Cache layer thumbnails.** `MakeThumbnail` (`MainView.axaml.cs:2340`) does a full-surface Skia
+   resample per layer, and `RebuildLayerPanel` (`:2265`) runs on *every* `DocumentChanged` —
+   including clicking a layer row, undo, redo and opacity changes. Key a cached thumbnail off a
+   per-layer version counter bumped only on pixel writes.
+
+6. **`RebuildHistoryPanel` is O(steps × tiles) per edit.** `MainView.axaml.cs:2383` calls
+   `history.ResidentBytes`, which walks every step's every tile, and recreates all N
+   `ListBoxItem`s. Maintain the resident total incrementally in `HistoryStack` (the `Trim` comment
+   already recognises the cost, it just doesn't cache across calls), and append/mark rows instead
+   of clearing.
+
+7. **Shape tools full-copy the surface per mouse move.** `ShapeToolBase` (`Tools.cs:167`) —
+   `CopyFrom(c.PreStroke)` is a whole-surface memcpy to discard the previous preview; restore only
+   the previous shape's bounding rect. `FreeformShapeTool` and `LassoSelectTool` are worse: they
+   re-rasterize a monotonically growing point list every move, so a long drag is O(n²).
+
+8. **`SurfaceOps.ShiftInto` is per-pixel with a bounds test** (`SurfaceOps.cs:45`) and sits on the
+   Move tool's per-mouse-move path — clip the row span once, then one `NativeMemory.Copy` per row.
+   Same file, `Rotate90` (`:29`) uses the bounds-checked indexer with a cache-hostile
+   stride-jumping write; a 32×32 tiled transpose is typically 3-5×.
+
+9. **LUT base class for per-pixel effects.** `PerPixelEffect.Apply` (`Effects.cs:25`) makes a
+   virtual call per pixel. Invert, Grayscale, BrightnessContrast, Curves and Posterize are all
+   expressible as a 256-entry byte table — a `LutEffect` base collapses them to a table lookup with
+   no dispatch. (Sepia is cross-channel; leave it.)
+
+10. **Trig out of the radial-blur inner loop.** `Effects.Blur.cs:97` calls `Math.Cos`/`Math.Sin`
+    per sample per pixel — at default quality ~1B transcendentals on a 12 MP image. The samples are
+    evenly spaced angles, so rotate a vector by a precomputed fixed delta instead. Relatedly,
+    `BilinearAt` (`Surface.cs:187`) does four `double` lerps per channel; 16.16 fixed-point is a
+    broad win across every warp and blur.
+
+11. **`Surface.Clear` is a scalar per-pixel loop** (`Surface.cs:69`). `NativeMemory.Fill` for the
+    transparent case — which is what `Document.RenderTo` calls every composite — or a
+    `Span<uint>.Fill` otherwise.
+
+12. **FloodFill recomputes row pointers inside the inner loop.** `FloodFill.cs:42,48` call
+    `GetRowPointer(y±1)` per pixel, twice — hoist them. `visited` as a bitset instead of
+    `bool[w*h]` also cuts an 8 MP fill from 8 MB to 1 MB and helps cache.
+
+13. **`Selection.GetBounds` and `Clip` scan the full mask** (`Selection.cs:188`, `:208`). Cache
+    bounds (invalidated on mutation) and let `Clip` restore row runs within them rather than
+    branching per pixel over the whole image.
+
+14. **Parallelize the PNG encodes in `DocumentFile.Save`** (`DocumentFile.cs:58`, currently
+    serial). Encode into memory buffers in parallel, write sequentially. Pairs naturally with
+    moving autosave off the UI thread (bug #9).
+
+15. **Drop the clipboard PNG round-trip.** `FromClipboardBitmap` (`MainView.axaml.cs:2526`) encodes
+    an Avalonia bitmap to PNG then decodes it through `CodecRegistry`. The comment justifies this by
+    header-sniffing "any format Skia can read" — but the preceding
+    `bitmap.Save(...PngBitmapEncoderOptions)` has already normalized it to PNG, so the sniff always
+    says PNG. Use `CopyPixels`
+    straight into a `Surface`; same for `ToClipboardBitmap` in the other direction. **Fix the
+    comment too — its stated rationale is wrong, not just redundant.**
+
+**Checked and found correct** (don't re-audit these without new evidence): the
+`DocumentSwapMemento` ownership dance around crop/rotate/flatten — the interleaved
+stroke→crop→stroke→discard path was traced looking for a double-free and the ordering holds.
+
+**Not a finding but worth recording:** there is no test project in `KawaPaint.slnx`, so none of the
+above has a regression net. The engine half — `Selection.Combine`, `HistoryStack.Trim`,
+`ColorBgra.BlendOver`, `FloodFill` — is pure and cheap to cover, and several of these bugs are
+exactly the shape a unit test pins down.
 
 ## Done
 
@@ -575,16 +926,48 @@ code.
   set — the real `TileDeltaMemento`/history commit path, unmodified. Test settings/plugin-folder
   changes made to this machine's real `%APPDATA%\KawaPaint` for the pass were reverted afterward.
 
-**Phase 2/3, explicitly scoped, not designed or started:**
-- **`BitmapEffect`/`PropertyBasedBitmapEffect` (v5.0+ CPU tier).** Structurally inspected via
-  paint.net's own official `PdnV5EffectSamples` GitHub repo (real base-class shapes:
-  `OnInitializeRenderInfo(IBitmapEffectRenderInfo)`, `OnRender(IBitmapEffectOutput)`, generic typed
-  pixel formats like `ColorPrgba128Float` with automatic linear-gamma conversion, tiled virtualized
-  I/O, multi-layer/document access) but never run standalone the way the classic tier was. Would
-  reuse `PdnAssembliesLoadContext`/`PdnPluginLoadContext`/`PdnPropertyMapper` as-is — only the
-  render-call plumbing and pixel-format conversion are new, but that's a materially bigger surface
-  than the classic tier's simple `Surface`/`RenderArgs` pair. Needs its own hands-on spike (same
-  proof bar the classic tier just cleared) before a real file-level plan.
+**Phase 2/3:**
+- **`BitmapEffect`/`PropertyBasedBitmapEffect` (v5.0+ CPU tier) — spiked 2026-08-20, PROVEN
+  IMPOSSIBLE to drive from outside paint.net's own compiled binaries. Do not re-attempt without new
+  information; this isn't a scope or effort question, it's a hard CLR access-control wall.**
+
+  Real API shape confirmed by driving an actual `BitmapEffectRenderer` end-to-end against the real
+  v5.1.12 portable install (`scratchpad/pdn5/spike2`, this session): `IEffect.Initialize(IServiceProvider,
+  IEffectEnvironment2)` (internal, reflection-callable) must run before render or it throws
+  `NotInitializedException`; the internal `BitmapEffectRenderer` class is the sanctioned driver
+  (`Initialize`/`SetToken`/`Render(void* pBuffer, stride, size, ref PixelFormat, RectInt32)`); pixel
+  format conversion between our buffer and whatever the effect declares (e.g. `Prgba128Float`) is
+  automatic, so `Surface` (BGRA32) can be the render target directly with zero color-space math —
+  that part all works and is the same shape the classic-tier bridge already uses.
+
+  **The actual blocker**: `IEffectEnvironment`, `IEffectDocumentInfo`, `IEffectLayerInfo`,
+  `IEffectSelectionInfo`, `IBitmapSource<T>` — every interface a host must implement to supply an
+  environment — directly require `PaintDotNet.IInternalImpl`, whose sole member
+  (`InternalImplementationOnly()`) has C#/CLR `internal` (assembly-only) accessibility. Built a full
+  `System.Reflection.Emit`-based dynamic-proxy layer (`TypeBuilder`, one type per interface, boxed
+  dispatch trampolines — real, working IL, not a sketch) to implement all of these against KawaPaint's
+  own `Document`/`Layer`/`Selection`, wired through a real fixture (the official `SquareBlurBitmapEffect`
+  sample plus two custom multi-layer/selection-reading fixtures, compiled against the real assemblies
+  in `scratchpad/pdn5/fixture`, never committed). It compiled and ran right up to
+  `TypeBuilder.CreateType()`, which the CLR refused with `TypeLoadException: ... is overriding a
+  method that is not visible from that assembly` — proven empirically, not inferred. Checked for an
+  escape hatch: paint.net's own `RefTrackedObject` base class (public, unsealed, what their real
+  internal environment classes derive from) implements `IObjectRef`/`IDisposable`/`IIsDisposed` but
+  *not* `IInternalImpl` — confirming the barrier is deliberately placed on the higher-level
+  interfaces, not incidental. No public factory/test-host type exists anywhere in the real install
+  that bridges this gap either (searched all 25 `PaintDotNet.*.dll` assemblies for one). The only
+  remaining "workaround" would be spoofing the dynamic assembly's identity to fool the CLR's
+  internal-visibility check — not attempted; that's circumventing an intentional access boundary in
+  someone else's SDK, not a legitimate technique, and out of bounds regardless of how the feature is
+  scoped.
+
+  This is unconditional, not scope-dependent: even the narrowest possible cut (single layer, no
+  selection) still needs a real `IEffectEnvironment`, which needs `IInternalImpl` just the same.
+  Classic tier's `Effect`/`Surface`/`RenderArgs` were deliberately public and host-agnostic (a
+  holdover from paint.net's older fully-open-source SDK era); the v5.0+ tier's environment
+  interfaces were deliberately sealed against external implementation. All code written for this
+  (a full working IL-emit bridge, ~5 files) was reverted after confirming the block — see git
+  history around 2026-08-20 if the spike code itself is ever needed for reference.
 - **`GpuEffect`/`GpuImageEffect`/`GpuDrawingEffect` (v5.0+ Direct2D tier).** Genuinely unexplored —
   real public base-class names weren't even found during this session's reflection spike. Hard
   Direct2D/COM dependency, realistically Windows-only. Not designed here at all; needs its own

@@ -55,18 +55,43 @@ public sealed class DelegateMemento : HistoryMemento
 {
     private readonly Action _undo;
     private readonly Action _redo;
+    private readonly Func<long>? _approximateBytes;
+    private readonly Action? _dispose;
 
-    public DelegateMemento(string name, Action undo, Action redo) : base(name)
+    /// <param name="approximateBytes">
+    /// For a structural edit whose undo/redo closures hold a whole detached Layer or Surface (add
+    /// /delete/duplicate layer, merge down) rather than just scalars — a live query, not a captured
+    /// value, since which side (undo or redo) currently owns the detached object flips with every
+    /// toggle. Typically written as "0 while the document owns it, real bytes while only this
+    /// memento does" (e.g. via <c>Document.IndexOf</c>). Omitted for the common case (toggle
+    /// visibility, blend mode, opacity, reorder) where the closures only capture scalars.
+    /// </param>
+    /// <param name="dispose">
+    /// Frees whatever <paramref name="approximateBytes"/> is reporting, once this step is dropped
+    /// from history for good. Must apply the same "only if the document doesn't currently own it"
+    /// check <paramref name="approximateBytes"/> does — a step can be discarded while its detached
+    /// object is actually the live, undone side (e.g. a delete's redo branch invalidated right after
+    /// an undo reattached the layer), and disposing a Surface the Document still owns is a
+    /// use-after-dispose waiting to happen.
+    /// </param>
+    public DelegateMemento(string name, Action undo, Action redo,
+        Func<long>? approximateBytes = null, Action? dispose = null) : base(name)
     {
         _undo = undo;
         _redo = redo;
+        _approximateBytes = approximateBytes;
+        _dispose = dispose;
     }
+
+    public override long ApproximateBytes => _approximateBytes?.Invoke() ?? 0;
 
     public override HistoryMemento Undo()
     {
         _undo();
-        return new DelegateMemento(Name, _redo, _undo);
+        return new DelegateMemento(Name, _redo, _undo, _approximateBytes, _dispose);
     }
+
+    public override void Dispose() => _dispose?.Invoke();
 }
 
 /// <summary>
@@ -449,6 +474,11 @@ public sealed class HistoryStack
     {
         if (!CanUndo) return;
         StepBackward();
+        // Undo un-spills whatever step it crosses (see StepBackward), which can pull an
+        // arbitrarily long spilled history back into memory one step at a time with nothing ever
+        // re-spilling it. Re-running Trim() re-evaluates the resident window around the caret's
+        // new position, so anything that just fell outside it gets spilled straight back.
+        Trim();
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
@@ -456,6 +486,7 @@ public sealed class HistoryStack
     {
         if (!CanRedo) return;
         StepForward();
+        Trim();   // see Undo()
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
@@ -470,6 +501,7 @@ public sealed class HistoryStack
 
         while (_position > position) StepBackward();
         while (_position < position) StepForward();
+        Trim();   // see Undo() — one pass at the end, not per step, so a long jump stays O(n)
         Changed?.Invoke(this, EventArgs.Empty);
     }
 

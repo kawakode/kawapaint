@@ -29,10 +29,26 @@ public static class DocumentFile
         public string BlendMode { get; set; } = nameof(KawaPaint.Engine.BlendMode.Normal);
     }
 
+    /// <summary>
+    /// Writes to a temp file beside <paramref name="path"/> and only replaces it once the encode
+    /// fully succeeds, so a failure mid-save (disk full, a layer surface going bad) never leaves a
+    /// truncated file where a good one used to be.
+    /// </summary>
     public static void Save(Document doc, string path)
     {
-        using var file = File.Create(path);
-        Save(doc, file);
+        string dir = Path.GetDirectoryName(Path.GetFullPath(path)) is { Length: > 0 } d ? d : ".";
+        string temp = Path.Combine(dir, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            using (var file = File.Create(temp))
+                Save(doc, file);
+            File.Move(temp, path, overwrite: true);
+        }
+        catch
+        {
+            try { File.Delete(temp); } catch { /* best-effort cleanup */ }
+            throw;
+        }
     }
 
     public static void Save(Document doc, Stream stream)
@@ -75,36 +91,67 @@ public static class DocumentFile
     /// <see cref="Save(Document,string)"/>'s single opaque zip, a git commit here only touches the
     /// files that actually changed — that's the whole point of this form existing.
     /// </summary>
+    /// <summary>
+    /// Encodes every layer to a temp file before touching anything real, so a failure partway
+    /// through (disk full at layer 3 of 5) leaves the directory exactly as it was rather than a mix
+    /// of new and stale/missing layer files. Only once every layer has encoded successfully are the
+    /// temp files moved onto their real names, stale layer files from a since-shrunk layer count
+    /// removed, and the manifest written last — it's what <see cref="LoadExploded"/> trusts, so it
+    /// should never describe a layer set that isn't fully on disk yet.
+    /// </summary>
     public static void SaveExploded(Document doc, string directoryPath)
     {
         Directory.CreateDirectory(directoryPath);
         string layersDir = Path.Combine(directoryPath, "layers");
         Directory.CreateDirectory(layersDir);
 
-        // Layer count can shrink between saves; stale files from a since-deleted layer must not
-        // linger (LoadExploded would never see them, but they'd sit there confusing a git diff).
-        foreach (string existing in Directory.EnumerateFiles(layersDir, "*.png"))
-            File.Delete(existing);
-
-        var manifest = new Manifest { Width = doc.Width, Height = doc.Height, Dpi = doc.Dpi };
-        foreach (var layer in doc.Layers)
+        var tempPaths = new string?[doc.LayerCount];
+        try
         {
-            manifest.Layers.Add(new LayerInfo
+            for (int i = 0; i < doc.LayerCount; i++)
             {
-                Name = layer.Name,
-                Opacity = layer.Opacity,
-                Visible = layer.Visible,
-                BlendMode = layer.BlendMode.ToString()
-            });
+                tempPaths[i] = Path.Combine(layersDir, $"{i}.png.{Guid.NewGuid():N}.tmp");
+                using var fs = File.Create(tempPaths[i]!);
+                doc.Layers[i].Surface.Encode(fs);
+            }
+
+            for (int i = 0; i < doc.LayerCount; i++)
+                File.Move(tempPaths[i]!, Path.Combine(layersDir, $"{i}.png"), overwrite: true);
+
+            // Layer count can shrink between saves; stale files from a since-deleted layer must not
+            // linger (LoadExploded would never see them, but they'd sit there confusing a git diff).
+            // Safe to do only now, after the surviving layers' new content is committed to disk.
+            foreach (string existing in Directory.EnumerateFiles(layersDir, "*.png"))
+            {
+                string name = Path.GetFileNameWithoutExtension(existing);
+                if (int.TryParse(name, out int idx) && idx >= doc.LayerCount)
+                    File.Delete(existing);
+            }
+
+            var manifest = new Manifest { Width = doc.Width, Height = doc.Height, Dpi = doc.Dpi };
+            foreach (var layer in doc.Layers)
+            {
+                manifest.Layers.Add(new LayerInfo
+                {
+                    Name = layer.Name,
+                    Opacity = layer.Opacity,
+                    Visible = layer.Visible,
+                    BlendMode = layer.BlendMode.ToString()
+                });
+            }
+
+            string manifestPath = Path.Combine(directoryPath, "manifest.json");
+            string manifestTemp = Path.Combine(directoryPath, $".manifest.json.{Guid.NewGuid():N}.tmp");
+            File.WriteAllText(manifestTemp, JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
+            File.Move(manifestTemp, manifestPath, overwrite: true);
         }
-
-        string manifestPath = Path.Combine(directoryPath, "manifest.json");
-        File.WriteAllText(manifestPath, JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
-
-        for (int i = 0; i < doc.LayerCount; i++)
+        finally
         {
-            using var fs = File.Create(Path.Combine(layersDir, $"{i}.png"));
-            doc.Layers[i].Surface.Encode(fs);
+            foreach (string? temp in tempPaths)
+            {
+                if (temp is null) break;   // nothing was assigned past the first unencoded slot
+                try { if (File.Exists(temp)) File.Delete(temp); } catch { /* best-effort cleanup */ }
+            }
         }
     }
 

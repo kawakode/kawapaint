@@ -19,6 +19,14 @@ public sealed class AutosaveService : IDisposable
     private readonly Func<DocumentSession?> _currentSession;
     private DispatcherTimer? _timer;
 
+    // Set for the duration of one autosave (clone through background write). Ticks now return to
+    // the UI message loop as soon as the synchronous clone is done (see Tick), so — unlike the old
+    // fully-synchronous version, where a single UI thread structurally couldn't fire the timer again
+    // mid-save — a slow encode can now genuinely still be running when the next tick lands. This
+    // guard is what keeps two encodes from racing on the same recovery folder or WriteToOriginalFile
+    // path.
+    private bool _saving;
+
     public AutosaveService(SettingsService settings, Func<DocumentSession?> currentSession)
     {
         _settings = settings;
@@ -44,34 +52,54 @@ public sealed class AutosaveService : IDisposable
         _timer.Start();
     }
 
-    private void Tick()
+    /// <summary>
+    /// The actual zip+PNG encode used to run inline on this DispatcherTimer callback, freezing the
+    /// UI thread for as long as a big document takes to write. Now only the layer clone — a plain
+    /// memcpy, not an encode — runs synchronously; that's still what keeps the snapshot torn-free
+    /// (the live Document could otherwise be mutated by further painting while the slow part below
+    /// runs), and it's fast enough not to be felt. Everything slow (path/dir resolution, the actual
+    /// encode, pruning old versions) happens in the background Task.
+    /// </summary>
+    private async void Tick()
     {
+        if (_saving) return;   // a previous autosave is still writing; this tick sits out
+
         var session = _currentSession();
         if (session is null) return;
 
         var config = _settings.Settings.Autosave;
         if (config.SkipWhenUnchanged && !session.HasUnsnapshottedChanges) return;
 
+        _saving = true;
         try
         {
-            if (config.WriteToOriginalFile && session.FilePath is not null)
+            using var snapshot = session.Document.Clone();
+
+            bool wrote = await System.Threading.Tasks.Task.Run(() =>
             {
-                DocumentFile.Save(session.Document, session.FilePath);
-            }
-            else
-            {
+                if (config.WriteToOriginalFile && session.FilePath is not null)
+                {
+                    DocumentFile.Save(snapshot, session.FilePath);
+                    return true;
+                }
+
                 string? dir = RecoveryDirectoryFor(session, config);
-                if (dir is null) return;
+                if (dir is null) return false;
 
                 string path = Path.Combine(dir, $"{DateTime.UtcNow:yyyyMMdd-HHmmss}{DocumentFile.Extension}");
-                DocumentFile.Save(session.Document, path);
+                DocumentFile.Save(snapshot, path);
                 Prune(dir, config.KeepVersions);
-            }
+                return true;
+            });
 
-            session.MarkAutosaved();
-            Saved?.Invoke(session.DisplayName);
+            if (wrote)
+            {
+                session.MarkAutosaved();
+                Saved?.Invoke(session.DisplayName);
+            }
         }
         catch { /* autosave failing must never interrupt the user's actual work */ }
+        finally { _saving = false; }
     }
 
     private static string? RecoveryDirectoryFor(DocumentSession session, AutosaveSettings config)

@@ -27,13 +27,22 @@ public sealed class AutosaveService : IDisposable
     // path.
     private bool _saving;
 
+    private bool _disposed;
+
     public AutosaveService(SettingsService settings, Func<DocumentSession?> currentSession)
     {
         _settings = settings;
         _currentSession = currentSession;
-        _settings.Changed += (_, _) => Reschedule();
+        // Named handler (not a lambda) so Dispose can actually detach it. SettingsService.Instance
+        // is a process-lifetime singleton, so a lambda here outlived this service and any later
+        // settings save would call Reschedule() on a disposed autosaver — which builds and starts a
+        // BRAND NEW timer, resurrecting the very thing Dispose was meant to stop. Same shape as the
+        // static-registry-event fix in MainView.
+        _settings.Changed += OnSettingsChanged;
         Reschedule();
     }
+
+    private void OnSettingsChanged(object? sender, EventArgs e) => Reschedule();
 
     /// <summary>Raised after a snapshot is written, so the status bar can say so.</summary>
     public event Action<string>? Saved;
@@ -43,6 +52,7 @@ public sealed class AutosaveService : IDisposable
     {
         _timer?.Stop();
         _timer = null;
+        if (_disposed) return;   // belt and braces: never re-arm after Dispose, whoever calls this
 
         var config = _settings.Settings.Autosave;
         if (!config.Enabled || config.IntervalMinutes <= 0) return;
@@ -125,8 +135,15 @@ public sealed class AutosaveService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Stops the timer and detaches from settings changes. Known accepted gap, unchanged here: an
+    /// already-in-flight background save is not cancelled (see Tick) — it may complete after this
+    /// returns, which is harmless but real.
+    /// </summary>
     public void Dispose()
     {
+        _disposed = true;
+        _settings.Changed -= OnSettingsChanged;
         _timer?.Stop();
         _timer = null;
     }

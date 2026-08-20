@@ -21,6 +21,11 @@ public sealed class ToolContext
     public required bool FillShapes { get; init; }
     public required bool CtrlHeld { get; init; }
 
+    /// <summary>Identifies which document these coordinates belong to. Changes whenever a different
+    /// document is loaded or a canvas-level op (crop/resize/rotate/flatten) replaces it, so a tool
+    /// holding image coordinates across gestures can tell they've gone stale. See CloneStampTool.</summary>
+    public required int DocumentVersion { get; init; }
+
     public double X { get; set; }
     public double Y { get; set; }
     public int IX => (int)Math.Round(X);
@@ -373,6 +378,7 @@ public sealed class LassoSelectTool : ITool
 public sealed class CloneStampTool : ITool
 {
     private (int X, int Y)? _source;
+    private int _sourceDocumentVersion = -1;
     private int _offsetX, _offsetY;
     private bool _painting;
     private double _lx, _ly;
@@ -380,9 +386,16 @@ public sealed class CloneStampTool : ITool
 
     public void PointerDown(ToolContext c)
     {
+        // The tool instance outlives any one document, so a source set in a previous document (or
+        // before a crop/resize/rotate) names coordinates that mean nothing now. CloneDisc would
+        // bounds-check the stale sample and paint nothing, leaving the tool looking broken with no
+        // hint that the source needs re-setting — so drop it explicitly instead.
+        if (_source is not null && _sourceDocumentVersion != c.DocumentVersion) _source = null;
+
         if (c.CtrlHeld)
         {
             _source = (c.IX, c.IY);
+            _sourceDocumentVersion = c.DocumentVersion;
             _painting = false;
             return;
         }

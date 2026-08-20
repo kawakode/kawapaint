@@ -19,6 +19,11 @@ public sealed class SurfaceView : Control
     private Surface? _composite;
     private WriteableBitmap? _bitmap;
 
+    // Bumped every time a different document (or a crop/resize/rotate/flatten result) is adopted.
+    // Tools that anchor state to image coordinates across gestures — Clone Stamp's source point —
+    // compare against this to notice their anchor now refers to a canvas that no longer exists.
+    private int _documentVersion;
+
     private int _antPhase;
     private DispatcherTimer? _antTimer;
 
@@ -107,6 +112,7 @@ public sealed class SurfaceView : Control
         _composite?.Dispose();
         _bitmap?.Dispose();
 
+        _documentVersion++;
         _document = document;
         ActiveLayer = document.LayerCount > 0 ? document.Layers[^1] : document.AddLayer();
         _composite = new Surface(document.Width, document.Height);
@@ -454,6 +460,7 @@ public sealed class SurfaceView : Control
                 GlobalFill = GlobalFill,
                 FillShapes = FillShapes,
                 CtrlHeld = e.KeyModifiers.HasFlag(KeyModifiers.Control),
+                DocumentVersion = _documentVersion,
                 X = img.X,
                 Y = img.Y,
                 PushHistory = () =>

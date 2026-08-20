@@ -24,6 +24,21 @@ public static class PdnEffectDiscovery
 {
     private const string Category = "Paint.NET Plugins";
 
+    /// <summary>
+    /// The shared paint.net assembly context and its resolved schema, cached per install directory
+    /// and reused for the process lifetime.
+    ///
+    /// Not an optimization — a correctness requirement. PdnAssembliesLoadContext is deliberately
+    /// <c>isCollectible: false</c> (see its file header), which is only sound if it's constructed
+    /// once. Building a fresh one per LoadFrom call stranded the entire PaintDotNet.*.dll set —
+    /// tens of MB, unreclaimable — on every plugin reload, and the Plugin Manager reaches reload
+    /// from three separate buttons (Reload Plugins, Browse…, Auto-detect). Keyed by directory so
+    /// pointing at a genuinely different install still builds a new context, rather than silently
+    /// serving types from the old one.
+    /// </summary>
+    private static readonly Dictionary<string, (PdnAssembliesLoadContext Assemblies, PdnReflectionSchema Schema)> _bridgeCache
+        = new(StringComparer.OrdinalIgnoreCase);
+
     public static IReadOnlyList<PluginLoadResult> LoadFrom(
         PdnInstallInfo? pdnInstall, IEnumerable<string> searchRoots, IReadOnlySet<string> disabledKeys)
     {
@@ -34,8 +49,18 @@ public static class PdnEffectDiscovery
         PdnReflectionSchema schema;
         try
         {
-            pdnAssemblies = new PdnAssembliesLoadContext(pdnInstall.InstallDirectory);
-            schema = new PdnReflectionSchema(pdnAssemblies.LoadAll());
+            if (_bridgeCache.TryGetValue(pdnInstall.InstallDirectory, out var cached))
+            {
+                (pdnAssemblies, schema) = cached;
+            }
+            else
+            {
+                pdnAssemblies = new PdnAssembliesLoadContext(pdnInstall.InstallDirectory);
+                schema = new PdnReflectionSchema(pdnAssemblies.LoadAll());
+                // Cached only on full success: a half-built bridge (assemblies loaded, schema
+                // lookup failed) must not be served to the next reload as if it were usable.
+                _bridgeCache[pdnInstall.InstallDirectory] = (pdnAssemblies, schema);
+            }
         }
         catch (Exception ex)
         {

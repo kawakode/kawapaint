@@ -74,6 +74,8 @@ public sealed class Selection
 
     public void CopyFrom(Selection other)
     {
+        if (other.Width != Width || other.Height != Height)
+            throw new ArgumentException("Source selection must match this selection's dimensions.", nameof(other));
         other._mask.CopyTo(_mask, 0);
         IsActive = other.IsActive;
     }
@@ -143,6 +145,7 @@ public sealed class Selection
         Array.Clear(_mask);
         if (rx < 0.5 || ry < 0.5) { IsActive = false; return; }
 
+        bool any = false;
         int top = Math.Max(0, (int)(cy - ry)), bottom = Math.Min(Height - 1, (int)(cy + ry));
         for (int y = top; y <= bottom; y++)
         {
@@ -152,9 +155,14 @@ public sealed class Selection
             double halfSpan = rx * Math.Sqrt(inside);
             int left = Math.Max(0, (int)(cx - halfSpan)), right = Math.Min(Width - 1, (int)(cx + halfSpan));
             for (int x = left; x <= right; x++)
+            {
                 _mask[y * Width + x] = 255;
+                any = true;
+            }
         }
-        IsActive = true;
+        // See ReplaceWithPolygon for why this tracks what was actually written rather than assuming
+        // a non-degenerate shape rasterizes to at least one pixel.
+        IsActive = any;
     }
 
     public void ReplaceWithPolygon(IReadOnlyList<(double X, double Y)> points)
@@ -167,6 +175,7 @@ public sealed class Selection
         int minY = Math.Max(0, (int)Math.Floor(minYd));
         int maxY = Math.Min(Height - 1, (int)Math.Ceiling(maxYd));
 
+        bool any = false;
         var xs = new List<double>();
         for (int y = minY; y <= maxY; y++)
         {
@@ -187,10 +196,22 @@ public sealed class Selection
                 int left = Math.Max(0, (int)Math.Round(xs[k]));
                 int right = Math.Min(Width - 1, (int)Math.Round(xs[k + 1]));
                 for (int x = left; x <= right; x++)
+                {
                     _mask[y * Width + x] = 255;
+                    any = true;
+                }
             }
         }
-        IsActive = true;
+
+        // Tracks what was actually written instead of asserting IsActive=true for any >=3-point
+        // input, matching what ReplaceWithRectangle already does. A degenerate polygon (a sliver
+        // whose per-row left>right after rounding, or one entirely off-canvas) rasterizes to
+        // nothing, and "active over an all-zero mask" is the worst possible state to leave behind:
+        // Clip() then restores every pixel of every subsequent edit, silently undoing each stroke
+        // as it's drawn, while the marching-ants overlay has no boundary to draw and so shows the
+        // user nothing to explain it. Reachable from a quick sub-pixel lasso flick in Replace mode,
+        // which Combine's own emptiness recompute never sees — Replace returns early via CopyFrom.
+        IsActive = any;
     }
 
     /// <summary>Bounding box of the selection (whole image if inactive).</summary>
@@ -217,6 +238,11 @@ public sealed class Selection
     public unsafe void Clip(Surface edited, Surface original)
     {
         if (!IsActive) return;
+        if (edited.Width != Width || edited.Height != Height)
+            throw new ArgumentException("Edited surface must match this selection's dimensions.", nameof(edited));
+        if (original.Width != Width || original.Height != Height)
+            throw new ArgumentException("Original surface must match this selection's dimensions.", nameof(original));
+
         for (int y = 0; y < Height; y++)
         {
             ColorBgra* e = (ColorBgra*)edited.GetRowPointer(y);

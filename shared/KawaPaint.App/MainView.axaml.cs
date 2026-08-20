@@ -143,8 +143,17 @@ public partial class MainView : UserControl
         RebuildLayoutPresetsMenu();
         RebuildRecentFilesMenu();
         RebuildPluginsMenu();
-        KawaPaint.Engine.Plugins.EffectRegistry.Changed += (_, _) => Dispatcher.UIThread.Post(RebuildPluginsMenu);
-        KawaPaint.Engine.Plugins.ToolRegistry.Changed += (_, _) => Dispatcher.UIThread.Post(RebuildPluginsMenu);
+        // Named handler (not a lambda) so it can be unsubscribed below — these are STATIC events,
+        // so without this a MainView instance (and everything it closes over) would stay reachable
+        // for the process's whole lifetime the moment a second one is ever created, not just while
+        // this one is on screen.
+        KawaPaint.Engine.Plugins.EffectRegistry.Changed += OnPluginRegistryChanged;
+        KawaPaint.Engine.Plugins.ToolRegistry.Changed += OnPluginRegistryChanged;
+        Unloaded += (_, _) =>
+        {
+            KawaPaint.Engine.Plugins.EffectRegistry.Changed -= OnPluginRegistryChanged;
+            KawaPaint.Engine.Plugins.ToolRegistry.Changed -= OnPluginRegistryChanged;
+        };
         SetupRulers();
         BuildCommands();
         ApplyHistorySettings();
@@ -1439,6 +1448,8 @@ public partial class MainView : UserControl
     // ToolRegistry (KawaPaint.Engine.Plugins) and are surfaced here, mirroring how
     // RebuildLayoutPresetsMenu inserts dynamic entries into an otherwise-static menu shell.
 
+    private void OnPluginRegistryChanged(object? sender, EventArgs e) => Dispatcher.UIThread.Post(RebuildPluginsMenu);
+
     private void RebuildPluginsMenu()
     {
         PluginEffectsMenu.Items.Clear();
@@ -2691,9 +2702,16 @@ public partial class MainView : UserControl
         SurfaceOps.CompositeOver(layer.Surface, source, 0, 0);
         Canvas.SetActiveLayer(layer);
 
+        // Same detached-layer accounting as OnAddLayer below, and for the same reason: undo leaves
+        // this memento the only owner of a full-size Layer, which the history budget would otherwise
+        // read as costing nothing and never free. A paste is one of the largest layers a document
+        // typically acquires, so skipping it here mattered more than at any of the four sites that
+        // already had it.
         Canvas.History.Push(new DelegateMemento("Paste Into New Layer",
             undo: () => { doc.RemoveLayer(layer); Canvas.SetActiveLayer(doc.Layers[^1]); },
-            redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); }));
+            redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); },
+            approximateBytes: () => doc.IndexOf(layer) < 0 ? SurfaceBytes(layer.Surface) : 0,
+            dispose: () => { if (doc.IndexOf(layer) < 0) layer.Dispose(); }));
 
         RefreshDocument();
         StatusText.Text = $"Pasted {pasted.Width}×{pasted.Height} into a new layer";
@@ -2722,9 +2740,12 @@ public partial class MainView : UserControl
             SurfaceOps.CompositeOver(layer.Surface, imported, 0, 0);
             Canvas.SetActiveLayer(layer);
 
+            // Detached-layer accounting — see the identical note on Paste Into New Layer above.
             Canvas.History.Push(new DelegateMemento("Import Layer",
                 undo: () => { doc.RemoveLayer(layer); Canvas.SetActiveLayer(doc.Layers[^1]); },
-                redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); }));
+                redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); },
+                approximateBytes: () => doc.IndexOf(layer) < 0 ? SurfaceBytes(layer.Surface) : 0,
+                dispose: () => { if (doc.IndexOf(layer) < 0) layer.Dispose(); }));
 
             RefreshDocument();
             StatusText.Text = $"Imported {imported.Width}×{imported.Height} as a new layer";

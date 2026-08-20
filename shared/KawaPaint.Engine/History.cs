@@ -408,6 +408,14 @@ public sealed class HistoryStack
     private readonly List<HistoryMemento> _steps = new();
     private int _position;
 
+    /// <summary>
+    /// Running total of steps ever removed from the front by <see cref="DropOldest"/>. Every such
+    /// removal shifts all surviving indices down by one, so any caller holding an index across an
+    /// operation that can trim must rebase it by the delta in this counter (see TruncateFrom).
+    /// Monotonic and long-typed so it can never wrap or be confused with a live index.
+    /// </summary>
+    private long _dropCount;
+
     /// <summary>Steps nearest the caret are never spilled, since they are the likely next undo.</summary>
     private const int ResidentWindow = 4;
 
@@ -517,7 +525,29 @@ public sealed class HistoryStack
     {
         if (index < 0 || index >= _steps.Count) return;
 
-        if (_position > index) JumpTo(index);
+        if (_position > index)
+        {
+            // JumpTo ends in Trim(), which can DropOldest() — and that removes from the FRONT,
+            // renumbering every surviving step. Reusing the caller's index afterwards would cut at
+            // the wrong place: destroying steps the user meant to keep, or silently doing nothing.
+            // Not hypothetical: jumping backward un-spills each step it crosses, and a detached-layer
+            // DelegateMemento flips its byte report from 0 to full-surface the moment undo detaches
+            // the layer, so a backward jump really can push ResidentBytes over budget and into the
+            // drop loop. Rebasing by the drop count keeps `index` pointing at the same logical step.
+            long droppedBefore = _dropCount;
+            JumpTo(index);
+            index -= (int)(_dropCount - droppedBefore);
+
+            // Negative means the targeted step was itself one of the dropped ones. Everything still
+            // in the list is then "after" it, so truncating from it means truncating from the start.
+            if (index < 0) index = 0;
+            if (index >= _steps.Count)
+            {
+                Changed?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+        }
+
         DiscardFrom(index);
         Changed?.Invoke(this, EventArgs.Empty);
     }
@@ -565,8 +595,11 @@ public sealed class HistoryStack
     /// </summary>
     private void Trim()
     {
+        // Unconditional: MaxSteps is documented as a hard ceiling on Count ("the memory budget is
+        // then the only bound" otherwise), not one that only applies while something's undoable.
+        // DropOldest is safe to call at _position == 0 too — see its own comment.
         if (MaxSteps > 0)
-            while (_steps.Count > MaxSteps && _position > 0) DropOldest();
+            while (_steps.Count > MaxSteps) DropOldest();
 
         if (MemoryBudgetBytes <= 0) return;
 
@@ -615,11 +648,23 @@ public sealed class HistoryStack
         }
     }
 
-    /// <summary>Drops the oldest undoable step. It becomes permanently un-undoable, as with any bounded history.</summary>
+    /// <summary>
+    /// Drops the oldest step, whether it's currently undoable (_position > 0, the common case) or
+    /// only redoable (_position == 0: nothing is applied, but MaxSteps still has to be enforceable
+    /// even then). Every memento type's stored content is a self-contained absolute snapshot for
+    /// its own tile/surface/document region — never a diff relative to a neighboring step — so
+    /// dropping the front index is safe from either side: it just makes that one edit permanently
+    /// unreachable, the same "bounded history" trade-off either way, not a correctness hazard.
+    /// </summary>
     private void DropOldest()
     {
         _steps[0].Dispose();
         _steps.RemoveAt(0);
-        _position--;
+        _dropCount++;   // lets TruncateFrom rebase a caller-supplied index across this renumbering
+        // Only undoable steps (index < position) sit before the caret, so only removing one of
+        // those needs the caret's absolute index shifted down to keep pointing at the same logical
+        // spot. Removing a redoable step (_position == 0, so index 0 is never < position) leaves
+        // the caret's meaning unchanged — decrementing it here would send it negative.
+        if (_position > 0) _position--;
     }
 }

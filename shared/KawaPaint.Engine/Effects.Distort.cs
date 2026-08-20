@@ -52,14 +52,19 @@ public abstract class WarpEffect : IEffect
     }
 
     /// <summary>Mirror-folds a coordinate back into [0,max] by bouncing off the edges, so a warp
-    /// that would sample outside the image reflects rather than smearing or wrapping.</summary>
+    /// that would sample outside the image reflects rather than smearing or wrapping. Closed-form
+    /// (a period-2*max triangle wave via one modulo) rather than the equivalent step-by-step loop,
+    /// so a coordinate arbitrarily far out of range still resolves in O(1) instead of O(distance) —
+    /// today's warp parameter ranges keep that distance small, but nothing enforces it stays that
+    /// way at every call site forever.</summary>
     private static float ReflectCoord(float value, int max)
     {
-        if (max <= 0) return 0; // a 1px-wide/tall image: value += 0 / -= 0 would never converge below
-        bool reflect = false;
-        while (value < 0) { value += max; reflect = !reflect; }
-        while (value > max) { value -= max; reflect = !reflect; }
-        return reflect ? max - value : value;
+        if (max <= 0) return 0; // a 1px-wide/tall image: nothing to bounce between
+
+        float period = 2f * max;
+        float folded = value % period;
+        if (folded < 0) folded += period;
+        return folded > max ? period - folded : folded;
     }
 }
 

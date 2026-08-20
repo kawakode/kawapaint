@@ -1,7 +1,8 @@
 # KawaPaint — resume-here notes
 
 Status snapshot: 2026-08-20, branch `master` (updated post-2.4, post-JXL/JP2-Windows-packaging,
-post-3.x-classic-PDN-plugin-bridge, post-3.x-BitmapEffect-tier-spike-proven-impossible).
+post-3.x-classic-PDN-plugin-bridge, post-3.x-BitmapEffect-tier-spike-proven-impossible,
+post-bughunt-sweep, post-second-bughunt-pass-B1..B7-all-fixed).
 Full roadmap/rationale lives in Claude memory
 (`feature-roadmap-tiers`) and the published plan:
 https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
@@ -34,10 +35,11 @@ the control flow checked by hand, but nothing below was reproduced live the way 
 crash above was. Treat each as "confirmed by reading, not by running" until it has a repro —
 especially before writing a fix that assumes the failure shape. Line numbers are as of this date.
 
-Suggested fix order was #1, #2, #5, #11 first (small, self-contained, first three lose the user's
-work). **All five High-tier bugs (#1-#5) are fixed, and Medium is done as of 2026-08-20 except #6
-(user chose to skip — see its entry for why).** #7-#11 are fixed; see each entry below for what
-changed and how it was verified. Next up is the Low-tier list (#12-#16).
+**Audit complete as of 2026-08-20.** All 16 findings resolved one way or another: #1-#5 (High) and
+#7-#15 (Medium/Low) fixed and verified; #6 deliberately skipped (user's call — see its entry); #16
+retracted after failing to reproduce (see its entry — this is the one place "confirmed by reading,
+not by running" turned out to be wrong on the reading side). See each entry for what changed, how it
+was verified, and any known gaps left on purpose.
 
 **High — data loss / wrong results**
 
@@ -264,27 +266,430 @@ changed and how it was verified. Next up is the Low-tier list (#12-#16).
 
 **Low**
 
-12. **`Selection.CopyFrom` and `Clip` don't validate dimensions.** `Selection.cs:75` will throw or
-    silently leave a stale tail; `Clip` (`:208`) walks `Height`/`Width` rows of a surface it never
-    size-checks — an unmanaged out-of-bounds write if they ever diverge. `Adopt()` keeps them in
-    sync today, so this is a latent trap rather than a live bug. `Combine` already checks; these
-    two should match it.
+12. **~~`Selection.CopyFrom` and `Clip` don't validate dimensions~~ — fixed 2026-08-20.** Neither
+    checked that the other selection/surface matched its own `Width`/`Height` before indexing into
+    it, unlike `Combine`, which already did — `Clip` in particular walked `Height`/`Width` rows of a
+    surface it never size-checked, an unmanaged out-of-bounds write if they ever diverged (a latent
+    trap, not a live bug — `Adopt()` keeps everything in sync today). Fix: both now throw
+    `ArgumentException` on a mismatch, matching `Combine`'s existing check exactly. Verified:
+    `dotnet build` on `KawaPaint.Engine` succeeds; confirmed by inspection that every existing call
+    site (`Tools.cs` select/lasso tools' `CopyFrom(_base)`, every dialog's `Selection.Clip(layer.
+    Surface, _snapshot)`, `SurfaceView.cs`'s stroke clipping, the Sandbox smoke test) passes
+    same-sized objects already, so the new checks are inert for all current callers and only fire if
+    a future caller actually gets it wrong — no separate runtime repro needed for a pure
+    additive-guard change like this.
 
-13. **Static registry events are never unsubscribed.** `MainView.axaml.cs:140-141` subscribes
-    `EffectRegistry.Changed`/`ToolRegistry.Changed` from instance closures. Harmless with one
-    window, a leak the moment there are two.
+13. **~~Static registry events are never unsubscribed~~ — fixed 2026-08-20.** `MainView` subscribed
+    to the *static* `EffectRegistry.Changed`/`ToolRegistry.Changed` events via anonymous lambdas —
+    harmless with one window (today's only real usage), but the moment a second `MainView` were ever
+    created, the first one (and everything it closes over) would stay reachable for the process's
+    whole lifetime, not just while it's on screen. Fix: replaced the lambdas with a named
+    `OnPluginRegistryChanged` handler and unsubscribed both in a new `Unloaded` handler. Verified:
+    `dotnet build` on `KawaPaint.App` succeeds, confirming `Unloaded` is a real Avalonia `UserControl`
+    lifecycle event and the handler signature matches. Not runtime-verified — `MainView` is never
+    actually unloaded/recreated in this app's current lifecycle (single window, process exit reclaims
+    everything), so there's no live repro available for "does it actually fire on unload" without a
+    second-window scenario this app doesn't have yet.
 
-14. **`ReflectCoord` uses unbounded `while` loops.** `Effects.Distort.cs:60` —
-    `while (value < 0) value += max;`. Bounded for current parameter ranges, but a one-line modulo
-    away from being unconditionally safe.
+14. **~~`ReflectCoord` uses unbounded `while` loops~~ — fixed 2026-08-20.** Replaced the step-by-step
+    `while (value < 0) value += max;` / `while (value > max) value -= max;` pair with a closed-form
+    period-`2*max` triangle wave (one modulo), so a coordinate arbitrarily far out of range resolves
+    in O(1) instead of O(distance) — bounded for today's actual warp parameter ranges, but nothing
+    enforced that staying true at every call site forever. Verified via reflection against the real
+    `private static` method (not a reimplementation): exact equivalence with the original loop across
+    5 different `max` values × the full `[-5·max, 5·max]` range at 0.5-step resolution (zero
+    mismatches), the `max<=0` edge case, and — the actual point of the fix — a coordinate around 1e9
+    resolved in under a millisecond, where the old loop would have needed on the order of 1e8
+    iterations.
 
-15. **`DropOldest` decrements `_position` unconditionally.** `History.cs:591`. Both call sites
-    guard it, but the `MaxSteps` loop's guard (`_position > 0`) means the step cap can't be
-    enforced when the caret sits at 0 with steps still redoable.
+15. **~~`DropOldest` decrements `_position` unconditionally~~ — fixed 2026-08-20.** Both call sites
+    guarded it, but the `MaxSteps` loop's guard (`_position > 0`) meant the step cap silently stopped
+    being enforceable once the user undid all the way back to position 0 with more steps stored than
+    the (possibly since-lowered) cap — reachable via an entirely ordinary sequence: push more than
+    `MaxSteps` while it's unlimited, undo everything, then lower `MaxSteps` live via settings. Traced
+    carefully before fixing: every memento type here (`TileDeltaMemento`, `LayerSurfaceMemento`,
+    `DocumentSwapMemento`, `DelegateMemento` post-bug-#4-fix) stores a self-contained *absolute*
+    snapshot for its own region — never a diff relative to a neighboring step — so dropping the
+    front index is provably safe regardless of whether it's currently the undoable or the
+    redoable side; the only real consequence is that specific edit becoming permanently unreachable,
+    the same bounded-history trade-off either direction. Fix: `DropOldest` now only decrements
+    `_position` `if (_position > 0)` (instead of unconditionally, which would have gone negative once
+    called from the redoable side), and `Trim`'s `MaxSteps` loop dropped the `&& _position > 0` guard
+    entirely, since `DropOldest` is now safe to call regardless. Verified with a throwaway project
+    replicating the exact realistic scenario (10 steps pushed unlimited, undone to position 0,
+    `MaxSteps` lowered to 2, then `Redo()`): confirmed `Count` actually reaches 2 (crossing position 0
+    mid-drop, dropping 7 steps that were never applied), `Position` never goes negative, and —
+    critically — redoing the two surviving steps afterward produces the *exact* predicted pixel
+    colors, confirming the "absolute snapshot" safety reasoning empirically rather than just
+    analytically. Confirmed the test was meaningful: reran against the original `&& _position > 0`
+    guard and reproduced the exact failure (`Count` stuck at 9, only 1 of the needed 8 drops
+    happening) before restoring the fix and reconfirming the pass.
 
-16. **`Surface.Resized` linear-filters unpremultiplied alpha.** `Surface.cs:158` — Skia blends BGRA
-    channels carrying no alpha weighting, so downscales pull black from fully-transparent pixels
-    into edge halos. Most visible in layer thumbnails and Paste → Scale to fit.
+16. **`Surface.Resized` linear-filters unpremultiplied alpha — retracted 2026-08-20, could not
+    reproduce.** Originally written from reading the code alone (`WrapSKBitmap` tags the bitmap
+    `SKAlphaType.Unpremul`, and naive unpremultiplied bilinear filtering is a well-known source of
+    dark halos in other imaging libraries) — this session's own stated evidence bar was "confirmed by
+    reading, not by running," and running it this time overturned it. Built a throwaway project that
+    resized a hard red/transparent edge across 4 different scale ratios (non-integer downscale,
+    non-integer upscale, an aggressive downscale, and an odd-sized source) and, separately, tested
+    transparent pixels carrying leftover non-zero "garbage" RGB (the more realistic real-world case
+    than freshly-zeroed memory) across 2 more ratios. In every single semi-transparent edge pixel
+    produced, across all 6 scenarios, the implied fully-opaque color (`R * 255 / A`) came back exactly
+    255.0 — the precise signature of correct premultiplied-alpha-aware filtering, with zero halo in
+    any case, including zero bleed-through of the garbage green RGB. SkiaSharp's `SKCanvas.DrawImage`
+    /`SKImage.FromBitmap` pipeline evidently premultiplies internally for compositing regardless of
+    the source bitmap's tagged alpha type. No code change made — there was nothing to fix. This
+    doesn't rule out every conceivable Skia version/backend combination misbehaving, but for the
+    sampling options this codebase actually uses (`SKFilterMode.Linear, SKMipmapMode.Linear`) on the
+    platform this session ran on, the claim as originally written is false. Left the retraction here
+    rather than deleting the entry, since erasing it would look like it was silently missed rather
+    than actively investigated and disproven.
+
+### Bughunt 2026-08-20 (second pass) — all 7 found and fixed
+
+Deliberately aimed at what the first audit's scope list ("engine, `SurfaceView`, `HistoryStack`,
+`MainView`, dialogs, codecs") does **not** name: the plugin system and the Paint.NET classic-tier
+bridge (`dfbd2b3`, the newest and least-reviewed code in the tree), plus a re-read of the areas the
+first audit's own fixes touched, looking for call sites those fixes missed. Finding B2 is exactly
+that — the same defect the first audit's #4 fixed, at two call sites #4 never visited.
+
+**Evidence bar — every finding is runtime-verified with a reverted-fix contrast run, with no
+residual gaps.** All seven were reproduced live before fixing and re-run after, and in each case the
+fix was temporarily undone to confirm the test actually catches the bug rather than passing
+vacuously. B2 was additionally verified by **clicking through the real GUI** (see its entry). Full
+solution builds clean, and the Sandbox smoke tests pass (`effects=41`, plugin smoke OK, **and PDN
+plugin smoke OK against real paint.net**).
+
+**Two standing assumptions in this file were wrong and got corrected by testing them:**
+- "No dispatcher loop available headlessly" (recorded under #9, #13, and B6's first draft) — false.
+  `DispatcherTimer` constructs *and* starts with no Avalonia app running. Only the **render
+  interface** needs more, and `Avalonia.Headless` + `Avalonia.Skia` supply that in a throwaway
+  project. Between them, B6 and B7 were both fully verified. Future UI-adjacent findings should
+  probe what actually fails before being filed as untestable.
+- B1's severity — see its entry.
+
+**One finding did not survive being run: B1's severity is retracted** (its mechanism stands, its
+impact does not). Reading the code said "unbounded leak"; measuring real paint.net 5.1.12 said
+"bounded reclamation via finalizers". Same lesson as #16, and the reason that entry was left in
+place rather than deleted. **Note the asymmetry worth remembering: B3, sitting right next to it in
+the same subsystem and found the same way, was confirmed exactly as written.** "Traced by reading"
+is not uniformly unreliable — it's unreliable specifically about *consequences* that depend on
+runtime behaviour of code this repo doesn't own.
+
+**paint.net 5.1.12 was installed on this box partway through** (`C:\Program Files\Paint.NET`;
+`PdnInstallLocator.Locate(null)` auto-detects it — the well-known probe's lowercase `paint.net`
+resolves fine, Windows paths being case-insensitive). Everything that previously had to run against
+a fake install was re-run against the real one. **That re-run overturned B1's severity** — see its
+entry; the mechanism was real but the consequence was not what reading the code suggested. It also
+means **the repo's own `PdnPluginSmokeTest` now actually runs here** rather than skipping:
+`$env:KAWAPAINT_PDN_TEST_INSTALL_DIR = "C:\Program Files\Paint.NET"` before the Sandbox, and it
+passes.
+
+**Three throwaway verification projects were written for this** (in the session scratchpad, not
+committed):
+- `realverify/` — drives the real installed paint.net. Measures B3 directly by enumerating
+  `AssemblyLoadContext.All` for `"KawaPaint.PdnBridge"` contexts (no instrumentation needed), and
+  carries the `Probe` that established, by reflection on the real loaded types, that
+  `Surface`/`MemoryBlock`/`RenderArgs` are all finalizable — the fact that forced B1's retraction.
+- `pdnverify/` — a **fake paint.net-shaped assembly** (`PaintDotNet.Fake.dll`: `Surface`/
+  `MemoryBlock`/`RenderArgs`/`Effect`/`PropertyBasedEffect`/`PropertyCollection` types matching
+  exactly what `PdnReflectionSchema` looks up by full name) plus a fake third-party plugin DLL
+  deriving from it. This drives the **real, unmodified** `PdnEffectDiscovery.LoadFrom` →
+  `PluginEffectDescriptor.Build(...)` → `PdnClassicEffectAdapter.Apply(...)` path end to end. Still
+  worth keeping even now that a real install exists: it is the only way to *instrument* the pdn side,
+  which is what proves disposal actually happens — the real types can't be made to report that. It
+  logs Surface/RenderArgs construction and disposal to a
+  **file** rather than a static counter, deliberately: the verification host must not reference
+  the fake assembly, or it would land in the default `AssemblyLoadContext` and
+  `PdnAssembliesLoadContext.TryResolve` (which tries `Default` first, by design — see its header)
+  would serve the bridge a different type identity than `LoadAll()` loaded, and discovery would
+  silently find nothing. Same trap applies to the plugin DLL: stage **only** the plugin's own
+  `.dll`, with no `.deps.json` and no copy of the pdn assembly beside it, or
+  `AssemblyDependencyResolver` resolves a second private copy and breaks type identity the same way.
+- `engineverify/` — pure-engine checks for B2/B4/B5 against the real shipped types.
+- `uiverify/` — references `KawaPaint.App` and adds `Avalonia.Headless` + `Avalonia.Skia`
+  (scratchpad-only; **not** added to the repo). Covers B2's magnitude measurement, B6's
+  resurrection check, and B7's `SurfaceView`/`CloneStampTool` behaviour. This is the project that
+  disproved the long-standing "UI-adjacent code can't be tested here" assumption — worth recreating
+  rather than re-deriving that conclusion next time.
+
+**Originally filed High — "leaks that grow without bound during ordinary use". After measurement:
+B2 and B3 hold up as High (114 MB unaccounted and a full assembly-set copy per reload, both
+measured). B1's severity does not — retracted to Low, see its entry.**
+
+B1. **~~The PDN classic-tier bridge never disposes the real paint.net objects it builds, once per
+    effect apply~~ — fixed 2026-08-20.** `PdnClassicEffectAdapter.Apply` calls
+    `PdnSurfaceBridge.Wrap` twice — for the destination surface and for a clone of the source —
+    and each `Wrap` (`PdnSurfaceBridge.cs:17-30`) constructs a real `PaintDotNet.Surface` plus a
+    real `PaintDotNet.RenderArgs` by reflection. Both types are `IDisposable`: the Surface owns a
+    native `MemoryBlock`, and `RenderArgs` lazily creates a GDI+ `Bitmap` **and** `Graphics`
+    aliasing it (verified against the actual source on `origin/3.36pdn`: `src/Core/RenderArgs.cs` —
+    `public sealed class RenderArgs : IDisposable`, with `Bitmap`/`Graphics` properties built on
+    demand from `surface.CreateAliasedBitmap()`). Nothing in
+    `shared/KawaPaint.Engine/Plugins/Pdn/` calls `Dispose` on anything — grepped the whole
+    directory for `Dispose`/`IDisposable`, zero hits. So every `Apply()` strands two full-canvas
+    unmanaged buffers, and any plugin that touches `args.Graphics`/`args.Bitmap` also strands two
+    GDI+ handles. `Apply()` is not once-per-effect: `PluginEffectDialog.Preview` rebuilds and
+    re-applies on every debounce tick (`PluginEffectDialog.cs:181-189`), so one slider drag is
+    ~16 applies/sec. On a 4000×3000 canvas that's ~96 MB of unmanaged memory per tick, invisible
+    to the GC except for whatever memory pressure pdn's own `MemoryBlock` reports, and GDI handles
+    cap out at 10,000/process.
+
+    **⚠ SEVERITY RETRACTED 2026-08-20, after paint.net 5.1.12 was installed on this box and the
+    claim was measured instead of reasoned about. The paragraph above is the finding as originally
+    written; the "~96 MB per tick" and "grows without bound" parts of it are FALSE for pdn 5.1.12.**
+    Reflecting on the real loaded types shows all three are finalizable as well as `IDisposable`:
+    `PaintDotNet.Surface` (Finalize inherited from `RefTrackedObject`), `PaintDotNet.MemoryBlock`
+    (declares its own), and `PaintDotNet.RenderArgs` (from its `Disposable` base). The CLR therefore
+    reclaims the native memory with no explicit `Dispose` at all, and it keeps up easily: with the
+    fix **reverted**, 40 applies on a 2048×2048 canvas — 32 MB of pdn surfaces per apply, 1,280 MB
+    allocated in total — peaked at **40 MB** of unmanaged growth, i.e. roughly one apply's worth
+    outstanding at a time, sampled every iteration with no forced collection. A separate 60-apply run
+    showed the same. So the real behaviour is bounded reclamation via finalizers, not an unbounded
+    leak. The GDI-handle half of the claim is subject to the same correction (`RenderArgs` is
+    finalizable too) and additionally was never exercised: GaussianBlur doesn't touch
+    `args.Graphics`, so no `Bitmap`/`Graphics` is ever created on that path and no case was
+    constructed that does. **Correct severity: Low — resource hygiene, not a leak.** This is the
+    second time in two passes (see #16) that a read-only inference about consequence has been
+    overturned by actually running it; the mechanism was right and the impact was not.
+
+    **The fix is kept anyway, on its merits rather than the retracted severity:** these objects are
+    `IDisposable` and were not being disposed, deterministic release beats finalizer-dependent
+    release under burst load, and — the real argument — finalizability is an *implementation detail
+    of a third-party library this bridge only ever reaches by reflection*, not a contract it can
+    lean on. It costs nothing and removes that hidden dependency.
+
+    **Fix:** `Wrap` now returns a `PdnRenderTarget` (new type in
+    `PdnSurfaceBridge.cs`) owning both objects, and `Apply` takes both with `using`. Dispose order
+    is RenderArgs-then-Surface because the former's Bitmap/Graphics alias the latter's memory, and
+    the Surface is freed separately and unconditionally because **RenderArgs explicitly does not own
+    it** — checked against the real source rather than assumed (`origin/3.36pdn:src/Core/RenderArgs.cs`
+    says so in its own ctor docs, and its `Dispose` frees only the Bitmap and Graphics), so this is
+    not a double free. `Wrap` also got a try/catch so a throw between allocating the native surface
+    and handing over ownership doesn't leak the very thing this fixes. Uses `as IDisposable` rather
+    than a hard cast, degrading to "don't free" if a future paint.net ever stops implementing it.
+    **Verified — mechanism, on the instrumented fake harness** (`pdnverify/`): 24 applies built 48
+    pdn Surfaces and 48 RenderArgs and disposed **48 and 48**, with **zero** double-dispose events,
+    and a single-shot check confirmed pixels were genuinely changed through the bridge (so the
+    applies were real work, not a skipped path). **Confirmed meaningful:** reverted to the
+    un-`using`'d version and reran — 48 built, **0 disposed** — then restored and reconfirmed. This
+    is what proves disposal now happens; it says nothing about how much that matters, which is what
+    the retraction above corrects.
+
+    **Verified — no regression, against the real paint.net 5.1.12 install:** the repo's own
+    `PdnPluginSmokeTest` now runs for real here (`KAWAPAINT_PDN_TEST_INSTALL_DIR=C:\Program Files\Paint.NET`)
+    and passes — a real `GaussianBlurEffect` discovered, registered, driven via its real
+    `PropertyCollection`, and rendering a correct blur. That is the check that matters most for this
+    change: had the added disposal been wrong (double-free, or freeing something still aliased), it
+    would surface as an `ObjectDisposedException` or corrupt output there. A separate `realverify/`
+    run also drove 60 consecutive applies of the real blur and confirmed the last one still renders
+    correctly — repeated disposal doesn't poison later applies.
+
+B2. **~~The audit's #4 fix missed two layer-lifecycle call sites with the identical shape~~ — fixed
+    2026-08-20.** #4
+    correctly gave `approximateBytes`/`dispose` to Add/Delete/Duplicate/Merge Down
+    (`MainView.axaml.cs:2835-2905`), but **Paste Into New Layer** (`:2705-2707`) and **Import
+    Layer** (`:2736-2738`) build the same "undo detaches a whole `Layer`, redo reattaches it"
+    `DelegateMemento` with the plain 3-arg constructor — no byte report, no dispose. So both hold
+    a full-size layer that `ResidentBytes` reads as 0 and that dropping the step never frees,
+    which is precisely the bug #4 exists to fix. Worse than the four that were fixed, in practice:
+    a paste is one of the most common ways a large layer enters a document at all. **Fix:** both
+    call sites now pass the same `doc.IndexOf(layer) < 0` `approximateBytes`/`dispose` pair as
+    `OnAddLayer`, whose reasoning transfers unchanged since both are "undo removes the layer I just
+    added." **Verified** via `engineverify/`, which builds the identical memento shape against a
+    real `Document`/`Layer` and confirms: 0 bytes reported while the document owns the layer,
+    the full 262,144 bytes once undo detaches it, disposing a step whose layer is *attached* leaves
+    it intact (the double-free shape #4 guards against), and disposing one whose layer is *detached*
+    genuinely frees it. Includes the contrast that proves the two arguments are load-bearing: the
+    old 3-arg shape reports 0 bytes in **both** directions.
+
+    **Magnitude measured 2026-08-20 (`uiverify/`), after B1's severity had to be retracted for
+    exactly the sin of never measuring it — this one holds up.** Realistic scenario: 10 pastes into
+    a 2000×1500 document, then undo all 10, so history is the sole owner of ten full-size layers.
+    The plain 3-arg shape those two call sites used reports **0 MB** while **~126 MB is genuinely
+    resident** (measured as private bytes minus managed heap, after forced GC + finalizers). The
+    fixed shape reports **114 MB**, exactly the ten layers. Both shapes run side by side in one
+    process, so no source revert was needed — the contrast *is* which constructor the call site picks.
+
+    **Why B1's retraction does not apply here, tested rather than asserted:** those layers are
+    reachable from `HistoryStack._steps`, so they are not garbage and no finalizer can reclaim them
+    — the measurement runs a full `GC.Collect` + `WaitForPendingFinalizers` cycle *before* sampling
+    and the memory stays. B1's pdn surfaces were unreachable and finalizable, which is precisely why
+    that one was bounded and this one is not. **So B2's High rating stands, on evidence.**
+
+    **Gap closed 2026-08-20 — verified end to end in the real GUI, by clicking.** Built and launched
+    the real Windows app, put an 800×600 image on the Windows clipboard (sized to fit the default
+    800×600 canvas so `ChoosePastePlacementAsync` doesn't interpose its dialog), then drove it with
+    user32 P/Invoke per the technique in the 2.1 notes below: **Edit ▸ Paste Into New Layer**, then
+    the top-bar **Undo** button. The History panel renders `HistoryStack.ResidentBytes` as
+    "N steps · X MB", which makes the fix directly readable on screen:
+
+    - after the paste, `1 step · 0 MB` — **correct**, the step is applied so the *document* owns the
+      layer and `approximateBytes` is supposed to report 0;
+    - after undo, `1 step · 1.8 MB` — the layer is detached and history is now its sole owner.
+      800 × 600 × 4 = 1,920,000 bytes = 1.83 MB, exactly.
+
+    **Confirmed the test was meaningful:** reverted *only* the Paste Into New Layer call site back to
+    the 3-arg constructor, rebuilt, relaunched and repeated the identical click sequence — same
+    layers, same greyed-out redoable step, but the panel read **`1 step · 0 MB`** after the undo.
+    Restored and reconfirmed. Screenshots retained in the scratchpad. **Watch out when repeating
+    this:** `SendKeys` with the `Ctrl+Shift+V` accelerator did nothing (Avalonia didn't have
+    keyboard focus) — clicking the menu worked first time and is the better route anyway, and the
+    app must be `ShowWindow(SW_MAXIMIZE)` + `SetForegroundWindow`'d first or `CopyFromScreen`
+    captures whatever is occluding it rather than the app.
+
+B3. **~~Every plugin reload permanently loads a second copy of the entire paint.net assembly set~~ —
+    fixed 2026-08-20.** `PdnEffectDiscovery.LoadFrom` used to build a fresh `new PdnAssembliesLoadContext(...)` per call
+    (`PdnEffectDiscovery.cs:37`), and that context is `isCollectible: false` **by design**
+    (`PdnAssembliesLoadContext.cs:28`, and the file header argues for it) — the design assumed one
+    construction per process. But `AppPdnPluginHost.Reload` calls straight back into `LoadFrom`,
+    and the Plugin Manager dialog reaches `Reload` from three separate places: the "Reload Plugins"
+    button (`PluginManagerDialog.cs:67`), "Browse…", and "Auto-detect" (both via
+    `SetPdnInstallOverride`, `:114`). Each click strands the previous context and every
+    `PaintDotNet.*.dll` in it — tens of MB, unreclaimable for the process lifetime. Note the
+    per-plugin `PdnPluginLoadContext` *is* collectible and does come free after
+    `EffectRegistry.Clear()` drops the descriptors rooting it; it's only the shared one that
+    accumulates. **Fix:** a static `_bridgeCache` keyed by install directory (ordinal-ignore-case)
+    holds the context + schema and reuses them across reloads — keyed rather than a single field so
+    that genuinely repointing at a different install still builds a new context instead of silently
+    serving types from the old one, and populated only on **full** success so a half-built bridge
+    (assemblies loaded, schema lookup failed) is never served to the next reload as if usable.
+    Makes reload much faster as a side effect.
+
+    **Verified live against the REAL paint.net 5.1.12 install** (`realverify/`), not just the fake
+    harness — and this one needed no instrumentation at all, because `AssemblyLoadContext.All` can
+    simply be enumerated for contexts named `"KawaPaint.PdnBridge"`, which is precisely the thing
+    that used to accumulate. Loading paint.net's own `PaintDotNet.Effects.Legacy.dll` as a
+    stand-in third-party plugin discovered **32 real effects**; the first discovery created exactly
+    one bridge context, and 5 further reloads created **none**. **Confirmed the test was meaningful:**
+    disabled the cache lookup and reran against the same real install — the context count went to
+    **6** (1 + 5), the exact described failure — then restored and reconfirmed. The fake harness
+    (`pdnverify/`) shows the same 1-vs-6 result via module-initializer counting. Unlike B1, this
+    finding's severity survived contact with the real install unchanged: every reload really did
+    strand a full, unreclaimable copy of paint.net's 25-assembly set.
+
+**Medium — visible misbehaviour**
+
+B4. **~~A degenerate lasso in Replace mode produces an "active but empty" selection, after which
+    every edit silently does nothing~~ — fixed 2026-08-20.** `Selection.ReplaceWithPolygon`
+    used to end with an unconditional `IsActive = true`, even when the scanline fill set no pixels at all
+    (a sliver whose per-row `left > right` after rounding writes nothing).
+    `ReplaceWithRectangle` does not have this problem — it computes
+    `IsActive = right > left && bottom > top` (`:138`) — so this is an inconsistency between
+    sibling methods, not a deliberate convention. Normally `Combine`'s trailing
+    "`IsActive` = any mask byte nonzero" recompute (`:121-122`) would clean it up, but the
+    `Replace` case returns early through `CopyFrom(shape)` (`:95-97`) and never reaches it — and
+    Replace is the default mode. The result: `IsActive` true over an all-zero mask, so
+    `Selection.Clip` restores *every* pixel from the pre-stroke snapshot
+    (`SurfaceView.ClipToSelection` → `Selection.cs:219`) and every subsequent brush stroke is
+    undone as it's drawn, while `DrawMarchingAnts` renders nothing, leaving no visual cue as to
+    why. Reachable from a quick 3+ point flick of the lasso spanning under a pixel — the
+    `_points.Count < 3` guard in `LassoSelectTool.PointerUp` (`Tools.cs:342`) doesn't catch it.
+    This is a *different* defect from the "narrowed to literally nothing" wrinkle noted under #7:
+    that one is about `Combine` conflating empty with inactive; this one is about `Replace`
+    bypassing that recompute entirely and asserting active over an empty mask.
+
+    **Fix:** both `ReplaceWithPolygon` and `ReplaceWithEllipse` now track whether the rasterizer
+    actually wrote a pixel and set `IsActive` from that, matching what `ReplaceWithRectangle`
+    already did. `ReplaceWithEllipse` was included even though it's much harder to trigger there
+    (its `rx < 0.5 || ry < 0.5` guard and the tool's own zero-size check catch most cases) — leaving
+    one of two sibling methods with the broken convention is how this bug survived in the first
+    place. **Verified live** via `engineverify/`, including the user-visible consequence rather than
+    just the flag: a sub-pixel 3-point lasso and a wholly off-canvas polygon both leave the
+    selection inactive; a subsequent brush stroke through the real `Clip` path **survives**
+    (alpha=255). Regression checks confirm a real triangle lasso (617 px) and a real ellipse
+    (1291 px) still select exactly as before. **Confirmed the test was meaningful:** restored the
+    unconditional `IsActive = true` and reran — all four degenerate cases flipped to active, and the
+    brush stroke came back **alpha=0**, i.e. silently reverted, precisely the described failure —
+    then restored the fix and reconfirmed.
+
+**Low / latent**
+
+B5. **~~`HistoryStack.TruncateFrom` can truncate at the wrong index, because the walk it performs
+    first can renumber the list under it~~ — fixed 2026-08-20.** `TruncateFrom(index)` used to call
+    `JumpTo(index)` and then `DiscardFrom(index)` with the *same* `index`. But `JumpTo` ends in
+    `Trim()` (`:504`), and `Trim` can call `DropOldest()` (`:616`), which removes from the **front**
+    of `_steps` — shifting every surviving index down. `DiscardFrom` then cuts at a stale index:
+    either destroying steps the user meant to keep, or (if the list shrank past `index`) silently
+    doing nothing. The trigger is real rather than theoretical: jumping backward un-spills each
+    step it crosses, and post-#4 a `DelegateMemento` for Add Layer flips its byte report from 0 to
+    full-surface the moment undo detaches the layer, so a backward jump genuinely can push
+    `ResidentBytes` over budget and into the drop loop. **Latent today**, and that's the only
+    reason this is filed Low: `TruncateHistoryFrom` (`SurfaceView.cs:210`) has no caller anywhere —
+    grepped `shared/` across both `.cs` and `.axaml` — so the History panel doesn't expose step
+    deletion yet. It was a live trap for whoever wires that button up. **Fix:** `HistoryStack` gained
+    a monotonic `_dropCount` (incremented in `DropOldest`), and `TruncateFrom` rebases `index` by the
+    delta across its `JumpTo` call. Identity tracking was considered and rejected: `StepBackward`/
+    `StepForward` *replace* each step with its own inverse, and the walk crosses the target index, so
+    the object at that slot is not the one the caller pointed at. A negative rebased index means the
+    targeted step was itself dropped — everything still in the list is then "after" it, so it clamps
+    to 0 and truncates the lot, which is the correct reading of "drop this step and everything after."
+    **Verified live** via `engineverify/`, using audit #15's own reachable setup (10 steps pushed
+    unlimited, `MaxSteps` lowered to 3 afterwards, then truncate): truncating at index 8 leaves
+    `Count=1` with the surviving step correctly identified as `step7` and `Position` still valid;
+    truncating at index 2 — a step the trim had already dropped — correctly clears the list.
+    **Confirmed the test was meaningful:** neutralised the rebase and reran — `Count=3` (nothing
+    truncated at all) and `Count=2` for the second case, the exact described failure — then restored
+    and reconfirmed.
+
+B6. **~~`AutosaveService.Dispose()` leaves the service subscribed to settings changes, so a disposed
+    autosaver resurrects its own timer~~ — fixed 2026-08-20.** The constructor subscribed with an anonymous lambda
+    (`AutosaveService.cs:34`) and `Dispose()` only stops the timer (`:128-132`). Any later
+    `SettingsService.Save()` therefore calls `Reschedule()` on the dead service, which builds and
+    starts a *new* `DispatcherTimer` — and it keeps autosaving forever. Structurally identical to
+    audit finding #13 (static registry events), including the mitigating circumstance: `_autosave`
+    is currently never disposed at all (`MainView.axaml.cs:176`; no `Dispose` call anywhere), and
+    `SettingsService.Instance` is a process-lifetime singleton, so nothing reaches the bad state
+    today. **Fix:** the same named-handler + unsubscribe shape #13 used, plus a `_disposed` flag that
+    makes `Reschedule()` refuse to re-arm regardless of who calls it — belt and braces, since the
+    resurrection path runs through a public method. `Dispose`'s doc comment now also records the
+    pre-existing accepted gap unchanged from #9 (an in-flight background save is still not
+    cancelled).
+
+    **Runtime-verified 2026-08-20 (`uiverify/`) — and the standing "we can't test this headlessly"
+    assumption turned out to be wrong.** #9, #13 and the first draft of this entry all recorded "no
+    dispatcher loop available outside the real app" as the reason to stop. Probing it instead of
+    assuming: `Dispatcher.UIThread`, `new DispatcherTimer()` **and** `DispatcherTimer.Start()` all
+    work fine with no Avalonia application running at all. Nothing needs to *tick* to test this —
+    the question is only whether a timer gets armed, which is observable directly. Confirmed: a live
+    service arms a timer; `Dispose()` clears it; a subsequent `settings.Save()` leaves it **null**;
+    an explicit `Reschedule()` on the disposed service also leaves it null; and a still-live service
+    continues to reschedule normally (interval correctly follows a settings change to 7 minutes —
+    proving the `_disposed` guard didn't just break the feature). **Confirmed the test was
+    meaningful:** restored the lambda subscription and removed the guard, then reran — the disposed
+    service **re-armed its timer** on the settings change *and* on the direct call, exactly the
+    described resurrection — before restoring and reconfirming. **Worth remembering for next time:
+    "needs a dispatcher" is not the same as "needs a running app."** Only the render interface
+    genuinely requires more (see B7).
+
+B7. **~~Clone Stamp's source point survives into documents where it means nothing~~ — fixed
+    2026-08-20.** `CloneStampTool._source` lives on the tool instance, which is a single
+    long-lived object reused across every document, and nothing clears it on document open, crop,
+    resize or rotate. Painting afterwards computes an offset against coordinates that no longer
+    refer to anything. Not a memory-safety issue — `BrushOps.CloneDisc` bounds-checks its sample
+    against `src.Width`/`Height` before reading (`BrushOps.cs:132`), so it degrades to painting
+    nothing rather than reading out of bounds — but the tool silently does nothing with no
+    indication that the source needs re-setting. **Fix:** `SurfaceView` now carries a
+    `_documentVersion` bumped in `Adopt` (so it changes on document open *and* on every
+    crop/resize/rotate/flatten, since all of those route through it), surfaced on `ToolContext` as
+    `DocumentVersion`; `CloneStampTool` records the version alongside its source and drops the source
+    when it no longer matches. Deliberately conservative in one respect: undoing a crop also bumps
+    the version, so the source clears even though the user is back at "the same" canvas — correct
+    rather than merely cautious, because `DocumentSwapMemento` really does swap in a different
+    `Document` instance.
+
+    **Runtime-verified 2026-08-20 (`uiverify/`).** `SurfaceView.Adopt` builds a `WriteableBitmap`,
+    which is the one thing here that genuinely needs a platform render interface — supplied by
+    adding `Avalonia.Headless` + `Avalonia.Skia` (`UseHeadless(UseHeadlessDrawing: false)`) as a
+    **scratchpad-only** dependency; nothing was added to the repo. Confirmed against a real
+    `SurfaceView`: `DocumentVersion` changes on `SetDocument` (1→2) and on `ReplaceDocument` (2→3,
+    the path crop/resize/rotate/flatten all route through). The tool half needs no UI at all — a
+    `ToolContext` is plain data — so `CloneStampTool` was driven directly: a source set in the
+    current document still paints; a source carried over from a previous document is **refused**;
+    and re-setting the source in the new document restores normal cloning, which guards against the
+    fix silently bricking the tool after any crop. **Confirmed the test was meaningful:** removed the
+    staleness check and reran — the stale source was used instead of dropped — then restored and
+    reconfirmed.
 
 ## Optimizations
 

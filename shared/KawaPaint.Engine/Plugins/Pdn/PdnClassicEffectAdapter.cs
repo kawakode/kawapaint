@@ -45,14 +45,18 @@ internal sealed class PdnClassicEffectAdapter : IEffect
         }
 
         using Surface srcClone = surface.Clone();
-        (object dstPdn, object dstArgs) = PdnSurfaceBridge.Wrap(surface, _schema);
-        (object _, object srcArgs) = PdnSurfaceBridge.Wrap(srcClone, _schema);
+
+        // Both targets are disposed on the way out (see PdnRenderTarget): each holds a full-canvas
+        // native buffer plus a GDI+ Bitmap/Graphics pair, and Apply() runs once per debounced
+        // preview tick during a slider drag — not once per committed effect.
+        using var dst = PdnSurfaceBridge.Wrap(surface, _schema);
+        using var src = PdnSurfaceBridge.Wrap(srcClone, _schema);
 
         var rois = new[] { new Rectangle(0, 0, surface.Width, surface.Height) };
-        _schema.SetRenderInfo.Invoke(effectInstance, new[] { token, dstArgs, srcArgs });
-        _schema.Render.Invoke(effectInstance, new object[] { token, dstArgs, srcArgs, rois });
+        _schema.SetRenderInfo.Invoke(effectInstance, new[] { token, dst.RenderArgs, src.RenderArgs });
+        _schema.Render.Invoke(effectInstance, new object[] { token, dst.RenderArgs, src.RenderArgs, rois });
 
-        PdnSurfaceBridge.CopyBack(surface, dstPdn, _schema);
+        PdnSurfaceBridge.CopyBack(surface, dst.PdnSurface, _schema);
     }
 
     /// <summary>Converts a value read back from PluginParameterValues (double/bool/choice-index

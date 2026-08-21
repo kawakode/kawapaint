@@ -80,6 +80,10 @@
                         <MenuItem Header="4×" Tag="4" Click="OnDemoSpeed" />
                         <MenuItem Header="8×" Tag="8" Click="OnDemoSpeed" />
                     </MenuItem>
+                    <Separator />
+                    <MenuItem x:Name="ScriptRecordItem" Header="Record _Script" Click="OnScriptRecord"
+                              ToolTip.Tip="Record effects, transforms and layer ops as a replayable .kpscript file" />
+                    <MenuItem x:Name="BatchApplyScriptItem" Header="_Batch Apply Script…" Click="OnBatchApplyScript" />
                 </MenuItem>
                 <Separator />
                 <MenuItem Header="E_xit" Click="OnExit" Icon="{app:Icon Exit}" />

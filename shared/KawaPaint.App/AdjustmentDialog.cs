@@ -25,6 +25,12 @@ public sealed class AdjustmentDialog : Window
     private bool _committed;
     private DispatcherTimer? _previewTimer;
 
+    /// <summary>The slider values this dialog was committed with, or null if it was cancelled/
+    /// closed without OK. Read by OnAdjust to record a script step - the demo recorder skips this
+    /// dialog entirely (see RecordSkipped in OnAdjust), but a script step means "apply with these
+    /// fixed numbers," so there's no live-gesture ambiguity to lose by capturing them.</summary>
+    public double[]? CommittedValues { get; private set; }
+
     public AdjustmentDialog(SurfaceView canvas, string title, SliderSpec[] specs, Func<double[], IEffect> build)
     {
         _canvas = canvas;
@@ -140,6 +146,7 @@ public sealed class AdjustmentDialog : Window
             // shown on the sliders, not a stale in-flight preview.
             _previewTimer?.Stop();
             Preview();
+            CommittedValues = Values();
 
             _canvas.History.Push(TileDeltaMemento.Consume(_layer, _snapshot, _effectName));
             _snapshot = null;

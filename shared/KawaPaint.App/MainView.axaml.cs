@@ -182,6 +182,7 @@ public partial class MainView : UserControl
         SetClean(null);
         SelectTool("Pencil");
         InitializeDemo();   // after BuildCommands: it hooks the registry's dispatch scope
+        InitializeScript(); // shares that same dispatch scope hook - see InitializeDemo
 
         _autosave = new AutosaveService(_settings, () => _session);
         _autosave.Saved += name => StatusText.Text = $"Autosaved {name} at {DateTime.Now:HH:mm}";
@@ -969,6 +970,7 @@ public partial class MainView : UserControl
         };
 
         await dlg.ShowDialog(owner);
+        if (dlg.CommittedValues is { } vals) RecordScriptAction("effect." + tag, vals);
         StatusText.Text = dlg.Title ?? "Adjustment";
     }
 

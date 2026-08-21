@@ -1,12 +1,79 @@
 # KawaPaint - resume-here notes
 
-Status snapshot: 2026-08-21, branch `master` (updated post-2.4, post-JXL/JP2-Windows-packaging,
-post-3.x-classic-PDN-plugin-bridge, post-3.x-BitmapEffect-tier-spike-proven-impossible,
-post-bughunt-sweep, post-second-bughunt-pass-B1..B7-all-fixed, post-UI-gaps-pass,
-post-demo-recorder).
+Status snapshot: 2026-08-21, branch `feature/demo-recorder` (updated post-2.4,
+post-JXL/JP2-Windows-packaging, post-3.x-classic-PDN-plugin-bridge,
+post-3.x-BitmapEffect-tier-spike-proven-impossible, post-bughunt-sweep,
+post-second-bughunt-pass-B1..B7-all-fixed, post-UI-gaps-pass, post-demo-recorder,
+post-script-batch-system).
 Full roadmap/rationale lives in Claude memory
 (`feature-roadmap-tiers`) and the published plan:
 https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
+
+## Script / batch-apply system - added 2026-08-21
+
+"Record a script, then batch-apply it to a file or a folder of files" - GUI and CLI both. Deliberately
+scoped to document-level operations only (effects, image transforms, layer ops), **not** freehand
+painting, which sidesteps the hard problem of scaling stroke coordinates across differently-sized
+target images. File ▸ Record now also has Record Script / Batch Apply Script, alongside the existing
+Demo items.
+
+**What made this tractable:** `KawaPaint.Engine` (`Document`, `Layer`, `Surface`, `DocumentOps`,
+`IEffect`, `CodecRegistry`, `DocumentFile`) has zero Avalonia dependency, confirmed by grepping its
+`.csproj` - so the whole record → execute → batch pipeline runs headless. The one real discovery:
+most effects (~33 of ~40) are parametric, driven by `AdjustmentDialog`'s live-preview sliders, and
+the *demo* recorder explicitly refuses to capture their committed values (`RecordSkipped` in
+`OnAdjust`, since "the demo format doesn't carry dialog parameters"). Scripts diverge from that
+philosophy on purpose: a script step means "apply with these fixed numbers," not "replay a live
+gesture," so there's no lost ambiguity in capturing `AdjustmentDialog.CommittedValues` (one new
+property, set in `Commit()`).
+
+New: `shared/KawaPaint.Engine/Scripting/` (`ScriptFile` - plain JSON `.kpscript`, deliberately not
+`DemoFile`'s gzip/varint framing, since a script is a few dozen steps rather than thousands of
+pointer samples; `ScriptEffects` - a hand-transcribed copy of `OnEffect`/`OnAdjust`'s tag→`IEffect`
+switches, matching this codebase's own established convention per `Plugins/EffectRegistry.cs`'s
+comment that built-ins "stay on their existing hardcoded switch," not centralized; `ScriptExecutor` -
+applies steps to a `Document`, tracking its own current-layer index since `Document` has no
+active-layer concept; `BatchRunner` - the filesystem-path orchestrator CLI uses, atomic temp-file-
+then-move like `DocumentFile.Save`, safe for in-place overwrite since input is read fully into memory
+before output is touched). New `shared/KawaPaint.Cli/` project (references only `KawaPaint.Engine`,
+no Avalonia) gives `win`/`linux` a shared `--script/--in/--out-dir/--in-place/--stop-on-error`
+argument parser; `win/Program.cs` branches before `BuildAvaloniaApp()` and `AttachConsole`s to the
+calling terminal first, since the Windows host is built `WinExe` (no console of its own) and
+`Console.WriteLine` would otherwise vanish silently under a CLI invocation. Exit codes: 0 clean,
+1 a target failed to open/save, 2 saved but some steps were skipped/failed - deliberately 3-valued so
+a CI script can tell "broken" from "ran with warnings" apart.
+
+Action-id vocabulary is an **allow-list** (`ScriptRecorder.IsScriptable`), not a deny-list: a future
+command is inert in scripts by default rather than silently scriptable. Excluded on purpose:
+`image.crop` (needs a live selection), `effect.clouds` (its factory reads live foreground/background
+color), Curves (bespoke dialog, no factory-function shape to transcribe), and everything
+colour/undo-stack/viewport/clipboard/file related.
+
+**Verified:** all five projects (`Engine`, `Cli`, `App`, `Win`, `Linux`) build clean, 0 warnings.
+Real end-to-end CLI run against generated test PNGs - grayscale + brightness/contrast + flip + add
+layer + opacity + a deliberately out-of-range `layer.select.5` - produced correct, pixel-changed
+output (138 → 346 bytes), the out-of-range step skipped with a clear message rather than failing the
+file, and exit code 2 as designed. Exercised all four CLI error paths (bad input path, malformed
+script JSON, `--out-dir`+`--in-place` together, neither given) - clean messages, no stack traces,
+correct exit codes. In-place overwrite verified safe (read-then-write same path).
+
+**GUI path also live-verified**, same PowerShell + `user32.dll` + screenshot pattern as the Demo
+recorder and UI-gaps passes above: launched the real `win/bin/Debug/net10.0/KawaPaint.Win.exe`,
+clicked File ▸ Record ▸ Record Script, flipped the sample gradient horizontally, opened
+Brightness/Contrast, dragged both sliders to non-default values (44 / 1.42) and clicked OK, watched
+the live `● REC SCRIPT (N step(s))` counter increment on both steps, Stop & Save Script through the
+real native Save dialog, and inspected the saved `.kpscript` on disk - `effect.bc` carries
+`[44.086..., 1.419...]`, the exact committed slider values. Then File ▸ Record ▸ Batch Apply
+Script…: real native Open dialogs for the script and (multi-selected, 2 files) targets,
+`BatchApplyDialog` (Save to folder / Overwrite in place / Stop-on-error), Browse… to a real output
+folder via the real native folder picker, Run. `BatchResultsDialog` reported `OK a.png (2 step(s))`,
+`OK b.png (2 step(s))`, `2 file(s): 2 saved, 0 failed` - matching the status bar's `Batch apply: 2/2
+saved` - and both output files landed on disk with pixel content visibly changed from the flip +
+brightness/contrast (confirmed by inspecting a copy of one output PNG directly, not just its byte
+size). One UI-automation gotcha worth recording for next time: typing two double-quoted paths
+directly into the native multi-select file picker's filename field silently kept only the last one
+(1 file went through, not 2) - Ctrl+click on the file icons themselves inside the dialog's own list
+view is the reliable way to multi-select there, typing multiple quoted paths is not.
 
 ## Demo recorder - added 2026-08-21
 

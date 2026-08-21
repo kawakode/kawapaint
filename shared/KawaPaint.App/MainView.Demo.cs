@@ -24,6 +24,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using KawaPaint.App.Core.Demo;
+using KawaPaint.App.Core.Scripting;
 using KawaPaint.Engine;
 
 namespace KawaPaint.App;
@@ -32,6 +33,7 @@ public partial class MainView
 {
     private readonly DemoRecorder _demoRecorder = new();
     private readonly DemoPlayer _demoPlayer = new();
+    private readonly ScriptRecorder _scriptRecorder = new();
 
     /// <summary>Non-parameterised replay actions that are not CommandRegistry commands.</summary>
     private Dictionary<string, Action>? _demoActions;
@@ -60,13 +62,29 @@ public partial class MainView
         Canvas.ViewChanged += () => _demoRecorder.NoteView(Canvas.Zoom, Canvas.Origin.X, Canvas.Origin.Y);
 
         // One tap covers menu items, keyboard shortcuts and dock buttons alike, and suppresses the
-        // duplicate note the command's own handler would make while it runs.
+        // duplicate note the command's own handler would make while it runs. Demo and script
+        // recording are mutually exclusive at the UI level (see OnScriptRecord/OnDemoRecord), but
+        // the scope returned here still has to cover whichever one (or, defensively, both) is
+        // live - returning only one recorder's scope would leave the other unsuppressed and double-
+        // record the command.
         _commands.DispatchScope = command =>
         {
-            if (!_demoRecorder.IsRecording) return null;
-            if (IsDialogCommand(command.Id)) _demoRecorder.NoteSkipped(command.Label);
-            else _demoRecorder.NoteAction(command.Id);
-            return _demoRecorder.Suppress();
+            IDisposable? demoScope = null, scriptScope = null;
+
+            if (_demoRecorder.IsRecording)
+            {
+                if (IsDialogCommand(command.Id)) _demoRecorder.NoteSkipped(command.Label);
+                else _demoRecorder.NoteAction(command.Id);
+                demoScope = _demoRecorder.Suppress();
+            }
+
+            if (_scriptRecorder.IsRecording)
+            {
+                _scriptRecorder.NoteAction(command.Id);
+                scriptScope = _scriptRecorder.Suppress();
+            }
+
+            return demoScope is null && scriptScope is null ? null : new CombinedScope(demoScope, scriptScope);
         };
 
         _demoActions = BuildDemoActions();
@@ -115,11 +133,27 @@ public partial class MainView
         };
     }
 
+    private sealed class CombinedScope : IDisposable
+    {
+        private readonly IDisposable? _a, _b;
+        public CombinedScope(IDisposable? a, IDisposable? b) { _a = a; _b = b; }
+        public void Dispose() { _a?.Dispose(); _b?.Dispose(); }
+    }
+
     // ---- recording taps used by the handlers in MainView.axaml.cs --------
 
-    private void RecordAction(string id) => _demoRecorder.NoteAction(id);
+    private void RecordAction(string id)
+    {
+        _demoRecorder.NoteAction(id);
+        _scriptRecorder.NoteAction(id);   // no-ops for ids outside ScriptRecorder.IsScriptable
+    }
 
     private void RecordSkipped(string label) => _demoRecorder.NoteSkipped(label);
+
+    /// <summary>Records a parametric effect step (committed AdjustmentDialog values) for the script
+    /// stream only - the demo recorder already logged this as skipped via RecordSkipped, since the
+    /// demo format has no way to carry the dialog's values.</summary>
+    private void RecordScriptAction(string id, double[] args) => _scriptRecorder.NoteAction(id, args);
 
     private void RecordTool(string tag) => _demoRecorder.NoteTool(tag);
 

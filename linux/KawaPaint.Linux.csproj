@@ -12,5 +12,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\shared\KawaPaint.App\KawaPaint.App.csproj" />
+    <ProjectReference Include="..\shared\KawaPaint.Cli\KawaPaint.Cli.csproj" />
   </ItemGroup>
 </Project>

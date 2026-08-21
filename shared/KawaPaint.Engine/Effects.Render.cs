@@ -1,4 +1,4 @@
-// KawaPaint — Tier 2.1 effect catalogue, Render category. See Effects.Distort.cs for the
+// KawaPaint - Tier 2.1 effect catalogue, Render category. See Effects.Distort.cs for the
 // porting-approach note (same applies here). Unlike every other effect in this catalogue, these
 // three are generators: they overwrite every pixel from pure math, ignoring the surface's
 // existing content entirely (matching pdn's own CloudsEffect/JuliaFractalEffect/
@@ -98,7 +98,7 @@ public sealed class JuliaFractalEffect : IEffect
 
 /// <summary>Renders the Mandelbrot set fractal. Factor controls color banding/detail, Zoom the
 /// magnification (pdn centers the default view near one of the set's classic boundary details,
-/// not the whole set — kept as-is), Angle rotates the view.</summary>
+/// not the whole set - kept as-is), Angle rotates the view.</summary>
 public sealed class MandelbrotFractalEffect : IEffect
 {
     private const double XOffset = -0.7, YOffset = -0.29, Max = 100000;

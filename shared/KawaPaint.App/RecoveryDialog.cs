@@ -1,4 +1,4 @@
-// KawaPaint — offers a leftover autosave snapshot back to the user at startup.
+// KawaPaint - offers a leftover autosave snapshot back to the user at startup.
 
 using Avalonia;
 using Avalonia.Controls;

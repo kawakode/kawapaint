@@ -1,4 +1,4 @@
-// KawaPaint — prompts for a new canvas size (image resize/scale).
+// KawaPaint - prompts for a new canvas size (image resize/scale).
 
 using Avalonia;
 using Avalonia.Controls;

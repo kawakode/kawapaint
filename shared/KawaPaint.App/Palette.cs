@@ -1,4 +1,4 @@
-// KawaPaint — a named color palette, persisted as JSON (.kwpal).
+// KawaPaint - a named color palette, persisted as JSON (.kwpal).
 
 using System;
 using System.Collections.Generic;

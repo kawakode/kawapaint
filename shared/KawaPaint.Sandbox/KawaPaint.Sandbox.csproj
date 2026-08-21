@@ -1,10 +1,10 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\KawaPaint.Engine\KawaPaint.Engine.csproj" />
     <!-- ReferenceOutputAssembly=false: forces build order (the sample/fixture plugin DLLs must
          exist on disk before the plugin smoke test runs) without linking Sandbox against plugin
-         code directly — the point is exercising the real ALC-based PluginManager.LoadFrom loader,
+         code directly - the point is exercising the real ALC-based PluginManager.LoadFrom loader,
          not calling the plugin's types in-process. -->
     <ProjectReference Include="..\..\plugins\KawaPaint.Plugins.Sample\KawaPaint.Plugins.Sample.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\plugins\KawaPaint.Plugins.ThrowingFixture\KawaPaint.Plugins.ThrowingFixture.csproj" ReferenceOutputAssembly="false" />

@@ -1,4 +1,4 @@
-// KawaPaint — prompts for a new image's size and background.
+// KawaPaint - prompts for a new image's size and background.
 
 using Avalonia;
 using Avalonia.Controls;

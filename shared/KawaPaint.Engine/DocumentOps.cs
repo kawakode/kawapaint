@@ -1,4 +1,4 @@
-// KawaPaint — document-level operations that produce a new Document.
+// KawaPaint - document-level operations that produce a new Document.
 
 namespace KawaPaint.Engine;
 
@@ -47,7 +47,7 @@ public static class DocumentOps
 
     /// <summary>
     /// Returns a new document at (w,h) with the existing content placed per <paramref name="anchor"/>
-    /// and padded with transparency — unlike <see cref="Resize"/>, nothing is rescaled, so this is
+    /// and padded with transparency - unlike <see cref="Resize"/>, nothing is rescaled, so this is
     /// Paint.NET's "Canvas Size" rather than its "Image Resize".
     /// </summary>
     public static Document ResizeCanvas(Document doc, int w, int h, CanvasAnchor anchor)

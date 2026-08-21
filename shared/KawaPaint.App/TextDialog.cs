@@ -1,4 +1,4 @@
-// KawaPaint — prompts for text + size for the Text tool.
+// KawaPaint - prompts for text + size for the Text tool.
 
 using Avalonia;
 using Avalonia.Controls;

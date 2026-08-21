@@ -1,8 +1,8 @@
-// KawaPaint — the Preferences dialog: the first UI over AppSettings.
+// KawaPaint - the Preferences dialog: the first UI over AppSettings.
 //
 // AppSettings has had readers since tier 0 (AutosaveService, HistoryStack limits, ConfigGitTracker,
 // the plugin hosts) but no way to reach them short of hand-editing settings.json, so every default
-// here was effectively frozen. Only settings something actually reads are exposed — a control that
+// here was effectively frozen. Only settings something actually reads are exposed - a control that
 // writes a field nothing consumes is worse than no control at all.
 //
 // Edits are staged on the controls and written back in one pass on OK, so Cancel really cancels:
@@ -146,7 +146,7 @@ public sealed class SettingsDialog : Window
         _gitCommitOnSave,
         _gitCommitOnAutosave,
         Row("Warn once a repository passes", _gitWarnSize, "MB"),
-        Note("Local repositories only — nothing is pushed anywhere. Image history grows fast, " +
+        Note("Local repositories only - nothing is pushed anywhere. Image history grows fast, " +
              "which is what the size warning is for."));
 
     private StackPanel PluginsPage() => Stack(

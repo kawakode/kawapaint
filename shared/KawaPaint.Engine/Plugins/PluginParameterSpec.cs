@@ -1,7 +1,7 @@
-// KawaPaint — declarative parameter schema for plugin effects. A plugin describes its knobs as
+// KawaPaint - declarative parameter schema for plugin effects. A plugin describes its knobs as
 // plain data (this file's types); the host renders them into a generic dialog
 // (KawaPaint.App.PluginEffectDialog) without the plugin shipping any UI code of its own. No
-// reflection/attributes involved — a plugin author just builds these in code, the same way a
+// reflection/attributes involved - a plugin author just builds these in code, the same way a
 // built-in effect's dialog is described today by AdjustmentDialog.SliderSpec literals.
 
 using System.Collections.Generic;

@@ -1,4 +1,4 @@
-// KawaPaint — engine-side image effects. Each effect mutates a layer's Surface in place;
+// KawaPaint - engine-side image effects. Each effect mutates a layer's Surface in place;
 // neighbourhood effects (blur/sharpen) snapshot the input themselves. RGB is processed and
 // alpha preserved, except blur which averages all channels.
 

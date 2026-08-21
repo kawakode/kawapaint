@@ -1,11 +1,11 @@
-// KawaPaint — the docking framework.
+// KawaPaint - the docking framework.
 //
 // Panels register a descriptor and this class owns everything else: docking to a side, floating,
 // hiding, dragging, resizing and persistence. Adding a panel no longer means editing five
 // methods and a settings class.
 //
 // Floating panels are overlay controls inside a Panel rather than real OS windows, because the
-// browser head has no window or popup support at all — an in-canvas overlay is the only approach
+// browser head has no window or popup support at all - an in-canvas overlay is the only approach
 // that works on every target.
 
 using System;

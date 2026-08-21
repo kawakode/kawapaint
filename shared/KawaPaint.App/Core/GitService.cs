@@ -1,6 +1,6 @@
-// KawaPaint — thin wrapper around LibGit2Sharp for the two things "git-backed history" needs:
+// KawaPaint - thin wrapper around LibGit2Sharp for the two things "git-backed history" needs:
 // make sure a directory is a repo, and commit whatever changed in it. Nothing here ever pushes,
-// pulls, or touches a remote — that's forge integration, a separate and not-yet-built piece (see
+// pulls, or touches a remote - that's forge integration, a separate and not-yet-built piece (see
 // TODO.md's 2.3 entry). This only ever runs against a local working directory the user already
 // controls (their config folder, or a project folder they explicitly linked), so init-on-first-use
 // is safe: it's the local equivalent of the user having typed `git init` themselves.

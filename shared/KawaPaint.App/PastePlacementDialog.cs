@@ -1,4 +1,4 @@
-// KawaPaint — asks how to place a pasted image that doesn't fit the current canvas.
+// KawaPaint - asks how to place a pasted image that doesn't fit the current canvas.
 
 using Avalonia;
 using Avalonia.Controls;
@@ -7,8 +7,8 @@ using Avalonia.Media;
 
 namespace KawaPaint.App;
 
-/// <summary>Cancel is first so that dismissing the dialog (window close button) — which yields
-/// default(PastePlacement) — is treated as "cancel", not as a silent paste.</summary>
+/// <summary>Cancel is first so that dismissing the dialog (window close button) - which yields
+/// default(PastePlacement) - is treated as "cancel", not as a silent paste.</summary>
 public enum PastePlacement { Cancel, GrowCanvas, ScaleToFit, PasteAsIs }
 
 public sealed class PastePlacementDialog : Window

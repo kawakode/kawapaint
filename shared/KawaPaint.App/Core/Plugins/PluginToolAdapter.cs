@@ -1,4 +1,4 @@
-// KawaPaint — wraps a plugin's IPluginTool as a real ITool so it can be assigned to
+// KawaPaint - wraps a plugin's IPluginTool as a real ITool so it can be assigned to
 // Canvas.CurrentTool like any built-in tool. ToolContext and PluginToolContext are structurally
 // identical (see IPluginTool.cs's header comment for why they're two separate types); this does
 // the field-by-field copy on every pointer event.

@@ -1,4 +1,4 @@
-// KawaPaint — pick which commands and palette colors are pinned to the customizable dock.
+// KawaPaint - pick which commands and palette colors are pinned to the customizable dock.
 
 using System.Collections.Generic;
 using System.Linq;

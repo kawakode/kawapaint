@@ -1,4 +1,4 @@
-// KawaPaint — image format plug points.
+// KawaPaint - image format plug points.
 //
 // The file dialogs are generated from what is actually registered *and* available at runtime,
 // which matters because several formats ship as optional native packs (JPEG 2000, JPEG XL) and
@@ -39,7 +39,7 @@ public interface IImageCodec
     bool CanEncode { get; }
 
     /// <summary>
-    /// False when the backing implementation is not present on this platform — an unshipped
+    /// False when the backing implementation is not present on this platform - an unshipped
     /// native library, or a format Skia was not compiled with. Probed once and cached.
     /// </summary>
     bool IsAvailable { get; }

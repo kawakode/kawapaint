@@ -1,4 +1,4 @@
-// KawaPaint — a pixel selection mask (255 = selected). When inactive (the default), the whole
+// KawaPaint - a pixel selection mask (255 = selected). When inactive (the default), the whole
 // image is editable. Rectangle / ellipse / polygon (lasso) shapes rasterize into the mask, and
 // Clip() restores pixels outside the selection so edits and effects stay inside it.
 
@@ -97,7 +97,7 @@ public sealed class Selection
                 return;
             case SelectionCombineMode.Add:
                 // Add's base is deliberately read as a physically-empty mask even when inactive
-                // (not "everything", despite IsSelected's convention) — union-with-everything would
+                // (not "everything", despite IsSelected's convention) - union-with-everything would
                 // just stay everything, which would make Add-mode useless for starting a fresh
                 // selection from nothing. Producing exactly the shape is the useful behavior here.
                 for (int i = 0; i < _mask.Length; i++)
@@ -210,7 +210,7 @@ public sealed class Selection
         // Clip() then restores every pixel of every subsequent edit, silently undoing each stroke
         // as it's drawn, while the marching-ants overlay has no boundary to draw and so shows the
         // user nothing to explain it. Reachable from a quick sub-pixel lasso flick in Replace mode,
-        // which Combine's own emptiness recompute never sees — Replace returns early via CopyFrom.
+        // which Combine's own emptiness recompute never sees - Replace returns early via CopyFrom.
         IsActive = any;
     }
 

@@ -1,4 +1,4 @@
-// KawaPaint — one addressable action.
+// KawaPaint - one addressable action.
 //
 // Menus, the tool strip, keyboard shortcuts, the customizable dock and (later) plugin
 // contributions are all views over the registry rather than separate wiring, so an action added
@@ -48,7 +48,7 @@ public sealed class AppCommand
     public Func<bool>? CanExecute { get; init; }
 
     /// <summary>
-    /// True for commands that must not fire while a text field has focus — Ctrl+A and Ctrl+Z
+    /// True for commands that must not fire while a text field has focus - Ctrl+A and Ctrl+Z
     /// belong to the text box in that situation.
     /// </summary>
     public bool SuppressInTextInput { get; init; }

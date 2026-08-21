@@ -1,4 +1,4 @@
-// KawaPaint — a minimal About/Credits dialog, mirroring README.md's Credits section.
+// KawaPaint - a minimal About/Credits dialog, mirroring README.md's Credits section.
 
 using System;
 using Avalonia;
@@ -53,8 +53,8 @@ public sealed class AboutDialog : Window
                 Body("Based on Paint.NET 3.36 (the last MIT-licensed release) by Rick Brewster and contributors. See FORK.TXT for fork rationale."),
 
                 Header("Libraries"),
-                Body("SkiaSharp — 2D graphics rendering"),
-                Body("Avalonia, Avalonia.Controls.ColorPicker, Avalonia.Themes.Fluent, Avalonia.Fonts.Inter, Avalonia.Browser — cross-platform UI framework"),
+                Body("SkiaSharp - 2D graphics rendering"),
+                Body("Avalonia, Avalonia.Controls.ColorPicker, Avalonia.Themes.Fluent, Avalonia.Fonts.Inter, Avalonia.Browser - cross-platform UI framework"),
 
                 Header("Icons"),
                 Body("Toolbox, panel, and menu icons are adapted from Lucide (lucide.dev), ISC License (with portions under the MIT-licensed Feather Icons this project forked from)."),

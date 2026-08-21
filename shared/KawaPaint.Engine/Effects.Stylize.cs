@@ -1,4 +1,4 @@
-// KawaPaint — Tier 2.1 effect catalogue, Noise/Stylize/Photo categories. See Effects.Distort.cs
+// KawaPaint - Tier 2.1 effect catalogue, Noise/Stylize/Photo categories. See Effects.Distort.cs
 // for the porting-approach note (same applies here).
 
 namespace KawaPaint.Engine;
@@ -6,7 +6,7 @@ namespace KawaPaint.Engine;
 /// <summary>
 /// Base for effects driven by a per-channel histogram of a circular neighbourhood around each
 /// pixel (median, outline, ...). Mirrors paint.net's LocalHistogramEffect, minus its incremental
-/// row-sliding optimization — this recomputes the histogram from scratch per pixel, which is
+/// row-sliding optimization - this recomputes the histogram from scratch per pixel, which is
 /// simpler and fine at the modest radii a paint app's UI exposes, but is O(radius^2) per pixel;
 /// revisit with the sliding-window version if large radii turn out to matter.
 /// </summary>

@@ -8,7 +8,7 @@
 
   <ItemGroup>
     <!-- Private=false: a real third-party plugin author wouldn't get a copy of KawaPaint.Engine.dll
-         bundled into their own output either — the host provides it at runtime. This also keeps
+         bundled into their own output either - the host provides it at runtime. This also keeps
          the deployed plugin folder unambiguous for PluginManager's "<folder>/<folder>.dll" scan. -->
     <ProjectReference Include="..\..\shared\KawaPaint.Engine\KawaPaint.Engine.csproj" Private="false" />
   </ItemGroup>

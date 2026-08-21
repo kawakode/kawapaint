@@ -1,4 +1,4 @@
-// KawaPaint — the plugin-facing tool contract. This is a deliberate duplicate of
+// KawaPaint - the plugin-facing tool contract. This is a deliberate duplicate of
 // KawaPaint.App.ToolContext/ITool (field-for-field, method-for-method): plugin contracts live in
 // KawaPaint.Engine so a third-party plugin project only needs a reference to the engine, but
 // ToolContext itself is an App-side type (it exposes App-only UI callbacks), so Engine cannot

@@ -1,4 +1,4 @@
-// KawaPaint — interactive tone-curve editor. CurveControl lets you drag/add/remove control
+// KawaPaint - interactive tone-curve editor. CurveControl lets you drag/add/remove control
 // points; the dialog builds a 256-entry LUT and previews CurvesEffect live on the active layer.
 
 using System;

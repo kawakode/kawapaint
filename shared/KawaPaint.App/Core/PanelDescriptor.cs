@@ -1,4 +1,4 @@
-// KawaPaint — what the docking framework needs to know about a panel.
+// KawaPaint - what the docking framework needs to know about a panel.
 
 using System;
 using System.Collections.Generic;
@@ -30,7 +30,7 @@ public sealed class PanelDescriptor
     public string? IconName { get; init; }
 
     /// <summary>
-    /// In-panel chrome that duplicates the floating title bar — the panel's own caption and its
+    /// In-panel chrome that duplicates the floating title bar - the panel's own caption and its
     /// float/close buttons. Hidden while the panel floats, restored when it docks again.
     /// </summary>
     public IReadOnlyList<Control> DockedChrome { get; init; } = Array.Empty<Control>();

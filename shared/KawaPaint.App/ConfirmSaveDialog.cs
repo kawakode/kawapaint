@@ -1,4 +1,4 @@
-// KawaPaint — a small "you have unsaved changes" prompt (Save / Discard / Cancel).
+// KawaPaint - a small "you have unsaved changes" prompt (Save / Discard / Cancel).
 
 using Avalonia;
 using Avalonia.Controls;
@@ -7,8 +7,8 @@ using Avalonia.Media;
 
 namespace KawaPaint.App;
 
-/// <summary>Cancel is first so that dismissing the dialog (window close button) — which yields
-/// default(SaveChoice) — is treated as "cancel", not as a silent save.</summary>
+/// <summary>Cancel is first so that dismissing the dialog (window close button) - which yields
+/// default(SaveChoice) - is treated as "cancel", not as a silent save.</summary>
 public enum SaveChoice { Cancel, Save, Discard }
 
 public sealed class ConfirmSaveDialog : Window

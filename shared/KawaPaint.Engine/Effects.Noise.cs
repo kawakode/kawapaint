@@ -1,4 +1,4 @@
-// KawaPaint — Tier 2.1 effect catalogue, Noise category. See Effects.Distort.cs for the
+// KawaPaint - Tier 2.1 effect catalogue, Noise category. See Effects.Distort.cs for the
 // porting-approach note (same applies here).
 
 namespace KawaPaint.Engine;
@@ -7,7 +7,7 @@ namespace KawaPaint.Engine;
 /// Selective smoothing: remaps each pixel toward where its value would sit if its neighborhood's
 /// colors were evenly distributed (a percentile/rank normalization), blended in by Strength and
 /// weighted down on already-bright pixels. Ported as-is from pdn's ReduceNoiseEffect, including
-/// its negative lerp factor — matches production paint.net rather than a straightforward "blend
+/// its negative lerp factor - matches production paint.net rather than a straightforward "blend
 /// toward neighborhood average" guess.
 /// </summary>
 public sealed class ReduceNoiseEffect : LocalHistogramEffect

@@ -1,4 +1,4 @@
-// KawaPaint — linear gradient fill. Colors are interpolated along the drag vector and
+// KawaPaint - linear gradient fill. Colors are interpolated along the drag vector and
 // alpha-composited onto the surface (so semi-transparent endpoints blend).
 
 namespace KawaPaint.Engine;

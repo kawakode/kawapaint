@@ -1,4 +1,4 @@
-// KawaPaint — turns AppSettings.Plugins + AppPaths into the search roots PluginManager.LoadFrom
+// KawaPaint - turns AppSettings.Plugins + AppPaths into the search roots PluginManager.LoadFrom
 // needs, and remembers the last results for PluginManagerDialog to display.
 
 using System;
@@ -29,7 +29,7 @@ public static class AppPluginHost
 
     /// <summary>Full clean re-discovery. Correct for newly-enabled/added plugins; a disabled
     /// plugin whose objects are still reachable (e.g. it's the active tool) won't have its
-    /// collectible AssemblyLoadContext actually collected until those references drop — a real
+    /// collectible AssemblyLoadContext actually collected until those references drop - a real
     /// CLR constraint on collectible ALCs, not something this can paper over.</summary>
     public static void Reload(AppSettings settings)
     {

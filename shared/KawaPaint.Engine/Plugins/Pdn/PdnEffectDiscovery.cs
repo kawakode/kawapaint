@@ -1,13 +1,13 @@
-// KawaPaint — entry point for the classic-tier Paint.NET plugin bridge. Mirrors PluginManager's
+// KawaPaint - entry point for the classic-tier Paint.NET plugin bridge. Mirrors PluginManager's
 // shape but scans a flat folder of loose DLLs (one *.dll = one candidate) instead of one folder
 // per plugin, matching how unmodified third-party plugin DLLs are actually distributed. Every
 // failure (bad DLL, no PropertyBasedEffect types, no parameterless ctor, a paint.net API-shape
-// mismatch) is caught per-DLL into a PluginLoadResult — never propagates and takes down discovery
+// mismatch) is caught per-DLL into a PluginLoadResult - never propagates and takes down discovery
 // of the other DLLs in the folder, mirroring PluginManager's own never-crash-startup contract.
 //
 // Only PropertyBasedEffect-derived types are discovered, not plain Effect subclasses. A plain
 // Effect (pre-IndirectUI, hand-rolled WinForms EffectConfigDialog, no PropertyCollection at all)
-// has nothing this bridge can drive without showing paint.net's own dialog — which this phase
+// has nothing this bridge can drive without showing paint.net's own dialog - which this phase
 // deliberately never does (see PdnPropertyMapper's file header). PropertyBasedEffect has been the
 // recommended, overwhelmingly common pattern for classic-tier plugins for well over a decade, so
 // this is a narrow, honest scope boundary rather than a real coverage gap.
@@ -28,10 +28,10 @@ public static class PdnEffectDiscovery
     /// The shared paint.net assembly context and its resolved schema, cached per install directory
     /// and reused for the process lifetime.
     ///
-    /// Not an optimization — a correctness requirement. PdnAssembliesLoadContext is deliberately
+    /// Not an optimization - a correctness requirement. PdnAssembliesLoadContext is deliberately
     /// <c>isCollectible: false</c> (see its file header), which is only sound if it's constructed
-    /// once. Building a fresh one per LoadFrom call stranded the entire PaintDotNet.*.dll set —
-    /// tens of MB, unreclaimable — on every plugin reload, and the Plugin Manager reaches reload
+    /// once. Building a fresh one per LoadFrom call stranded the entire PaintDotNet.*.dll set -
+    /// tens of MB, unreclaimable - on every plugin reload, and the Plugin Manager reaches reload
     /// from three separate buttons (Reload Plugins, Browse…, Auto-detect). Keyed by directory so
     /// pointing at a genuinely different install still builds a new context, rather than silently
     /// serving types from the old one.

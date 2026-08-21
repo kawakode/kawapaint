@@ -1,14 +1,14 @@
-// KawaPaint — the .kpdemo container: a starting document plus the input stream that acted on it.
+// KawaPaint - the .kpdemo container: a starting document plus the input stream that acted on it.
 //
 // Size matters here, so three things are done deliberately:
 //   * coordinates are fixed point, delta-encoded against the previous point, and written as zigzag
-//     varints — a freehand drag moves a couple of pixels per sample, so a point costs 4-5 bytes
+//     varints - a freehand drag moves a couple of pixels per sample, so a point costs 4-5 bytes
 //     instead of the 16 two raw doubles would;
 //   * timestamps are varint deltas, so a 16ms pointer cadence costs one byte each;
 //   * every repeated string (tool tags, action ids) is written once and referenced by index
 //     afterwards, via an inline dictionary that needs no second pass.
 // The payload is then gzipped. Measured: ~5 bytes per pointer sample, so 13 seconds of continuous
-// drawing is 3.4 KB and an unbroken 5m42s of it is 92 KB — plus whatever the starting document
+// drawing is 3.4 KB and an unbroken 5m42s of it is 92 KB - plus whatever the starting document
 // costs, which is nothing at all when the canvas started blank. Idle time is free: the recorder
 // only ever emits on change, so a demo's size tracks how much was drawn, not how long it ran.
 
@@ -31,7 +31,7 @@ public sealed class DemoFile
     /// Fixed-point denominator for stored coordinates. Not an arbitrary round number: measured
     /// against the real tools, 1/16 px let a coordinate sitting near a rounding boundary flip a
     /// whole pencil pixel (18 pixels differed over a 300-sample drag), while 1/4096 replays every
-    /// tool byte-identically. Going finer buys nothing — <see cref="DemoEvent.X"/> is a float, and
+    /// tool byte-identically. Going finer buys nothing - <see cref="DemoEvent.X"/> is a float, and
     /// at canvas-sized magnitudes its own spacing is already about 1/4096.
     /// </summary>
     private const double CoordScale = 4096.0;
@@ -46,7 +46,7 @@ public sealed class DemoFile
     /// <summary>
     /// The document as it stood when recording began, in .kwp form (all layers, not a flattened
     /// snapshot). Null means "start from a blank canvas of CanvasWidth x CanvasHeight filled with
-    /// <see cref="BlankFill"/>", which is what a demo recorded straight after File > New gets —
+    /// <see cref="BlankFill"/>", which is what a demo recorded straight after File > New gets -
     /// and costs nothing.
     /// </summary>
     public byte[]? StartDocument { get; set; }

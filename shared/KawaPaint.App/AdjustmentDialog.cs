@@ -1,4 +1,4 @@
-// KawaPaint — a reusable modal for parametric effects with live preview. Given a set of slider
+// KawaPaint - a reusable modal for parametric effects with live preview. Given a set of slider
 // specs and a factory that turns their values into an IEffect, it previews on the active layer
 // (reverting to a snapshot each change, clipped to any selection) and commits one undo step.
 
@@ -106,7 +106,7 @@ public sealed class AdjustmentDialog : Window
 
     /// <summary>
     /// Coalesces a burst of ValueChanged events (a slider drag can fire dozens per second) into one
-    /// Preview() call ~60ms after the last change — short enough to still feel live, but it caps a
+    /// Preview() call ~60ms after the last change - short enough to still feel live, but it caps a
     /// fast drag to at most ~16 full-surface recomputations/sec instead of one per intermediate
     /// value, which is what used to queue seconds of work on a large image.
     /// </summary>
@@ -136,7 +136,7 @@ public sealed class AdjustmentDialog : Window
         if (_snapshot is not null && _layer is not null)
         {
             // The debounce above means the layer's current pixels can lag the sliders' final
-            // values by up to ~60ms — flush synchronously so OK always commits what's actually
+            // values by up to ~60ms - flush synchronously so OK always commits what's actually
             // shown on the sliders, not a stale in-flight preview.
             _previewTimer?.Stop();
             Preview();

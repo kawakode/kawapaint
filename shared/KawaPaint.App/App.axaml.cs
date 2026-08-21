@@ -22,7 +22,7 @@ public partial class App : Application
 
         // Before MainWindow/MainView is constructed, so EffectRegistry/ToolRegistry are already
         // populated by the time RebuildPluginsMenu() runs. A failed plugin is reported, not thrown
-        // — see AppPluginHost.LoadAll / PluginManager.
+        // - see AppPluginHost.LoadAll / PluginManager.
         AppPluginHost.LoadAll(SettingsService.Instance.Settings);
         AppPdnPluginHost.LoadAll(SettingsService.Instance.Settings);
 

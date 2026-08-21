@@ -1,4 +1,4 @@
-// KawaPaint — tool/action icons, adapted from Lucide (https://lucide.dev), ISC/MIT licensed.
+// KawaPaint - tool/action icons, adapted from Lucide (https://lucide.dev), ISC/MIT licensed.
 // Path geometry is Lucide's icon-node data re-expressed for Avalonia's Geometry mini-language,
 // one Geometry per original SVG node so each keeps its own coordinate origin. See README.md
 // -> Credits for full attribution.
@@ -109,7 +109,7 @@ public static class Icons
         ["ChevronDown"] = (new[] { "m6 9 6 6 6-6" }, false),
 
         // Plugins. Used for every ToolRegistry-contributed tool button, which have no icon of
-        // their own — without this key Create falls through to its "?" placeholder.
+        // their own - without this key Create falls through to its "?" placeholder.
         ["Plugin"] = (new[] { "M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z" }, false),
 
         // Misc.

@@ -1,4 +1,4 @@
-// KawaPaint — Tier 2.1 effect catalogue, Artistic category. See Effects.Distort.cs for the
+// KawaPaint - Tier 2.1 effect catalogue, Artistic category. See Effects.Distort.cs for the
 // porting-approach note (same applies here). InkSketch/PencilSketch reuse GlowEffect/BlendOps
 // from Effects.Photo.cs, same as pdn's originals compose GlowEffect/UserBlendOps.
 
@@ -63,7 +63,7 @@ public sealed class InkSketchEffect : IEffect
 }
 
 /// <summary>Blurs, brightens/contrasts, inverts, then desaturates a copy of the image, and
-/// Color-Dodge-blends the original desaturated pixel underneath it — the classic "blur + invert +
+/// Color-Dodge-blends the original desaturated pixel underneath it - the classic "blur + invert +
 /// color dodge" pencil-sketch trick. PencilTipSize controls blur radius, ColorRange the contrast.</summary>
 public sealed class PencilSketchEffect : IEffect
 {

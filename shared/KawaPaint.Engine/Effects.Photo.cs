@@ -1,11 +1,11 @@
-// KawaPaint — Tier 2.1 effect catalogue, Photo category. See Effects.Distort.cs for the
+// KawaPaint - Tier 2.1 effect catalogue, Photo category. See Effects.Distort.cs for the
 // porting-approach note (same applies here). Also shared by Effects.Artistic.cs.
 
 namespace KawaPaint.Engine;
 
 /// <summary>
 /// Standard two-layer blend-mode formulas (base = bottom/existing pixel, blend = top/incoming
-/// pixel), used by the composited effects below in place of paint.net's UserBlendOps — pdn's own
+/// pixel), used by the composited effects below in place of paint.net's UserBlendOps - pdn's own
 /// versions are alpha-compositing-aware fixed-point code tuned for full layer blending, which is
 /// more than these effects need since here one side is always effectively opaque.
 /// </summary>
@@ -23,7 +23,7 @@ internal static class BlendOps
 }
 
 /// <summary>Blurs a copy of the image, brightens/contrasts it, then Screen-blends it back over the
-/// original — a soft bloom around bright areas.</summary>
+/// original - a soft bloom around bright areas.</summary>
 public sealed class GlowEffect : IEffect
 {
     private readonly int _radius, _brightness, _contrastPct;
@@ -97,7 +97,7 @@ public sealed class RedEyeRemoveEffect : PerPixelEffect
 }
 
 /// <summary>Blurs and brightens the base, then overlays a warmth-tinted desaturated version of the
-/// original on top to bring back some detail — the classic "soft portrait" retouch. Softness
+/// original on top to bring back some detail - the classic "soft portrait" retouch. Softness
 /// controls blur radius, Lighting brightens/darkens, Warmth shifts red/blue balance.</summary>
 public sealed class SoftenPortraitEffect : IEffect
 {

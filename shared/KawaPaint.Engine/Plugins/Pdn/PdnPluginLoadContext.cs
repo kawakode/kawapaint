@@ -1,8 +1,8 @@
-// KawaPaint — one isolated, collectible AssemblyLoadContext per real third-party Paint.NET plugin
+// KawaPaint - one isolated, collectible AssemblyLoadContext per real third-party Paint.NET plugin
 // DLL. The load-bearing piece here is the "PaintDotNet.*" redirect below: it makes plugin DLLs
 // compiled 10+ years ago against an old paint.net version resolve against whatever real version is
 // installed today, the classic-tier equivalent of a binding redirect (plain strong-name resolution
-// in a custom ALC does not do this on its own — a version mismatch would otherwise fail outright).
+// in a custom ALC does not do this on its own - a version mismatch would otherwise fail outright).
 // Mirrors KawaPaint's own PluginLoadContext (used for native plugins), one layer deeper: that one
 // isolates a plugin's dependencies from other plugins; this one additionally has to reconcile a
 // plugin DLL's dependency version against a real install it wasn't necessarily built against.
@@ -33,9 +33,9 @@ internal sealed class PdnPluginLoadContext : AssemblyLoadContext
         string? path = _resolver.ResolveAssemblyToPath(assemblyName);
         if (path is not null) return LoadFromAssemblyPath(path);
 
-        // Anything else — "PaintDotNet.*" at whatever version this plugin was originally compiled
+        // Anything else - "PaintDotNet.*" at whatever version this plugin was originally compiled
         // against, plus paint.net's own dependency graph (System.Windows.Forms,
-        // System.Drawing.Common, ComputeSharp, ...) that a single-DLL plugin doesn't ship itself —
+        // System.Drawing.Common, ComputeSharp, ...) that a single-DLL plugin doesn't ship itself -
         // resolves through the shared PdnAssembliesLoadContext instead.
         return assemblyName.Name is { } n ? _pdnAssemblies.TryResolve(n) : null;
     }

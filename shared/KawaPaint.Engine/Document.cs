@@ -14,7 +14,7 @@ public sealed class Document : IDisposable
     public IReadOnlyList<Layer> Layers => _layers;
     public int LayerCount => _layers.Count;
 
-    /// <summary>Pixels per inch, for the ruler and any future print-size math. Purely metadata —
+    /// <summary>Pixels per inch, for the ruler and any future print-size math. Purely metadata -
     /// nothing here rescales pixels based on it.</summary>
     public double Dpi { get; set; } = 96;
 
@@ -96,9 +96,9 @@ public sealed class Document : IDisposable
 
     /// <summary>Deep copy: every layer cloned (pixels + properties, exact name), same order, same
     /// Dpi. Used where a consistent snapshot is needed decoupled from further edits to the live
-    /// document — e.g. autosave encoding on a background thread while the user keeps painting.
+    /// document - e.g. autosave encoding on a background thread while the user keeps painting.
     /// Unlike <see cref="Layer.Clone"/> alone, names are copied exactly rather than getting its
-    /// " copy" suffix — that suffix is right for a user-facing Duplicate Layer, wrong for a
+    /// " copy" suffix - that suffix is right for a user-facing Duplicate Layer, wrong for a
     /// snapshot whose layer names get written straight into a saved file's manifest.</summary>
     public Document Clone()
     {

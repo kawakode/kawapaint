@@ -1,4 +1,4 @@
-// KawaPaint — per-format save options (JPEG quality, WebP lossless/quality), shown when the
+// KawaPaint - per-format save options (JPEG quality, WebP lossless/quality), shown when the
 // chosen export format actually has options worth asking about.
 
 using Avalonia;

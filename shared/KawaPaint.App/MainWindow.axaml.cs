@@ -5,7 +5,7 @@ namespace KawaPaint.App;
 
 /// <summary>Desktop window shell around <see cref="MainView"/>, which holds all the real UI logic.
 /// The browser head hosts <see cref="MainView"/> directly (Avalonia's browser target has no
-/// Window/popup support), so anything Window-specific — the title bar text, close confirmation —
+/// Window/popup support), so anything Window-specific - the title bar text, close confirmation -
 /// lives here instead of in MainView.</summary>
 public partial class MainWindow : Window
 {

@@ -1,4 +1,4 @@
-// KawaPaint — pluggable backing store for persisted app state.
+// KawaPaint - pluggable backing store for persisted app state.
 //
 // The desktop heads get a real directory; the browser head has no filesystem, so it installs its
 // own store (localStorage/OPFS) at startup. Nothing above this interface knows the difference.

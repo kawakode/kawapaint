@@ -1,4 +1,4 @@
-// KawaPaint — Tier 2.1 effect catalogue, Blurs category. See Effects.Distort.cs for the
+// KawaPaint - Tier 2.1 effect catalogue, Blurs category. See Effects.Distort.cs for the
 // porting-approach note (same applies here): algorithms transcribed from paint.net 3.36's
 // src/Effects/, reimplemented on KawaPaint's own IEffect shape, no AA supersampling.
 
@@ -154,7 +154,7 @@ public sealed class ZoomBlurEffect : IEffect
 }
 
 /// <summary>Offsets several copies of the image outward in evenly-spaced directions and averages
-/// them — a "ghosting"/kaleidoscope-fragment look. Fragments in [2,50], Distance in pixels.</summary>
+/// them - a "ghosting"/kaleidoscope-fragment look. Fragments in [2,50], Distance in pixels.</summary>
 public sealed class FragmentEffect : IEffect
 {
     private readonly int _fragments, _distance;
@@ -240,7 +240,7 @@ public sealed class SurfaceBlurEffect : LocalHistogramEffect
     }
 }
 
-/// <summary>True circular-kernel uniform blur — a rounder, softer look than the square/separable
+/// <summary>True circular-kernel uniform blur - a rounder, softer look than the square/separable
 /// Gaussian Blur menu entry, most visible at hard silhouette edges.</summary>
 public sealed class UnfocusEffect : LocalHistogramEffect
 {

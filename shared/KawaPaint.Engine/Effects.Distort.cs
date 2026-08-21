@@ -1,5 +1,5 @@
-// KawaPaint — Tier 2.1 effect catalogue, Distort category. Algorithms ported from paint.net
-// 3.36's src/Effects/ (MIT-licensed, see origin/3.36pdn) onto KawaPaint's own IEffect shape —
+// KawaPaint - Tier 2.1 effect catalogue, Distort category. Algorithms ported from paint.net
+// 3.36's src/Effects/ (MIT-licensed, see origin/3.36pdn) onto KawaPaint's own IEffect shape -
 // not a literal file port, since the originals are built on WinForms/PropertySystem plumbing
 // that doesn't exist here. Anti-aliased supersampling (pdn's Utility.GetRgssOffsets) is dropped
 // throughout for simplicity, matching this file's existing single-sample style.
@@ -54,7 +54,7 @@ public abstract class WarpEffect : IEffect
     /// <summary>Mirror-folds a coordinate back into [0,max] by bouncing off the edges, so a warp
     /// that would sample outside the image reflects rather than smearing or wrapping. Closed-form
     /// (a period-2*max triangle wave via one modulo) rather than the equivalent step-by-step loop,
-    /// so a coordinate arbitrarily far out of range still resolves in O(1) instead of O(distance) —
+    /// so a coordinate arbitrarily far out of range still resolves in O(1) instead of O(distance) -
     /// today's warp parameter ranges keep that distance small, but nothing enforces it stays that
     /// way at every call site forever.</summary>
     private static float ReflectCoord(float value, int max)
@@ -255,7 +255,7 @@ public sealed class PixelateEffect : IEffect
 }
 
 /// <summary>Ripples the image through Perlin noise, like a dented sheet of metal. Reflects at
-/// edges (matches pdn's choice — better than a clamp-smear for a noise-driven ripple).</summary>
+/// edges (matches pdn's choice - better than a clamp-smear for a noise-driven ripple).</summary>
 public sealed class DentsEffect : WarpEffect
 {
     private readonly double _scale, _refraction, _roughnessRaw, _theta;

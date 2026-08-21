@@ -1,4 +1,4 @@
-// KawaPaint — text rasterization via SkiaSharp, drawn straight onto a layer's Surface.
+// KawaPaint - text rasterization via SkiaSharp, drawn straight onto a layer's Surface.
 
 using SkiaSharp;
 

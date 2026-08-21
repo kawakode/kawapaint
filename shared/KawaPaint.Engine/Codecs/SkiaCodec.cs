@@ -1,4 +1,4 @@
-// KawaPaint — codecs backed by whatever SkiaSharp's native build actually contains.
+// KawaPaint - codecs backed by whatever SkiaSharp's native build actually contains.
 //
 // Note that SKEncodedImageFormat lists formats the shipped native library was not compiled with
 // (Jpegxl and Avif among them): the enum member is not proof of a codec. Availability is probed

@@ -1,4 +1,4 @@
-// KawaPaint sample plugin — demonstrates all four PluginParameterSpec kinds (numeric/bool/color;
+// KawaPaint sample plugin - demonstrates all four PluginParameterSpec kinds (numeric/bool/color;
 // see GlowTintEffect for how each one actually reaches the pixel math, not just the dialog).
 // A real third-party plugin looks exactly like this: reference only KawaPaint.Engine, implement
 // IKawaPaintPlugin, register contributions in Register().
@@ -10,7 +10,7 @@ namespace KawaPaint.Plugins.Sample;
 
 public sealed class GlowTintPlugin : IKawaPaintPlugin
 {
-    // Must equal the deployed folder name — plugins/GlowTint/GlowTint.dll.
+    // Must equal the deployed folder name - plugins/GlowTint/GlowTint.dll.
     public string Id => "GlowTint";
     public string DisplayName => "Glow Tint (Sample)";
     public string Version => "1.0.0";

@@ -1,4 +1,4 @@
-// KawaPaint — collects the input stream that DemoPlayer later replays.
+// KawaPaint - collects the input stream that DemoPlayer later replays.
 //
 // The recorder is deliberately passive: it owns no UI and reaches into nothing. MainView and
 // SurfaceView push notifications at it, and it decides what is worth keeping. Two rules keep the
@@ -10,7 +10,7 @@
 //     The same scope is what keeps playback from re-recording itself.
 //   * Redundancy. A tool switch to the tool already selected, or a size set to the size already in
 //     force, changes nothing a replay would do, so neither is written. Note that this reasoning
-//     does NOT extend to repeated pointer positions, which look equally redundant and are not —
+//     does NOT extend to repeated pointer positions, which look equally redundant and are not -
 //     see NoteStrokeMove.
 
 using System;
@@ -122,7 +122,7 @@ public sealed class DemoRecorder
     /// Every pointer sample is kept, including one that repeats the previous position. Dropping
     /// those looks like free compression and is not: the pencil alpha-blends a disc per move, so a
     /// repeated sample stamps a second dab over the first and darkens it. Filtering them made a
-    /// replay come out visibly lighter at stroke starts, where the duplicate samples cluster —
+    /// replay come out visibly lighter at stroke starts, where the duplicate samples cluster -
     /// caught by diffing a recorded session against its own replay, not by reading the code.
     /// </summary>
     public void NoteStrokeMove(double x, double y)

@@ -1,4 +1,4 @@
-// KawaPaint — scanline flood fill for the paint-bucket tool. Replaces the contiguous
+// KawaPaint - scanline flood fill for the paint-bucket tool. Replaces the contiguous
 // region matching the seed pixel (within a per-channel tolerance) with the fill color.
 
 namespace KawaPaint.Engine;
@@ -68,7 +68,7 @@ public static class FloodFill
         }
     }
 
-    /// <summary>Selects the contiguous region matching the seed pixel (within tolerance) — the
+    /// <summary>Selects the contiguous region matching the seed pixel (within tolerance) - the
     /// Magic Wand tool. Shares the scanline walk with <see cref="Fill"/>, marking the selection
     /// mask instead of writing pixel colors.</summary>
     public static unsafe void Select(Surface s, int seedX, int seedY, Selection selection, int tolerance = 0)

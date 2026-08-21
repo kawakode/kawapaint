@@ -1,4 +1,4 @@
-// KawaPaint — Windows icon container.
+// KawaPaint - Windows icon container.
 //
 // Skia decodes ICO natively but cannot encode it, so the writer is ours. Every frame is stored
 // as PNG, which every consumer since Windows Vista understands and which keeps large frames from

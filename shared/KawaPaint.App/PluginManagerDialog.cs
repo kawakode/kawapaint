@@ -1,4 +1,4 @@
-// KawaPaint — lists plugin load results and lets the user enable/disable and reload. Styled like
+// KawaPaint - lists plugin load results and lets the user enable/disable and reload. Styled like
 // AboutDialog/RecoveryDialog (plain Window/StackPanel) since no Settings/Preferences dialog exists
 // anywhere in this app yet to extend instead.
 
@@ -144,7 +144,7 @@ public sealed class PluginManagerDialog : Window
         header.Children.Add(enabled);
 
         string title = result.Name is null ? result.Id : $"{result.Name} ({result.Id})";
-        if (result.Version is not null) title += $" — v{result.Version}";
+        if (result.Version is not null) title += $" - v{result.Version}";
         header.Children.Add(new TextBlock { Text = title, FontWeight = FontWeight.Bold, VerticalAlignment = VerticalAlignment.Center });
 
         header.Children.Add(new TextBlock
@@ -181,7 +181,7 @@ public sealed class PluginManagerDialog : Window
 
         _pdnStatusText.Text = AppPdnPluginHost.InstallInfo is { } info
             ? $"Detected paint.net {info.Version} at {info.InstallDirectory}"
-            : "Paint.NET not found — install it (e.g. the official portable ZIP from github.com/paintdotnet/release) or set a folder above.";
+            : "Paint.NET not found - install it (e.g. the official portable ZIP from github.com/paintdotnet/release) or set a folder above.";
 
         _pdnList.Children.Clear();
 

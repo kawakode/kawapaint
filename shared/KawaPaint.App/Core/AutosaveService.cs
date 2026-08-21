@@ -1,4 +1,4 @@
-// KawaPaint — periodic recovery snapshots.
+// KawaPaint - periodic recovery snapshots.
 //
 // Writes beside the user's own file, never over it: a snapshot lands in a per-session recovery
 // folder and the file the user opened is untouched unless WriteToOriginalFile is explicitly on.
@@ -20,9 +20,9 @@ public sealed class AutosaveService : IDisposable
     private DispatcherTimer? _timer;
 
     // Set for the duration of one autosave (clone through background write). Ticks now return to
-    // the UI message loop as soon as the synchronous clone is done (see Tick), so — unlike the old
+    // the UI message loop as soon as the synchronous clone is done (see Tick), so - unlike the old
     // fully-synchronous version, where a single UI thread structurally couldn't fire the timer again
-    // mid-save — a slow encode can now genuinely still be running when the next tick lands. This
+    // mid-save - a slow encode can now genuinely still be running when the next tick lands. This
     // guard is what keeps two encodes from racing on the same recovery folder or WriteToOriginalFile
     // path.
     private bool _saving;
@@ -35,7 +35,7 @@ public sealed class AutosaveService : IDisposable
         _currentSession = currentSession;
         // Named handler (not a lambda) so Dispose can actually detach it. SettingsService.Instance
         // is a process-lifetime singleton, so a lambda here outlived this service and any later
-        // settings save would call Reschedule() on a disposed autosaver — which builds and starts a
+        // settings save would call Reschedule() on a disposed autosaver - which builds and starts a
         // BRAND NEW timer, resurrecting the very thing Dispose was meant to stop. Same shape as the
         // static-registry-event fix in MainView.
         _settings.Changed += OnSettingsChanged;
@@ -64,8 +64,8 @@ public sealed class AutosaveService : IDisposable
 
     /// <summary>
     /// The actual zip+PNG encode used to run inline on this DispatcherTimer callback, freezing the
-    /// UI thread for as long as a big document takes to write. Now only the layer clone — a plain
-    /// memcpy, not an encode — runs synchronously; that's still what keeps the snapshot torn-free
+    /// UI thread for as long as a big document takes to write. Now only the layer clone - a plain
+    /// memcpy, not an encode - runs synchronously; that's still what keeps the snapshot torn-free
     /// (the live Document could otherwise be mutated by further painting while the slow part below
     /// runs), and it's fast enough not to be felt. Everything slow (path/dir resolution, the actual
     /// encode, pruning old versions) happens in the background Task.
@@ -137,7 +137,7 @@ public sealed class AutosaveService : IDisposable
 
     /// <summary>
     /// Stops the timer and detaches from settings changes. Known accepted gap, unchanged here: an
-    /// already-in-flight background save is not cancelled (see Tick) — it may complete after this
+    /// already-in-flight background save is not cancelled (see Tick) - it may complete after this
     /// returns, which is harmless but real.
     /// </summary>
     public void Dispose()
@@ -173,7 +173,7 @@ public static class AutosaveRecovery
         return entries.OrderByDescending(e => e.WrittenUtc).ToList();
     }
 
-    /// <summary>Deletes every recovery snapshot for one session — call once its document is safely saved or discarded.</summary>
+    /// <summary>Deletes every recovery snapshot for one session - call once its document is safely saved or discarded.</summary>
     public static void Discard(string sessionId)
     {
         string? root = AppPaths.RecoveryDirectory;

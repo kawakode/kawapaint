@@ -14,7 +14,7 @@ internal sealed partial class Program
         .StartBrowserAppAsync("out", new BrowserPlatformOptions
         {
             // WebGL creation can be blocked by a GPU driver blocklist, an extension, or a VM/
-            // software-render setup — and a failed WebGL attempt poisons the <canvas> element so
+            // software-render setup - and a failed WebGL attempt poisons the <canvas> element so
             // Avalonia's own fallback to a 2D context then also fails ("mode 3" in the console).
             // Software2D never touches WebGL, so it works everywhere at the cost of GPU accel.
             RenderingMode = new[] { BrowserRenderingMode.Software2D }

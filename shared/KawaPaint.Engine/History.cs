@@ -1,8 +1,8 @@
-// KawaPaint — undo/redo.
+// KawaPaint - undo/redo.
 //
 // The stack is an indexed list rather than a pair of stacks, so the History panel can show every
 // step and jump straight to one. Steps carry a byte cost, and the stack trims or spills to disk
-// once the configured budget is exceeded — which is what makes an unbounded step count
+// once the configured budget is exceeded - which is what makes an unbounded step count
 // affordable in the first place.
 //
 // A memento is its own inverse: Undo() applies the reversal and returns the memento that
@@ -60,7 +60,7 @@ public sealed class DelegateMemento : HistoryMemento
 
     /// <param name="approximateBytes">
     /// For a structural edit whose undo/redo closures hold a whole detached Layer or Surface (add
-    /// /delete/duplicate layer, merge down) rather than just scalars — a live query, not a captured
+    /// /delete/duplicate layer, merge down) rather than just scalars - a live query, not a captured
     /// value, since which side (undo or redo) currently owns the detached object flips with every
     /// toggle. Typically written as "0 while the document owns it, real bytes while only this
     /// memento does" (e.g. via <c>Document.IndexOf</c>). Omitted for the common case (toggle
@@ -69,7 +69,7 @@ public sealed class DelegateMemento : HistoryMemento
     /// <param name="dispose">
     /// Frees whatever <paramref name="approximateBytes"/> is reporting, once this step is dropped
     /// from history for good. Must apply the same "only if the document doesn't currently own it"
-    /// check <paramref name="approximateBytes"/> does — a step can be discarded while its detached
+    /// check <paramref name="approximateBytes"/> does - a step can be discarded while its detached
     /// object is actually the live, undone side (e.g. a delete's redo branch invalidated right after
     /// an undo reattached the layer), and disposing a Surface the Document still owns is a
     /// use-after-dispose waiting to happen.
@@ -421,7 +421,7 @@ public sealed class HistoryStack
 
     public event EventHandler? Changed;
 
-    /// <summary>Zero means unlimited — the memory budget is then the only bound.</summary>
+    /// <summary>Zero means unlimited - the memory budget is then the only bound.</summary>
     public int MaxSteps { get; set; }
 
     /// <summary>Soft ceiling on resident step data. Zero disables the check entirely.</summary>
@@ -509,7 +509,7 @@ public sealed class HistoryStack
 
         while (_position > position) StepBackward();
         while (_position < position) StepForward();
-        Trim();   // see Undo() — one pass at the end, not per step, so a long jump stays O(n)
+        Trim();   // see Undo() - one pass at the end, not per step, so a long jump stays O(n)
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
@@ -517,8 +517,8 @@ public sealed class HistoryStack
     /// Removes the step at <paramref name="index"/> and everything after it, reversing them first
     /// if they are currently applied.
     ///
-    /// Steps are not independent — a structural edit such as a layer add is meaningless once the
-    /// steps around it are gone — so this deliberately truncates rather than plucking a step out
+    /// Steps are not independent - a structural edit such as a layer add is meaningless once the
+    /// steps around it are gone - so this deliberately truncates rather than plucking a step out
     /// of the middle. Per-item removal would need a replayable command log instead of snapshots.
     /// </summary>
     public void TruncateFrom(int index)
@@ -527,7 +527,7 @@ public sealed class HistoryStack
 
         if (_position > index)
         {
-            // JumpTo ends in Trim(), which can DropOldest() — and that removes from the FRONT,
+            // JumpTo ends in Trim(), which can DropOldest() - and that removes from the FRONT,
             // renumbering every surviving step. Reusing the caller's index afterwards would cut at
             // the wrong place: destroying steps the user meant to keep, or silently doing nothing.
             // Not hypothetical: jumping backward un-spills each step it crosses, and a detached-layer
@@ -597,7 +597,7 @@ public sealed class HistoryStack
     {
         // Unconditional: MaxSteps is documented as a hard ceiling on Count ("the memory budget is
         // then the only bound" otherwise), not one that only applies while something's undoable.
-        // DropOldest is safe to call at _position == 0 too — see its own comment.
+        // DropOldest is safe to call at _position == 0 too - see its own comment.
         if (MaxSteps > 0)
             while (_steps.Count > MaxSteps) DropOldest();
 
@@ -652,7 +652,7 @@ public sealed class HistoryStack
     /// Drops the oldest step, whether it's currently undoable (_position > 0, the common case) or
     /// only redoable (_position == 0: nothing is applied, but MaxSteps still has to be enforceable
     /// even then). Every memento type's stored content is a self-contained absolute snapshot for
-    /// its own tile/surface/document region — never a diff relative to a neighboring step — so
+    /// its own tile/surface/document region - never a diff relative to a neighboring step - so
     /// dropping the front index is safe from either side: it just makes that one edit permanently
     /// unreachable, the same "bounded history" trade-off either way, not a correctness hazard.
     /// </summary>
@@ -664,7 +664,7 @@ public sealed class HistoryStack
         // Only undoable steps (index < position) sit before the caret, so only removing one of
         // those needs the caret's absolute index shifted down to keep pointing at the same logical
         // spot. Removing a redoable step (_position == 0, so index 0 is never < position) leaves
-        // the caret's meaning unchanged — decrementing it here would send it negative.
+        // the caret's meaning unchanged - decrementing it here would send it negative.
         if (_position > 0) _position--;
     }
 }

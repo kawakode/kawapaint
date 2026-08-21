@@ -1,12 +1,12 @@
-// KawaPaint — demo recording and playback, wired into the editor.
+// KawaPaint - demo recording and playback, wired into the editor.
 //
 // This is the half of the demo system that knows what an editor action *is*: DemoRecorder and
 // DemoPlayer only move opcodes around. Two directions to keep straight:
 //
-//   record — SurfaceView pushes real pointer gestures here, CommandRegistry.DispatchScope catches
+//   record - SurfaceView pushes real pointer gestures here, CommandRegistry.DispatchScope catches
 //            every command however it was fired, and the handful of menu handlers that are not
 //            commands call RecordAction/RecordSkipped directly.
-//   replay — ApplyDemoEvent turns an opcode back into the *same* call the user's input made. It
+//   replay - ApplyDemoEvent turns an opcode back into the *same* call the user's input made. It
 //            deliberately goes through the real handlers (including a synthetic sender carrying
 //            the Tag a menu item would have had) rather than reimplementing them, because a
 //            second implementation is a second thing to keep in step.
@@ -158,12 +158,12 @@ public partial class MainView
         _demoRecorder.NoteView(Canvas.Zoom, Canvas.Origin.X, Canvas.Origin.Y);
 
         UpdateDemoMenuState();
-        StatusText.Text = "Recording demo — Demo ▸ Stop & Save to finish";
+        StatusText.Text = "Recording demo - Demo ▸ Stop & Save to finish";
     }
 
     /// <summary>
-    /// The starting document, as .kwp bytes. A canvas that is one plain layer of a single colour —
-    /// what File ▸ New leaves behind, and where most demos start — is described by that colour
+    /// The starting document, as .kwp bytes. A canvas that is one plain layer of a single colour -
+    /// what File ▸ New leaves behind, and where most demos start - is described by that colour
     /// instead, which is the difference between a couple of kilobytes and none at all.
     /// </summary>
     private static (byte[]? Document, uint Fill) CaptureDemoStart(Document doc)
@@ -259,7 +259,7 @@ public partial class MainView
         }
 
         // Replaying inputs onto whatever is on screen would paint over the user's work, so the
-        // demo's own starting document replaces it — the same discard prompt New/Open use.
+        // demo's own starting document replaces it - the same discard prompt New/Open use.
         if (!await ConfirmDiscardAsync()) return;
 
         try
@@ -508,7 +508,7 @@ public partial class MainView
 
         if (_commands.Find(id) is not null) { _commands.Execute(id); return; }
 
-        StatusText.Text = "Demo: unknown action '" + id + "' — skipped";
+        StatusText.Text = "Demo: unknown action '" + id + "' - skipped";
     }
 
     private static bool TrySplit(string id, string prefix, out string rest)

@@ -1,4 +1,4 @@
-// KawaPaint — engine-side shape rasterization (outlines) built on BrushOps disc stamping.
+// KawaPaint - engine-side shape rasterization (outlines) built on BrushOps disc stamping.
 // Endpoints are given as the drag start/end; corners are normalized internally.
 
 namespace KawaPaint.Engine;
@@ -76,13 +76,13 @@ public static class ShapeOps
         }
     }
 
-    /// <summary>Corner radius clamped to at most half the shorter side — beyond that the shape is
+    /// <summary>Corner radius clamped to at most half the shorter side - beyond that the shape is
     /// already a capsule/circle, same "no special-casing needed" trick as paint.net's original.</summary>
     private static double ClampCornerRadius(double cornerRadius, double w, double h)
         => Math.Max(0, Math.Min(cornerRadius, Math.Min(w, h) / 2));
 
     /// <summary>True if (x,y) lies inside a rounded rectangle: clamp the point into the "core"
-    /// rect inset by the corner radius, then test distance from that clamped point — handles the
+    /// rect inset by the corner radius, then test distance from that clamped point - handles the
     /// straight edges (clamp is a no-op, distance 0) and the four rounded corners in one test.</summary>
     private static bool InsideRoundedRect(double x, double y, double left, double top, double right, double bottom, double r)
     {
@@ -94,7 +94,7 @@ public static class ShapeOps
     }
 
     /// <summary>Signed distance from (x,y) to a rounded rectangle's boundary (negative = inside),
-    /// the standard "rounded box" SDF — lets DrawRoundedRectangle stroke a ring with the same
+    /// the standard "rounded box" SDF - lets DrawRoundedRectangle stroke a ring with the same
     /// antialiased-edge coverage math BrushOps uses for a round brush.</summary>
     private static double RoundedRectDistance(double x, double y, double left, double top, double right, double bottom, double r)
     {
@@ -125,7 +125,7 @@ public static class ShapeOps
     }
 
     /// <summary>radius here is a stroke *radius* (half-width), matching DrawRectangle/DrawEllipse's
-    /// convention — callers already pass BrushWidth/2, so it isn't halved again internally.</summary>
+    /// convention - callers already pass BrushWidth/2, so it isn't halved again internally.</summary>
     public static unsafe void DrawRoundedRectangle(Surface s, double x0, double y0, double x1, double y1, double cornerRadius,
                                                     int radius, ColorBgra color, bool antialias = false)
     {
@@ -154,7 +154,7 @@ public static class ShapeOps
     }
 
     /// <summary>Even-odd scanline fill of an arbitrary closed polygon (implicitly closed back to
-    /// the first point) — same algorithm as Selection.ReplaceWithPolygon, filling a Surface
+    /// the first point) - same algorithm as Selection.ReplaceWithPolygon, filling a Surface
     /// instead of a mask.</summary>
     public static unsafe void FillPolygon(Surface s, IReadOnlyList<(double X, double Y)> points, ColorBgra color)
     {

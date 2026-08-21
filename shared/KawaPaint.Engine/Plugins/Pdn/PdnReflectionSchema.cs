@@ -1,9 +1,9 @@
-// KawaPaint — every Type/MethodInfo/ConstructorInfo/PropertyInfo the classic-tier bridge needs,
+// KawaPaint - every Type/MethodInfo/ConstructorInfo/PropertyInfo the classic-tier bridge needs,
 // resolved exactly once against the real paint.net assemblies. A paint.net API-shape mismatch
 // (wrong version, unexpected future rename) throws one clear "PDN bridge unavailable: ..."
 // exception right here at construction, instead of a confusing null-ref buried inside a per-effect
 // Apply() call. No compile-time reference to any PaintDotNet.*.dll exists anywhere in this file or
-// project — every type below is looked up by full name at runtime.
+// project - every type below is looked up by full name at runtime.
 
 using System;
 using System.Collections.Generic;
@@ -28,12 +28,12 @@ internal sealed class PdnReflectionSchema
 
     /// <summary>Effect.EnvironmentParameters (settable) and the static
     /// EffectEnvironmentParameters.DefaultParameters factory. Some real effects (Twist/Bulge-
-    /// family warps, fractals, tile) read EnvironmentParameters — e.g. to size a default relative
-    /// to canvas dimensions — from inside OnCreatePropertyCollection itself, and throw if it was
+    /// family warps, fractals, tile) read EnvironmentParameters - e.g. to size a default relative
+    /// to canvas dimensions - from inside OnCreatePropertyCollection itself, and throw if it was
     /// never set. Found by hitting this for real: ~9 of paint.net's own 44 bundled legacy effects
     /// failed discovery with a bare constructed instance until this was wired in. Phase 1 always
     /// uses the generic DefaultParameters, both when probing for property definitions and before
-    /// rendering — good enough to avoid the crash, not a claim of full environment fidelity (real
+    /// rendering - good enough to avoid the crash, not a claim of full environment fidelity (real
     /// Fg/Bg color, canvas DPI, and selection aren't threaded through IEffect.Apply(Surface) at
     /// all, and doing so is out of scope for this phase).</summary>
     public PropertyInfo EnvironmentParameters { get; }

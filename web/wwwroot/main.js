@@ -4,7 +4,7 @@ const is_browser = typeof window != "undefined";
 if (!is_browser) throw new Error(`Expected to be running in a browser`);
 
 // The splash text is position:absolute, so browsers paint it above the plain (non-positioned)
-// <canvas> Avalonia inserts into #out, regardless of DOM order — it would otherwise cover a
+// <canvas> Avalonia inserts into #out, regardless of DOM order - it would otherwise cover a
 // perfectly working app forever. Hide it as soon as Avalonia adds anything to #out.
 const out = document.getElementById("out");
 if (out) {

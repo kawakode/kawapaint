@@ -1,4 +1,4 @@
-// KawaPaint — git-backs the app's own config directory (settings.json, layout presets) when
+// KawaPaint - git-backs the app's own config directory (settings.json, layout presets) when
 // GitSettings.TrackConfiguration is on. This is the first real reader of AppSettings.Git: separate
 // from project tracking (below), and independent of it -- a user can back up their configuration
 // without ever linking a project, or vice versa.

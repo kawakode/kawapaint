@@ -1,18 +1,18 @@
-// KawaPaint — maps a real PaintDotNet.PropertySystem.PropertyCollection onto KawaPaint's own
+// KawaPaint - maps a real PaintDotNet.PropertySystem.PropertyCollection onto KawaPaint's own
 // (much narrower) PluginParameterSpec set, reusing the existing PluginEffectDialog UI unchanged.
 //
 // Explicit, honest fallbacks (documented limitations, not solved further here):
 //   - A property type this mapper doesn't recognise (vector properties, older MultiChooseProperty,
-//     etc.) is never exposed as a UI row — it silently stays at its paint.net-declared default
+//     etc.) is never exposed as a UI row - it silently stays at its paint.net-declared default
 //     forever. The plugin still loads; PdnEffectDiscovery lists which parameters aren't
 //     controllable in its PluginLoadResult note.
 //   - Color pickers are indistinguishable from plain bounded integers in PropertyCollection alone
-//     (paint.net only distinguishes them in the WinForms UI layer, which this bridge never walks —
+//     (paint.net only distinguishes them in the WinForms UI layer, which this bridge never walks -
 //     see PdnEffectDiscovery for why). Heuristic: a property whose name contains "color"/"colour"
 //     (case-insensitive) is treated as an ARGB-packed color; everything else numeric stays a plain
 //     slider. Known-weak, not solved further.
 //   - A plugin overriding OnCreateConfigUI/CreateConfigDialog for a fully custom, non-property-
-//     driven dialog is never asked for that UI at all — it still loads and renders using its
+//     driven dialog is never asked for that UI at all - it still loads and renders using its
 //     declared PropertyCollection in the existing default per-property layout.
 
 using System;
@@ -26,7 +26,7 @@ namespace KawaPaint.Engine.Plugins.Pdn;
 internal static class PdnPropertyMapper
 {
     /// <summary>One entry per real paint.net Property. Spec is null for an unmapped property type
-    /// (see file header) — such a property is never surfaced in the UI and always renders at
+    /// (see file header) - such a property is never surfaced in the UI and always renders at
     /// DefaultValue.</summary>
     public sealed class MappedProperty
     {
@@ -67,7 +67,7 @@ internal static class PdnPropertyMapper
             };
 
             if (spec is null)
-                notes.Add($"'{name}' ({typeName}) is not controllable in this UI — always uses its default.");
+                notes.Add($"'{name}' ({typeName}) is not controllable in this UI - always uses its default.");
 
             mapped.Add(new MappedProperty
             {

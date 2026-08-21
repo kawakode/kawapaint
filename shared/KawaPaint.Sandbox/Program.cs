@@ -67,7 +67,7 @@ DocumentFile.Save(doc, kwp);
 using var reloaded = DocumentFile.Load(kwp);
 flatSurf.Save(Path.Combine(tmp, "smoke.png"), SKEncodedImageFormat.Png);
 
-Console.WriteLine($"SMOKE OK — effects={effects.Length}, reloaded {reloaded.Width}x{reloaded.Height} {reloaded.LayerCount} layer(s), dup='{dup.Name}'");
+Console.WriteLine($"SMOKE OK - effects={effects.Length}, reloaded {reloaded.Width}x{reloaded.Height} {reloaded.LayerCount} layer(s), dup='{dup.Name}'");
 
 KawaPaint.Sandbox.PluginSmokeTest.RunAll();
 KawaPaint.Sandbox.PdnPluginSmokeTest.RunAll();

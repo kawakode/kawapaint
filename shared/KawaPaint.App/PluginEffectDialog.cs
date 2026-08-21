@@ -1,8 +1,8 @@
-// KawaPaint — a data-driven modal for plugin effects, deliberately parallel to (not sharing code
+// KawaPaint - a data-driven modal for plugin effects, deliberately parallel to (not sharing code
 // with) AdjustmentDialog: same snapshot/Preview/Commit/Revert lifecycle and one undo step on OK,
 // but the per-row control is chosen from the runtime type of each PluginParameterSpec instead of
 // AdjustmentDialog's numeric-only SliderSpec, so a plugin can expose a checkbox/dropdown/color in
-// addition to a slider. AdjustmentDialog itself is untouched — built-in effects keep working
+// addition to a slider. AdjustmentDialog itself is untouched - built-in effects keep working
 // exactly as they do today.
 
 using System;
@@ -193,7 +193,7 @@ public sealed class PluginEffectDialog : Window
         if (_snapshot is not null && _layer is not null)
         {
             // The debounce above means the layer's current pixels can lag the controls' final
-            // values by up to ~60ms — flush synchronously so OK always commits what's actually
+            // values by up to ~60ms - flush synchronously so OK always commits what's actually
             // shown, not a stale in-flight preview.
             _previewTimer?.Stop();
             Preview();

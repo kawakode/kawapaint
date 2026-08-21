@@ -1,14 +1,14 @@
-// KawaPaint — JPEG XL via a hand-rolled binding to the system libjxl, not a bundled dependency.
+// KawaPaint - JPEG XL via a hand-rolled binding to the system libjxl, not a bundled dependency.
 //
 // Spiked and measured 2026-08-19 against pulling in Magick.NET instead: Magick.NET's native blob
 // is 20-38MB per platform for JXL+JP2 riding along with ~270 unused formats. Binding libjxl's own
 // C API directly costs ~6.7MB total (libjxl + libjxl_cms + libhwy + brotli), scoped to exactly
-// what JXL needs — chosen for that footprint, not for lack of alternatives.
+// what JXL needs - chosen for that footprint, not for lack of alternatives.
 //
 // Trade-off: no native library is bundled with KawaPaint yet, so IsAvailable is only true when
 // libjxl already happens to be installed on the machine (true here via CachyOS's `libjxl`
 // package). Bundling libjxl for Windows/macOS, and JPEG 2000 via the same pattern, are still open
-// — see TODO.md's 3.x spike entry.
+// - see TODO.md's 3.x spike entry.
 //
 // libjxl has no BGR(A) pixel format (see the TODO comment in jxl/types.h), only RGB(A), so every
 // encode/decode does one extra channel swizzle against Surface's native BGRA layout.

@@ -1,4 +1,4 @@
-// KawaPaint — loads, migrates and persists AppSettings.
+// KawaPaint - loads, migrates and persists AppSettings.
 
 using System;
 using System.Text.Json;
@@ -11,7 +11,7 @@ public sealed class SettingsService
     private const string Key = "settings.json";
 
     // AllowNamedFloatingPointLiterals: PanelPlacement's dock/float sizes default to NaN ("size
-    // to content"), which System.Text.Json otherwise refuses to write at all — every save with a
+    // to content"), which System.Text.Json otherwise refuses to write at all - every save with a
     // panel still at its default size would silently no-op without this.
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -57,7 +57,7 @@ public sealed class SettingsService
     /// </summary>
     private static AppSettings Migrate(AppSettings settings)
     {
-        // No migrations yet — version 1 is the first shipped schema.
+        // No migrations yet - version 1 is the first shipped schema.
         settings.SchemaVersion = AppSettings.CurrentSchemaVersion;
         return settings;
     }

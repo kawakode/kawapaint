@@ -1,8 +1,8 @@
-// KawaPaint — discovers and loads plugins from a set of directories. Pure: takes plain data (no
+// KawaPaint - discovers and loads plugins from a set of directories. Pure: takes plain data (no
 // AppSettings/AppPaths dependency), so this exact method is callable from KawaPaint.App and
 // headlessly from KawaPaint.Sandbox alike. A load failure anywhere (bad DLL, wrong/missing
 // IKawaPaintPlugin, a throwing constructor or Register call, a folder/Id mismatch) is always
-// caught and turned into a Failed PluginLoadResult — never allowed to propagate and take down
+// caught and turned into a Failed PluginLoadResult - never allowed to propagate and take down
 // startup, mirroring JxlCodec.IsAvailable's probe-and-degrade pattern.
 
 using System;
@@ -17,7 +17,7 @@ public static class PluginManager
     /// <summary>
     /// Each immediate subdirectory of each root is one plugin candidate, expected to contain
     /// exactly one file named "&lt;folder name&gt;.dll". A folder whose name is in
-    /// <paramref name="disabledIds"/> is skipped before anything is loaded — disabled plugin code
+    /// <paramref name="disabledIds"/> is skipped before anything is loaded - disabled plugin code
     /// never executes.
     /// </summary>
     public static IReadOnlyList<PluginLoadResult> LoadFrom(IEnumerable<string> searchRoots, IReadOnlySet<string> disabledIds)

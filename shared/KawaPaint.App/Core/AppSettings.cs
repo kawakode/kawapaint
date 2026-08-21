@@ -1,4 +1,4 @@
-// KawaPaint — typed, versioned user preferences.
+// KawaPaint - typed, versioned user preferences.
 //
 // One tree, serialized as JSON. Every configurable behaviour in the app reads from here rather
 // than from its own ad-hoc file, so that enabling git tracking later means tracking one directory.
@@ -52,7 +52,7 @@ public sealed class AutosaveSettings
 
 public sealed class HistorySettings
 {
-    /// <summary>Zero means no step limit — the memory budget below is then the only bound.</summary>
+    /// <summary>Zero means no step limit - the memory budget below is then the only bound.</summary>
     public int MaxSteps { get; set; }
 
     /// <summary>
@@ -123,7 +123,7 @@ public sealed class PluginSettings
 
 /// <summary>Real, unmodified third-party Paint.NET classic-tier (Effect/PropertyBasedEffect)
 /// plugin DLLs. KawaPaint never bundles paint.net's own assemblies (see FORK.TXT for why this
-/// fork exists at all) — this only points at a real paint.net install the user already has
+/// fork exists at all) - this only points at a real paint.net install the user already has
 /// separately on their own machine. See KawaPaint.Engine.Plugins.Pdn.PdnEffectDiscovery.</summary>
 public sealed class PdnPluginSettings
 {

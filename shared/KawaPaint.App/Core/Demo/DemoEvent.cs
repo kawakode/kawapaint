@@ -1,9 +1,9 @@
-// KawaPaint — one recorded input in a demo stream.
+// KawaPaint - one recorded input in a demo stream.
 //
 // The recorder captures *inputs*, not results: a stroke is the polyline the pointer traced, not
 // the pixels it produced. Replaying the same inputs against the same starting document through
 // the same engine reproduces the session, the way a Doom .lmp replays a level from its tic
-// stream. That is what keeps a whole painting session down to a few kilobytes — and it is also
+// stream. That is what keeps a whole painting session down to a few kilobytes - and it is also
 // what makes the starting document part of the format rather than an afterthought (see DemoFile).
 
 namespace KawaPaint.App.Core.Demo;
@@ -32,7 +32,7 @@ public enum DemoOp : byte
 
     /// <summary>
     /// An action that opened a modal dialog. Recorded so playback can show what the user did,
-    /// but not replayed — the parameters the user typed into the dialog aren't captured by this
+    /// but not replayed - the parameters the user typed into the dialog aren't captured by this
     /// format version. See DemoPlayer.
     /// </summary>
     Skipped = 0x21,
@@ -89,7 +89,7 @@ public readonly struct DemoEvent
     public float Y { get; }
 
     /// <summary>
-    /// View origin Y, and nothing else — View is the only opcode carrying three numbers. The
+    /// View origin Y, and nothing else - View is the only opcode carrying three numbers. The
     /// origin is float rather than int because rounding it to whole pixels shifted the replayed
     /// canvas by up to half a pixel, which left the antialiased canvas border differing from the
     /// recording even when every image pixel matched.

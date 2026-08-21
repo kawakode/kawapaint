@@ -1,4 +1,4 @@
-// KawaPaint — lets AXAML reference an Icons.cs glyph directly (e.g. Icon="{app:Icon Save}")
+// KawaPaint - lets AXAML reference an Icons.cs glyph directly (e.g. Icon="{app:Icon Save}")
 // instead of wiring each control up by name in code-behind.
 
 using System;

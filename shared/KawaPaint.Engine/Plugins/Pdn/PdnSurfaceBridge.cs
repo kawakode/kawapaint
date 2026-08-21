@@ -1,6 +1,6 @@
-// KawaPaint — bridges KawaPaint.Engine.Surface to a real PaintDotNet.Surface/RenderArgs pair.
+// KawaPaint - bridges KawaPaint.Engine.Surface to a real PaintDotNet.Surface/RenderArgs pair.
 // Both are already byte-identical BGRA32 (non-premultiplied, top-down, tight width*4 stride) per
-// both codebases' own documentation, so no pixel conversion is ever needed — just a raw memory
+// both codebases' own documentation, so no pixel conversion is ever needed - just a raw memory
 // copy. A real MemoryBlock (PaintDotNet.Surface's backing store) has no public constructor that
 // wraps an externally-owned pointer (confirmed by reflecting its full member list before writing
 // this), so zero-copy isn't available; this ships copy-based as the only path. The copy itself is
@@ -12,14 +12,14 @@ namespace KawaPaint.Engine.Plugins.Pdn;
 
 /// <summary>
 /// Owns one real PaintDotNet.Surface plus the RenderArgs aliasing it, so a caller can free both
-/// with a single <c>using</c>. Both really are IDisposable on the paint.net side — the Surface owns
-/// a native MemoryBlock, and RenderArgs lazily builds a GDI+ Bitmap and Graphics over that memory —
+/// with a single <c>using</c>. Both really are IDisposable on the paint.net side - the Surface owns
+/// a native MemoryBlock, and RenderArgs lazily builds a GDI+ Bitmap and Graphics over that memory -
 /// and PdnClassicEffectAdapter.Apply builds two of these per call, on every debounced preview tick.
 /// Leaking them leaked full-canvas unmanaged buffers and GDI handles per tick, not per commit.
 ///
 /// Dispose order is load-bearing: RenderArgs first, because its Bitmap/Graphics alias the Surface's
 /// memory. The Surface is disposed separately and unconditionally because RenderArgs explicitly does
-/// NOT take ownership of it — paint.net's own RenderArgs docs say so outright ("This instance of
+/// NOT take ownership of it - paint.net's own RenderArgs docs say so outright ("This instance of
 /// RenderArgs does not take ownership of this Surface", and its Dispose only frees the Bitmap and
 /// Graphics), so this is not a double free.
 /// </summary>
@@ -48,7 +48,7 @@ internal static class PdnSurfaceBridge
 {
     /// <summary>Builds a real PaintDotNet.Surface the same size as <paramref name="kawaSurface"/>,
     /// copies its pixels in, and wraps it in a real RenderArgs. The caller owns the result and must
-    /// dispose it — see PdnRenderTarget for why that matters more than it looks.</summary>
+    /// dispose it - see PdnRenderTarget for why that matters more than it looks.</summary>
     public static unsafe PdnRenderTarget Wrap(Surface kawaSurface, PdnReflectionSchema schema)
     {
         object pdnSurface = schema.SurfaceConstructor.Invoke(new object[] { kawaSurface.Width, kawaSurface.Height })!;
@@ -58,7 +58,7 @@ internal static class PdnSurfaceBridge
             int pdnStride = (int)schema.SurfaceStride.GetValue(pdnSurface)!;
             if (pdnStride != kawaSurface.Stride)
                 throw new InvalidOperationException(
-                    $"PDN bridge unavailable: real PaintDotNet.Surface stride ({pdnStride}) does not match KawaPaint.Engine.Surface stride ({kawaSurface.Stride}) — pixel layouts have diverged.");
+                    $"PDN bridge unavailable: real PaintDotNet.Surface stride ({pdnStride}) does not match KawaPaint.Engine.Surface stride ({kawaSurface.Stride}) - pixel layouts have diverged.");
 
             CopyInto(kawaSurface, pdnSurface, schema);
 

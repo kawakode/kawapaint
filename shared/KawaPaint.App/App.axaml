@@ -5,7 +5,7 @@
              <!-- Pinned to Dark rather than "Default" (which follows the OS). Every panel, toolbar
                   and dialog in this app paints its own hardcoded dark background, and Icons.cs
                   strokes every glyph in light grey to match. Following a light OS theme left the
-                  parts Fluent still themes itself — menu dropdowns, combo popups, tooltips — painted
+                  parts Fluent still themes itself - menu dropdowns, combo popups, tooltips - painted
                   near-white, so those light-grey icons all but vanished inside them. -->
 
     <Application.Styles>

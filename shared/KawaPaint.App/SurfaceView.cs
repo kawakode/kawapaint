@@ -1,4 +1,4 @@
-// KawaPaint — Avalonia canvas control. Displays a Document (flattened to a composite Surface)
+// KawaPaint - Avalonia canvas control. Displays a Document (flattened to a composite Surface)
 // with zoom/pan, paints the pencil onto the active layer, and records undo/redo history.
 
 using System;
@@ -20,7 +20,7 @@ public sealed class SurfaceView : Control
     private WriteableBitmap? _bitmap;
 
     // Bumped every time a different document (or a crop/resize/rotate/flatten result) is adopted.
-    // Tools that anchor state to image coordinates across gestures — Clone Stamp's source point —
+    // Tools that anchor state to image coordinates across gestures - Clone Stamp's source point -
     // compare against this to notice their anchor now refers to a canvas that no longer exists.
     private int _documentVersion;
 
@@ -92,7 +92,7 @@ public sealed class SurfaceView : Control
     public Point Origin => _origin;
 
     /// <summary>Raised whenever Zoom or Origin changes (fit, zoom in/out/actual, wheel-zoom, pan
-    /// drag) — a ruler bar redraws on this rather than polling every frame.</summary>
+    /// drag) - a ruler bar redraws on this rather than polling every frame.</summary>
     public event Action? ViewChanged;
 
     /// <summary>Loads a document as a fresh editing session: the old one is disposed and undo history is dropped.</summary>
@@ -206,7 +206,7 @@ public sealed class SurfaceView : Control
         AfterHistoryChange();
     }
 
-    /// <summary>Moves the undo caret directly to a position — what clicking a History panel row does.</summary>
+    /// <summary>Moves the undo caret directly to a position - what clicking a History panel row does.</summary>
     public void JumpToHistory(int position)
     {
         History.JumpTo(position);
@@ -311,8 +311,8 @@ public sealed class SurfaceView : Control
         var mask = sel.Mask;
         int w = sel.Width, h = sel.Height;
 
-        // Only walk the pixels currently on screen, and — when zoomed out far enough that many
-        // image pixels share one screen pixel — sample every Nth so the cost stays bound to the
+        // Only walk the pixels currently on screen, and - when zoomed out far enough that many
+        // image pixels share one screen pixel - sample every Nth so the cost stays bound to the
         // viewport instead of the image size.
         int step = Math.Max(1, (int)Math.Ceiling(1.0 / _zoom));
         double size = Math.Max(1.0, _zoom * step);
@@ -374,7 +374,7 @@ public sealed class SurfaceView : Control
         if (e.Delta.Y == 0)
         {
             // A pure horizontal wheel gesture (trackpad swipe, shift+wheel) has no vertical
-            // component to read a zoom direction from — `e.Delta.Y > 0 ? in : out` below used to
+            // component to read a zoom direction from - `e.Delta.Y > 0 ? in : out` below used to
             // treat that as "out" unconditionally. Pan horizontally instead, reusing the same
             // _origin the mouse-drag pan already uses.
             if (e.Delta.X != 0)
@@ -679,7 +679,7 @@ public sealed class SurfaceView : Control
     }
 
     /// <summary>
-    /// Avalonia calls this when capture is lost involuntarily rather than via a normal release —
+    /// Avalonia calls this when capture is lost involuntarily rather than via a normal release -
     /// alt-tab, the window losing focus, or another element stealing capture mid-drag. Without this,
     /// _drawing/_preStroke stayed set forever: the next press would dispose and silently replace
     /// _preStroke, dropping the in-progress stroke's history with no undo step recorded.

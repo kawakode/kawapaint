@@ -1,4 +1,4 @@
-// KawaPaint — the single source of truth for "which document, from where, and has it changed".
+// KawaPaint - the single source of truth for "which document, from where, and has it changed".
 //
 // Autosave, crash recovery, git commits and the close-confirm prompt all have to agree on the
 // answers; before this existed each one tracked its own flag.
@@ -37,7 +37,7 @@ public sealed class DocumentSession
 
     /// <summary>
     /// Directory this document mirrors into as the exploded (git-diffable) format, or null if it
-    /// isn't linked to one. Independent of <see cref="FilePath"/> — the primary .kwp save is
+    /// isn't linked to one. Independent of <see cref="FilePath"/> - the primary .kwp save is
     /// unaffected either way; this is purely an additional target the App layer writes to and
     /// commits, per <c>GitSettings.TrackProjects</c>.
     /// </summary>

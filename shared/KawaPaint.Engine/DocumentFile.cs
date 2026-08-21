@@ -1,4 +1,4 @@
-// KawaPaint — native layered document format (.kwp). A ZIP archive holding a JSON manifest
+// KawaPaint - native layered document format (.kwp). A ZIP archive holding a JSON manifest
 // plus one lossless PNG per layer (layers/0.png = bottom). Portable and inspectable, and it
 // preserves layer names, opacity, visibility, and blend mode.
 
@@ -89,14 +89,14 @@ public static class DocumentFile
     /// Directory form of the same format: <paramref name="directoryPath"/>/manifest.json plus
     /// <paramref name="directoryPath"/>/layers/N.png, uncompressed by any outer archive. Unlike
     /// <see cref="Save(Document,string)"/>'s single opaque zip, a git commit here only touches the
-    /// files that actually changed — that's the whole point of this form existing.
+    /// files that actually changed - that's the whole point of this form existing.
     /// </summary>
     /// <summary>
     /// Encodes every layer to a temp file before touching anything real, so a failure partway
     /// through (disk full at layer 3 of 5) leaves the directory exactly as it was rather than a mix
     /// of new and stale/missing layer files. Only once every layer has encoded successfully are the
     /// temp files moved onto their real names, stale layer files from a since-shrunk layer count
-    /// removed, and the manifest written last — it's what <see cref="LoadExploded"/> trusts, so it
+    /// removed, and the manifest written last - it's what <see cref="LoadExploded"/> trusts, so it
     /// should never describe a layer set that isn't fully on disk yet.
     /// </summary>
     public static void SaveExploded(Document doc, string directoryPath)

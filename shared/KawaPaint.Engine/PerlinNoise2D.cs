@@ -1,4 +1,4 @@
-// KawaPaint — 2D Perlin noise, ported from paint.net 3.36's src/Effects/PerlinNoise2D.cs (itself
+// KawaPaint - 2D Perlin noise, ported from paint.net 3.36's src/Effects/PerlinNoise2D.cs (itself
 // adapted from Ken Perlin's reference implementation, http://mrl.nyu.edu/~perlin/noise/). Shared
 // by DentsEffect (Effects.Distort.cs) and CloudsEffect (Effects.Render.cs).
 

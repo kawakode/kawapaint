@@ -1,4 +1,4 @@
-// KawaPaint — prompts for a new canvas size with a 9-point anchor (Paint.NET's "Canvas Size",
+// KawaPaint - prompts for a new canvas size with a 9-point anchor (Paint.NET's "Canvas Size",
 // distinct from Resize: content is placed and padded/cropped, never rescaled).
 
 using Avalonia;

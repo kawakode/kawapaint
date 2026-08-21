@@ -1,8 +1,8 @@
-// KawaPaint — turns AppSettings.PdnPlugins + AppPaths into what PdnEffectDiscovery needs: locates
-// a real, separately-installed paint.net (never bundled by KawaPaint itself — see
+// KawaPaint - turns AppSettings.PdnPlugins + AppPaths into what PdnEffectDiscovery needs: locates
+// a real, separately-installed paint.net (never bundled by KawaPaint itself - see
 // PdnInstallLocator/PdnAssembliesLoadContext for why) and scans a flat folder of loose plugin DLLs
 // for real classic-tier Paint.NET plugins. Deliberately parallel to AppPluginHost.cs, not merged
-// with it — the two tiers use different folder conventions (one folder per plugin vs. one loose
+// with it - the two tiers use different folder conventions (one folder per plugin vs. one loose
 // DLL per plugin) and PdnEffectDiscovery needs a PdnInstallInfo that AppPluginHost has no concept of.
 
 using System;
@@ -37,7 +37,7 @@ public static class AppPdnPluginHost
     }
 
     /// <summary>Reloads both plugin tiers together, since they share one EffectRegistry/
-    /// ToolRegistry and Clear() has no "clear only mine" mode — same limitation
+    /// ToolRegistry and Clear() has no "clear only mine" mode - same limitation
     /// AppPluginHost.Reload already accepts for native plugins today.</summary>
     public static void Reload(AppSettings settings)
     {

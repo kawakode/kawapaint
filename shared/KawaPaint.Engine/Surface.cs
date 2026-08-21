@@ -1,4 +1,4 @@
-// KawaPaint — modern port of Paint.NET 3.36.
+// KawaPaint - modern port of Paint.NET 3.36.
 // Surface: a 32-bit BGRA, top-down, tightly-packed (stride = width*4) pixel buffer held in
 // unmanaged memory. This is the engine's fundamental image container. The layout matches
 // SkiaSharp's Bgra8888 exactly, so import/export and on-screen display are zero-copy.

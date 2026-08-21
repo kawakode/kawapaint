@@ -1,4 +1,4 @@
-// KawaPaint — what a plugin effect looks like to the host: a name, a parameter schema, and a
+// KawaPaint - what a plugin effect looks like to the host: a name, a parameter schema, and a
 // factory that turns the dialog's current values into a real IEffect.
 
 using System;
@@ -19,7 +19,7 @@ public sealed class PluginEffectDescriptor
         Category = category;
     }
 
-    /// <summary>Registry key, deduped by EffectRegistry — by convention "&lt;pluginId&gt;.&lt;effectId&gt;",
+    /// <summary>Registry key, deduped by EffectRegistry - by convention "&lt;pluginId&gt;.&lt;effectId&gt;",
     /// not enforced.</summary>
     public string Id { get; }
 

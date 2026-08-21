@@ -1,4 +1,4 @@
-// KawaPaint — plugin-contributed tools, additive alongside the existing hardcoded tool switch in
+// KawaPaint - plugin-contributed tools, additive alongside the existing hardcoded tool switch in
 // MainView.axaml.cs. Structural twin of EffectRegistry.
 
 using System;

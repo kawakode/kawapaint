@@ -1,5 +1,5 @@
-// KawaPaint — plugin-contributed effects, separate from the 41 built-in effects (which stay on
-// their existing hardcoded switch in MainView.axaml.cs — this registry is additive, not a
+// KawaPaint - plugin-contributed effects, separate from the 41 built-in effects (which stay on
+// their existing hardcoded switch in MainView.axaml.cs - this registry is additive, not a
 // replacement). Mirrors CodecRegistry's dedup-by-id/later-wins shape.
 
 using System;
@@ -27,7 +27,7 @@ public static class EffectRegistry
     public static PluginEffectDescriptor? FindById(string id)
         => _effects.FirstOrDefault(e => string.Equals(e.Id, id, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Drops everything registered so far. Safe to call unconditionally — built-in
+    /// <summary>Drops everything registered so far. Safe to call unconditionally - built-in
     /// effects never touch this registry. Used by a plugin reload to start clean.</summary>
     public static void Clear()
     {

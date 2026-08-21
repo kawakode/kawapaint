@@ -1,4 +1,4 @@
-// KawaPaint — pluggable tools. Each tool receives a ToolContext per pointer event with the
+// KawaPaint - pluggable tools. Each tool receives a ToolContext per pointer event with the
 // active layer, image-space coordinates, current color/size, and callbacks back into the view
 // (history snapshot, recomposite, color sampling). Engine algorithms do the actual pixel work.
 
@@ -81,7 +81,7 @@ public sealed class PencilTool : ITool
 
 /// <summary>
 /// Freehand paintbrush: a soft, size-and-hardness controlled round brush. Distinct from the pencil
-/// in more than looks — the pencil stamps each dab straight onto the layer, whereas this one
+/// in more than looks - the pencil stamps each dab straight onto the layer, whereas this one
 /// accumulates the whole stroke into a <see cref="SoftBrushStroke"/> coverage mask and re-composites
 /// it over the pointer-down snapshot, so a soft edge doesn't darken where dabs overlap.
 /// </summary>
@@ -169,7 +169,7 @@ public sealed class PaintBucketTool : ITool
 }
 
 /// <summary>Selects the contiguous (or, with GlobalFill on, the whole-canvas) region matching the
-/// clicked pixel — reuses the paint bucket's tolerance and global-fill toolbar controls, and
+/// clicked pixel - reuses the paint bucket's tolerance and global-fill toolbar controls, and
 /// combines with the existing selection the same way the drag-select tools do.</summary>
 public sealed class MagicWandTool : ITool
 {
@@ -274,7 +274,7 @@ public sealed class MoveTool : ITool
             _pushed = true;
         }
 
-        // Once a gesture is underway, always re-shift from PreStroke — including back to (0,0) —
+        // Once a gesture is underway, always re-shift from PreStroke - including back to (0,0) -
         // so dragging back to the start restores the original position instead of leaving the
         // surface at whatever the last non-zero offset was.
         SurfaceOps.ShiftInto(c.Layer.Surface, c.PreStroke, dx, dy);
@@ -325,7 +325,7 @@ public abstract class SelectToolBase : ITool
             c.Selection.SelectNone();     // a plain click clears the selection
         else if (!zeroSize)
             Apply(c, _sx, _sy, c.X, c.Y);
-        // A zero-size drag in Add/Subtract/Intersect mode changes nothing — leave the base as is.
+        // A zero-size drag in Add/Subtract/Intersect mode changes nothing - leave the base as is.
 
         c.SelectionChanged();
         _base = null;
@@ -410,7 +410,7 @@ public sealed class LassoSelectTool : ITool
 }
 
 /// <summary>
-/// Clone Stamp: Ctrl+click sets the source point (no painting — a click that only sets the
+/// Clone Stamp: Ctrl+click sets the source point (no painting - a click that only sets the
 /// anchor shouldn't leave an undo step). A plain click-drag afterward paints from that source,
 /// re-anchoring the source-to-cursor offset at the start of each stroke so repeated strokes stay
 /// relative to the same fixed source point rather than drifting. Samples from PreStroke (the
@@ -431,7 +431,7 @@ public sealed class CloneStampTool : ITool
         // The tool instance outlives any one document, so a source set in a previous document (or
         // before a crop/resize/rotate) names coordinates that mean nothing now. CloneDisc would
         // bounds-check the stale sample and paint nothing, leaving the tool looking broken with no
-        // hint that the source needs re-setting — so drop it explicitly instead.
+        // hint that the source needs re-setting - so drop it explicitly instead.
         if (_source is not null && _sourceDocumentVersion != c.DocumentVersion) _source = null;
 
         if (c.CtrlHeld)
@@ -470,7 +470,7 @@ public sealed class CloneStampTool : ITool
 /// Bg→Fg offset onto each pixel's actual value rather than flattening to a flat color, so
 /// shading/antialiasing at the edge of what's being recolored carries through unscathed. Tolerance
 /// is capped at the Fg/Bg color difference so a second pass over already-recolored pixels can't
-/// keep "recoloring" them and drift — same guard paint.net's original Recolor tool uses.
+/// keep "recoloring" them and drift - same guard paint.net's original Recolor tool uses.
 /// </summary>
 public sealed class RecolorTool : ITool
 {

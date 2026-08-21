@@ -1,4 +1,4 @@
-// KawaPaint — headless plugin-loader verification against the real production PluginManager, no
+// KawaPaint - headless plugin-loader verification against the real production PluginManager, no
 // mocks. Program.cs is top-level statements (one file only), so this lives as a separate static
 // class it calls into. Exercises the happy path plus every degenerate case the loader is supposed
 // to survive without crashing: a bad DLL, a disabled plugin, a plugin whose Register() throws
@@ -36,13 +36,13 @@ public static class PluginSmokeTest
         {
             // Best-effort: on Windows, a loaded assembly's DLL file stays locked until its
             // (collectible) AssemblyLoadContext is actually unloaded and collected, which isn't
-            // deterministic — the same real constraint documented for plugin disable/reload in
+            // deterministic - the same real constraint documented for plugin disable/reload in
             // AppPluginHost.Reload. A leftover temp directory is harmless; failing the whole test
             // run over an OS file lock would not be.
             try { Directory.Delete(scratch, recursive: true); } catch { }
         }
 
-        Console.WriteLine("PLUGIN SMOKE OK — happy=Loaded+Apply-changed-pixels, badDll=Failed, " +
+        Console.WriteLine("PLUGIN SMOKE OK - happy=Loaded+Apply-changed-pixels, badDll=Failed, " +
                            "disabled=Disabled+no-register, throwingRegister=Failed+rollback-verified, idMismatch=Failed");
     }
 
@@ -75,7 +75,7 @@ public static class PluginSmokeTest
         for (int y = 0; y < surface.Height && !changed; y++)
             for (int x = 0; x < surface.Width && !changed; x++)
                 if (surface[x, y] != ColorBgra.White) changed = true;
-        Assert(changed, "GlowTint effect did not change any pixels — parameter flow-through is broken");
+        Assert(changed, "GlowTint effect did not change any pixels - parameter flow-through is broken");
 
         _ = dir;
     }
@@ -101,7 +101,7 @@ public static class PluginSmokeTest
         var results = PluginManager.LoadFrom(new[] { Path.Combine(scratch, "disabled") }, new HashSet<string> { "GlowTint" });
         var result = results.Single();
         Assert(result.Status == PluginStatus.Disabled, $"expected Disabled, got {result.Status}");
-        Assert(EffectRegistry.All.Count == 0, "a disabled plugin must never register anything — its code must never run");
+        Assert(EffectRegistry.All.Count == 0, "a disabled plugin must never register anything - its code must never run");
     }
 
     private static void ThrowingRegister(string scratch, string fixtureDll)

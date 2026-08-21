@@ -1,4 +1,4 @@
-// KawaPaint — engine-side brush rasterization. Kept in the engine (not the UI) so tools
+// KawaPaint - engine-side brush rasterization. Kept in the engine (not the UI) so tools
 // stay portable. Blend mode alpha-composites; Set mode overwrites (used by the eraser).
 
 namespace KawaPaint.Engine;
@@ -155,7 +155,7 @@ public static class BrushOps
 
     /// <summary>
     /// Recolor tool's primitive: within a disc, replaces pixels close to <paramref name="from"/>
-    /// (within a per-channel tolerance, same metric FloodFill uses) with <paramref name="to"/> —
+    /// (within a per-channel tolerance, same metric FloodFill uses) with <paramref name="to"/> -
     /// but rather than flattening to a flat color, adds the from→to offset onto each pixel's
     /// actual value, so shading/antialiasing at color boundaries carries through unchanged.
     /// </summary>
@@ -189,7 +189,7 @@ public static class BrushOps
         }
     }
 
-    /// <summary>Recolors along the segment from (x0,y0) to (x1,y1) — see RecolorDisc.</summary>
+    /// <summary>Recolors along the segment from (x0,y0) to (x1,y1) - see RecolorDisc.</summary>
     public static void RecolorLine(Surface s, double x0, double y0, double x1, double y1, int radius,
                                    ColorBgra from, ColorBgra to, int tolerance, bool antialias = false)
     {
@@ -220,7 +220,7 @@ public static class BrushOps
 /// a soft one: consecutive dabs overlap heavily, so their semi-transparent edges would blend over
 /// each other and the stroke would darken wherever the pointer moved slowly. Instead every dab is
 /// max-combined into this mask, and <see cref="Flush"/> re-composites the affected region from the
-/// pre-stroke snapshot — so the stroke never exceeds the brush color's own alpha no matter how
+/// pre-stroke snapshot - so the stroke never exceeds the brush color's own alpha no matter how
 /// many dabs land on a pixel, and re-running a region is idempotent.
 /// </summary>
 public sealed class SoftBrushStroke
@@ -248,7 +248,7 @@ public sealed class SoftBrushStroke
 
     /// <summary>
     /// Adds one round dab. <paramref name="hardness"/> runs 0 (coverage falls off across the whole
-    /// radius) to 1 (solid to the rim, with a single antialiased pixel of edge — the same edge the
+    /// radius) to 1 (solid to the rim, with a single antialiased pixel of edge - the same edge the
     /// hard brush's antialiased path draws, so the two tools agree at hardness 1).
     /// </summary>
     public void Dab(double cx, double cy, double radius, double hardness)

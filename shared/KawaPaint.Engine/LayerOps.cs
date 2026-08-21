@@ -1,4 +1,4 @@
-// KawaPaint — layer-combining helpers (pixel work kept in the engine).
+// KawaPaint - layer-combining helpers (pixel work kept in the engine).
 
 namespace KawaPaint.Engine;
 

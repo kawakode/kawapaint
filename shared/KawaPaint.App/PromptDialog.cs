@@ -1,4 +1,4 @@
-// KawaPaint — a one-line text prompt (used for renaming layers).
+// KawaPaint - a one-line text prompt (used for renaming layers).
 
 using Avalonia;
 using Avalonia.Controls;

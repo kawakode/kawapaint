@@ -1,13 +1,13 @@
-// KawaPaint — headless verification of the classic-tier Paint.NET plugin bridge against a real
+// KawaPaint - headless verification of the classic-tier Paint.NET plugin bridge against a real
 // local paint.net install, no mocks. Mirrors PluginSmokeTest.cs's "exercise the real production
 // code path" philosophy. Gated on an env var pointing at a real install directory so CI and other
 // developers' machines (which don't have paint.net installed) skip gracefully rather than failing.
 //
 // Uses PaintDotNet.Effects.Legacy.dll's real GaussianBlurEffect as the stand-in "third-party"
-// plugin DLL — it's a genuine InternalPropertyBasedEffect : PropertyBasedEffect, exercising the
+// plugin DLL - it's a genuine InternalPropertyBasedEffect : PropertyBasedEffect, exercising the
 // exact same public contract a real third-party classic-tier plugin uses, and its expected output
 // (a correct Gaussian blur on a sharp red/blue edge) was already hand-verified against paint.net's
-// real Render(...) in the original research spike for this feature — this test re-checks that same
+// real Render(...) in the original research spike for this feature - this test re-checks that same
 // characteristic result through the actual production PdnEffectDiscovery/PdnClassicEffectAdapter
 // path, not a reimplementation of it.
 
@@ -30,21 +30,21 @@ public static class PdnPluginSmokeTest
         string? installDir = Environment.GetEnvironmentVariable(EnvVar);
         if (string.IsNullOrWhiteSpace(installDir))
         {
-            Console.WriteLine($"PDN PLUGIN SMOKE SKIPPED — set {EnvVar} to a real paint.net install directory to run this.");
+            Console.WriteLine($"PDN PLUGIN SMOKE SKIPPED - set {EnvVar} to a real paint.net install directory to run this.");
             return;
         }
 
         var install = PdnInstallLocator.TryValidate(installDir);
         if (install is null)
         {
-            Console.WriteLine($"PDN PLUGIN SMOKE SKIPPED — {installDir} does not look like a valid paint.net install (no PaintDotNet.Effects.Core.dll found).");
+            Console.WriteLine($"PDN PLUGIN SMOKE SKIPPED - {installDir} does not look like a valid paint.net install (no PaintDotNet.Effects.Core.dll found).");
             return;
         }
 
         string legacyDll = Path.Combine(install.InstallDirectory, "PaintDotNet.Effects.Legacy.dll");
         if (!File.Exists(legacyDll))
         {
-            Console.WriteLine("PDN PLUGIN SMOKE SKIPPED — PaintDotNet.Effects.Legacy.dll not found in the install directory.");
+            Console.WriteLine("PDN PLUGIN SMOKE SKIPPED - PaintDotNet.Effects.Legacy.dll not found in the install directory.");
             return;
         }
 
@@ -93,12 +93,12 @@ public static class PdnPluginSmokeTest
         finally
         {
             // Best-effort: the collectible PdnPluginLoadContext's file lock on the copied DLL
-            // isn't released deterministically — same real constraint PluginSmokeTest.cs already
+            // isn't released deterministically - same real constraint PluginSmokeTest.cs already
             // documents for native plugins. A leftover temp directory is harmless.
             try { Directory.Delete(scratch, recursive: true); } catch { }
         }
 
-        Console.WriteLine("PDN PLUGIN SMOKE OK — real paint.net GaussianBlurEffect discovered, registered, driven via PropertyCollection, and rendered a correct blur outside paint.net.exe.");
+        Console.WriteLine("PDN PLUGIN SMOKE OK - real paint.net GaussianBlurEffect discovered, registered, driven via PropertyCollection, and rendered a correct blur outside paint.net.exe.");
     }
 
     private static void Assert(bool condition, string message)

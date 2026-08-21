@@ -12,10 +12,10 @@ A modern, cross-platform image editor compatible with Paint.NET 3.36 file format
 
 ## Project Structure
 
-- **shared/** — Core engine (KawaPaint.Engine) and UI (KawaPaint.App), used by all platforms
-- **win/** — Windows desktop application (KawaPaint.Win)
-- **linux/** — Linux desktop application (KawaPaint.Linux)
-- **web/** — Browser application (KawaPaint.Web, WebAssembly/Avalonia.Browser)
+- **shared/** - Core engine (KawaPaint.Engine) and UI (KawaPaint.App), used by all platforms
+- **win/** - Windows desktop application (KawaPaint.Win)
+- **linux/** - Linux desktop application (KawaPaint.Linux)
+- **web/** - Browser application (KawaPaint.Web, WebAssembly/Avalonia.Browser)
 
 Open `KawaPaint.slnx` to build any platform; all share the same engine and UI code.
 
@@ -23,20 +23,20 @@ Open `KawaPaint.slnx` to build any platform; all share the same engine and UI co
 
 **KawaPaint** is maintained by Kawa.
 
-**Paint.NET** — Based on Paint.NET 3.36 by Rick Brewster and contributors. See [FORK.TXT](FORK.TXT) for fork rationale.
+**Paint.NET** - Based on Paint.NET 3.36 by Rick Brewster and contributors. See [FORK.TXT](FORK.TXT) for fork rationale.
 
 **Libraries**
 
-- [SkiaSharp](https://github.com/mono/SkiaSharp) — 2D graphics rendering
-- [Avalonia](https://github.com/AvaloniaUI/Avalonia) — Cross-platform UI framework
-- [Avalonia.Controls.ColorPicker](https://github.com/AvaloniaUI/Avalonia) — Color picker control
-- [Avalonia.Themes.Fluent](https://github.com/AvaloniaUI/Avalonia) — Fluent design theme
-- [Avalonia.Fonts.Inter](https://github.com/AvaloniaUI/Avalonia) — Inter font package
-- [Avalonia.Browser](https://github.com/AvaloniaUI/Avalonia) — WebAssembly browser support
+- [SkiaSharp](https://github.com/mono/SkiaSharp) - 2D graphics rendering
+- [Avalonia](https://github.com/AvaloniaUI/Avalonia) - Cross-platform UI framework
+- [Avalonia.Controls.ColorPicker](https://github.com/AvaloniaUI/Avalonia) - Color picker control
+- [Avalonia.Themes.Fluent](https://github.com/AvaloniaUI/Avalonia) - Fluent design theme
+- [Avalonia.Fonts.Inter](https://github.com/AvaloniaUI/Avalonia) - Inter font package
+- [Avalonia.Browser](https://github.com/AvaloniaUI/Avalonia) - WebAssembly browser support
 
 **Icons**
 
-- [Lucide](https://lucide.dev) — Toolbox, panel, and menu icons ([shared/KawaPaint.App/Icons.cs](shared/KawaPaint.App/Icons.cs)) are adapted from the Lucide icon set, ISC License (with portions under the MIT-licensed Feather Icons this project forked from). See [Lucide's license](https://github.com/lucide-icons/lucide/blob/main/LICENSE).
+- [Lucide](https://lucide.dev) - Toolbox, panel, and menu icons ([shared/KawaPaint.App/Icons.cs](shared/KawaPaint.App/Icons.cs)) are adapted from the Lucide icon set, ISC License (with portions under the MIT-licensed Feather Icons this project forked from). See [Lucide's license](https://github.com/lucide-icons/lucide/blob/main/LICENSE).
 
 ## License
 

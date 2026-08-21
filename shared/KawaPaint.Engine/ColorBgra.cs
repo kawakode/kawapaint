@@ -1,4 +1,4 @@
-// KawaPaint — modern port of Paint.NET 3.36.
+// KawaPaint - modern port of Paint.NET 3.36.
 // ColorBgra: a 32-bit, non-premultiplied BGRA pixel. Byte layout (B@0, G@1, R@2, A@3)
 // is deliberately identical to the original Paint.NET struct and to Skia's Bgra8888,
 // so raw pixel buffers are interchangeable with SkiaSharp/Avalonia with zero conversion.

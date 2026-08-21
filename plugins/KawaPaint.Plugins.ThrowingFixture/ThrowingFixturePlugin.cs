@@ -1,4 +1,4 @@
-// Test fixture only — verifies PluginManager's buffered/atomic registration: this plugin
+// Test fixture only - verifies PluginManager's buffered/atomic registration: this plugin
 // registers one effect, then throws. The load must be reported Failed and
 // "ThrowingFixture.neverRegistered" must never appear in EffectRegistry.All.
 

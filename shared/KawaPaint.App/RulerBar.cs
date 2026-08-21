@@ -1,4 +1,4 @@
-// KawaPaint — a horizontal or vertical ruler bar along the canvas edge. Ticks are placed by
+// KawaPaint - a horizontal or vertical ruler bar along the canvas edge. Ticks are placed by
 // RulerMath (pure, unit-testable) against the SurfaceView's current Zoom/Origin, so the ruler
 // always agrees with what's actually on screen.
 

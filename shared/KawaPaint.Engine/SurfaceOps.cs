@@ -1,4 +1,4 @@
-// KawaPaint — misc whole-surface operations.
+// KawaPaint - misc whole-surface operations.
 
 namespace KawaPaint.Engine;
 

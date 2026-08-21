@@ -5,21 +5,21 @@
     <UserControl.Styles>
         <!-- Every panel background here is hardcoded dark regardless of the OS theme, but Button/
              ToggleButton text otherwise falls back to Fluent's theme-default foreground, which
-             follows the OS setting — on a light system theme that's dark text on a dark panel.
+             follows the OS setting - on a light system theme that's dark text on a dark panel.
              Force it light so button labels stay legible no matter the system theme. -->
         <Style Selector="Button, ToggleButton, MenuItem">
             <Setter Property="Foreground" Value="White" />
         </Style>
         <!-- CheckBox's Fluent template sets its label's Foreground directly on the inner
              ContentPresenter rather than passing the control's own Foreground through, so a plain
-             "CheckBox" selector setter never reaches it — the template part has to be targeted. -->
+             "CheckBox" selector setter never reaches it - the template part has to be targeted. -->
         <Style Selector="CheckBox /template/ ContentPresenter">
             <Setter Property="Foreground" Value="White" />
         </Style>
         <!-- Same story for MenuItem's header text: the Fluent template binds it to the
              MenuFlyoutItemForeground theme resource rather than the control's own Foreground, and
              that resource resolves inconsistently once an Icon is set on some (but not all) items
-             in this popup-heavy menu bar — some items render with washed-out, low-contrast text.
+             in this popup-heavy menu bar - some items render with washed-out, low-contrast text.
              Pin the header text part directly so every item is legible regardless. Light, because
              App.axaml pins the theme variant to Dark: dropdown popups are dark like the rest of
              the app, and Icons.cs's light-grey glyphs sit on that same dark ground. -->
@@ -324,7 +324,7 @@
                               ItemsSource="{x:Static app:MainView.BrushSizePresets}"
                               SelectionChanged="OnSizePresetSelected"
                               KeyDown="OnSizeKeyDown" LostFocus="OnSizeTextCommit"
-                              ToolTip.Tip="Brush / outline thickness — pick a size or type your own; scroll to nudge it" />
+                              ToolTip.Tip="Brush / outline thickness - pick a size or type your own; scroll to nudge it" />
                 </StackPanel>
                 <StackPanel x:Name="BrushGroup" Classes="group">
                     <TextBlock Text="Hardness:" />
@@ -332,7 +332,7 @@
                               ItemsSource="{x:Static app:MainView.HardnessPresets}"
                               SelectionChanged="OnHardnessPresetSelected"
                               KeyDown="OnHardnessKeyDown" LostFocus="OnHardnessTextCommit"
-                              ToolTip.Tip="Paintbrush edge, in percent — 100 is a hard edge, 0 fades across the whole radius; scroll to nudge it" />
+                              ToolTip.Tip="Paintbrush edge, in percent - 100 is a hard edge, 0 fades across the whole radius; scroll to nudge it" />
                 </StackPanel>
                 <StackPanel x:Name="ShapeGroup" Classes="group">
                     <CheckBox x:Name="AntialiasCheck" Content="AA" IsChecked="True"
@@ -351,7 +351,7 @@
                               ItemsSource="{x:Static app:MainView.TolerancePresets}"
                               SelectionChanged="OnTolerancePresetSelected"
                               KeyDown="OnToleranceKeyDown" LostFocus="OnToleranceTextCommit"
-                              ToolTip.Tip="How far a pixel's color may differ and still be filled — pick a value or type your own; scroll to nudge it" />
+                              ToolTip.Tip="How far a pixel's color may differ and still be filled - pick a value or type your own; scroll to nudge it" />
                 </StackPanel>
                 <StackPanel x:Name="SelectGroup" Classes="group">
                     <TextBlock Text="Selection:" />

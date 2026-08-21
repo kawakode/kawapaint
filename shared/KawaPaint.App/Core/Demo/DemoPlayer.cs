@@ -1,4 +1,4 @@
-// KawaPaint — plays a recorded input stream back against the live editor.
+// KawaPaint - plays a recorded input stream back against the live editor.
 //
 // The player owns the clock and nothing else: it decides *when* each event is due and hands it to
 // an apply callback, which is where MainView turns a DemoOp back into a real editor action. That
@@ -74,7 +74,7 @@ public sealed class DemoPlayer
 
     /// <summary>
     /// Starts playing. The caller is responsible for having already restored the demo's starting
-    /// document — the player replays inputs, it does not reset state.
+    /// document - the player replays inputs, it does not reset state.
     /// </summary>
     public void Play(DemoFile demo, Action<DemoEvent> apply)
     {

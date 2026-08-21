@@ -1,7 +1,7 @@
-// KawaPaint — the IEffect that actually drives a real Paint.NET classic-tier plugin's Render(...).
+// KawaPaint - the IEffect that actually drives a real Paint.NET classic-tier plugin's Render(...).
 // Builds a fresh effect instance + PropertyBasedEffectConfigToken on every Apply() call, matching
 // how PluginEffectDescriptor.Build(values) is already invoked fresh on every PluginEffectDialog
-// preview tick — no shared mutable state across calls. One-shot, whole-surface, single ROI, no
+// preview tick - no shared mutable state across calls. One-shot, whole-surface, single ROI, no
 // cancellation: deliberately matches KawaPaint's own IEffect contract exactly rather than exposing
 // paint.net's tiling/multi-ROI/incremental rendering.
 
@@ -48,7 +48,7 @@ internal sealed class PdnClassicEffectAdapter : IEffect
 
         // Both targets are disposed on the way out (see PdnRenderTarget): each holds a full-canvas
         // native buffer plus a GDI+ Bitmap/Graphics pair, and Apply() runs once per debounced
-        // preview tick during a slider drag — not once per committed effect.
+        // preview tick during a slider drag - not once per committed effect.
         using var dst = PdnSurfaceBridge.Wrap(surface, _schema);
         using var src = PdnSurfaceBridge.Wrap(srcClone, _schema);
 

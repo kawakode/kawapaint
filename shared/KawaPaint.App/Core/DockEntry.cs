@@ -1,4 +1,4 @@
-// KawaPaint — one item pinned to the customizable dock (see MainView's "Dock" panel).
+// KawaPaint - one item pinned to the customizable dock (see MainView's "Dock" panel).
 //
 // Serialized as a plain string into WorkspaceSettings.DockCommands so the settings schema didn't
 // need a new collection type: a command id is stored bare, a color gets a "color:" prefix.

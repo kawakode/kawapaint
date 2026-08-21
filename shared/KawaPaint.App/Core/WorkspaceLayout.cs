@@ -1,4 +1,4 @@
-// KawaPaint — panel placement, keyed by panel id rather than by hardcoded property.
+// KawaPaint - panel placement, keyed by panel id rather than by hardcoded property.
 //
 // Replaces the four fixed properties of the original UiLayout: adding a panel is now a
 // registration, and an unknown id in a saved layout is simply ignored rather than being a
@@ -34,7 +34,7 @@ public sealed class PanelPlacement
     public double FloatX { get; set; } = 60;
     public double FloatY { get; set; } = 60;
 
-    /// <summary>NaN means "size to content" — set once the user resizes the floating panel.</summary>
+    /// <summary>NaN means "size to content" - set once the user resizes the floating panel.</summary>
     public double FloatWidth { get; set; } = double.NaN;
     public double FloatHeight { get; set; } = double.NaN;
 
@@ -70,7 +70,7 @@ public sealed class WorkspaceLayout
         var created = new PanelPlacement
         {
             Place = descriptor.DefaultPlace,
-            // A panel that starts Hidden has no "shown" placement to remember yet — falling back
+            // A panel that starts Hidden has no "shown" placement to remember yet - falling back
             // to Hidden here would make its very first toggle-visible a permanent no-op, since
             // ToggleVisible restores to LastShown. Floating is always a safe first placement.
             LastShown = descriptor.DefaultPlace == PanelPlace.Hidden ? PanelPlace.Floating : descriptor.DefaultPlace,

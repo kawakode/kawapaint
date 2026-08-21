@@ -1,4 +1,4 @@
-// KawaPaint — the set of image formats this build can actually read and write.
+// KawaPaint - the set of image formats this build can actually read and write.
 //
 // File dialogs are generated from here, so a format that failed to load its native library
 // simply does not appear rather than failing at save time.

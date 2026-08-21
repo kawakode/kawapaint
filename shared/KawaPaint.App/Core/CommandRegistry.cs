@@ -1,4 +1,4 @@
-// KawaPaint — the catalogue of everything the app can be asked to do.
+// KawaPaint - the catalogue of everything the app can be asked to do.
 
 using System;
 using System.Collections.Generic;
@@ -49,7 +49,7 @@ public sealed class CommandRegistry
         => _ordered.GroupBy(c => c.Category);
 
     /// <summary>
-    /// Optional hook wrapping every command dispatch, whatever fired it — menu item, keyboard
+    /// Optional hook wrapping every command dispatch, whatever fired it - menu item, keyboard
     /// shortcut or dock button. It returns a scope that is disposed once the command has run.
     /// The demo recorder uses it to log the command id once and then suppress the duplicate note
     /// the command's own menu handler would otherwise make while it runs.

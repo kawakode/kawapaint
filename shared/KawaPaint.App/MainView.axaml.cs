@@ -51,7 +51,7 @@ public partial class MainView : UserControl
     private const int MinBrushSize = 1;
     private const int MaxBrushSize = 500;
 
-    /// <summary>Paintbrush edge hardness, as whole percent — the toolbar talks in percent while
+    /// <summary>Paintbrush edge hardness, as whole percent - the toolbar talks in percent while
     /// SurfaceView.BrushHardness (and the engine below it) works in 0..1.</summary>
     public static readonly int[] HardnessPresets = { 0, 10, 25, 50, 75, 90, 100 };
     private const int MinHardness = 0;
@@ -61,7 +61,7 @@ public partial class MainView : UserControl
     private const int MinTolerance = 0;
     private const int MaxTolerance = 255;
 
-    /// <summary>The window that hosts this view, if any (null under the browser single-view host —
+    /// <summary>The window that hosts this view, if any (null under the browser single-view host -
     /// dialogs that need a Window owner are stubbed out there; see the OwnerWindow guards below).</summary>
     private Window? OwnerWindow => TopLevel.GetTopLevel(this) as Window;
 
@@ -152,7 +152,7 @@ public partial class MainView : UserControl
         RebuildLayoutPresetsMenu();
         RebuildRecentFilesMenu();
         RebuildPluginsMenu();
-        // Named handler (not a lambda) so it can be unsubscribed below — these are STATIC events,
+        // Named handler (not a lambda) so it can be unsubscribed below - these are STATIC events,
         // so without this a MainView instance (and everything it closes over) would stay reachable
         // for the process's whole lifetime the moment a second one is ever created, not just while
         // this one is on screen.
@@ -173,7 +173,7 @@ public partial class MainView : UserControl
         // Posted rather than called inline: History.Changed can fire from inside HistoryList's
         // own SelectionChanged dispatch (a row click -> OnHistorySelected -> JumpToHistory ->
         // History.Changed), and RebuildHistoryPanel's Items.Clear() reentering that same dispatch
-        // crashes Avalonia's SelectionModel (ArgumentOutOfRangeException deep in its internals —
+        // crashes Avalonia's SelectionModel (ArgumentOutOfRangeException deep in its internals -
         // reproduced and confirmed via a live repro before this fix). Posting lets the click's
         // own dispatch finish first. See the identical DocumentChanged/RebuildLayerPanel fix above.
         Canvas.History.Changed += (_, _) => Dispatcher.UIThread.Post(RebuildHistoryPanel);
@@ -265,7 +265,7 @@ public partial class MainView : UserControl
             AutosaveRecovery.Discard(_session.SessionId);
         }
 
-        // Only real project files on a real filesystem are worth remembering — an exported PNG
+        // Only real project files on a real filesystem are worth remembering - an exported PNG
         // or a browser-sandboxed handle has nothing a "recent files" entry could reopen.
         if (localPath is not null && localPath.EndsWith(DocumentFile.Extension, StringComparison.OrdinalIgnoreCase))
         {
@@ -287,7 +287,7 @@ public partial class MainView : UserControl
     private void UpdateTitle()
     {
         string name = _session?.DisplayName ?? _currentFile?.Name ?? "untitled";
-        TitleChanged?.Invoke((IsDirty ? "* " : "") + name + " — KawaPaint");
+        TitleChanged?.Invoke((IsDirty ? "* " : "") + name + " - KawaPaint");
     }
 
     /// <summary>Returns true if it's OK to proceed (saved or discarded); false if the user cancelled.
@@ -298,7 +298,7 @@ public partial class MainView : UserControl
         if (OwnerWindow is not { } owner)
         {
             // TODO(web): no in-canvas confirm-discard overlay yet, so the browser build proceeds
-            // without prompting — unsaved changes are silently discarded on New/Open.
+            // without prompting - unsaved changes are silently discarded on New/Open.
             return true;
         }
         var choice = await new ConfirmSaveDialog("Save changes to the current image before continuing?")
@@ -335,7 +335,7 @@ public partial class MainView : UserControl
                 overlay.Surface[x, y] = red;
 
         Canvas.SetDocument(doc);
-        StatusText.Text = "Demo document — left-drag to draw, wheel zoom, middle/right-drag pan, Ctrl+Z undo";
+        StatusText.Text = "Demo document - left-drag to draw, wheel zoom, middle/right-drag pan, Ctrl+Z undo";
     }
 
     private async void OnNew(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -354,7 +354,7 @@ public partial class MainView : UserControl
         }
         else
         {
-            // TODO(web): no New-Image size dialog yet — always creates a fixed 800x600 opaque canvas.
+            // TODO(web): no New-Image size dialog yet - always creates a fixed 800x600 opaque canvas.
             (w, h, dpi, transparent) = (800, 600, 96, false);
         }
 
@@ -389,7 +389,7 @@ public partial class MainView : UserControl
             layer.Surface.CopyFrom(loaded);
             Canvas.SetDocument(doc);
             SetClean(null);   // imported image has no project file yet
-            StatusText.Text = $"{file.Name} — {loaded.Width}×{loaded.Height}";
+            StatusText.Text = $"{file.Name} - {loaded.Width}×{loaded.Height}";
         }
         catch (Exception ex)
         {
@@ -451,7 +451,7 @@ public partial class MainView : UserControl
                 doc = DocumentFile.Load(stream);
             Canvas.SetDocument(doc);
             SetClean(file);
-            StatusText.Text = $"{file.Name} — {doc.LayerCount} layer(s)";
+            StatusText.Text = $"{file.Name} - {doc.LayerCount} layer(s)";
         }
         catch (Exception ex)
         {
@@ -755,7 +755,7 @@ public partial class MainView : UserControl
     {
         if (sender is not MenuItem mi || mi.Tag is not string tag || Canvas.ActiveLayer is null) return;
         // Whatever the user types into the dialog is what makes the result, and the demo format
-        // doesn't carry dialog parameters — so this is logged for playback, not replayed.
+        // doesn't carry dialog parameters - so this is logged for playback, not replayed.
         RecordSkipped("adjustment '" + tag + "'");
         if (OwnerWindow is not { } owner)
         {
@@ -987,7 +987,7 @@ public partial class MainView : UserControl
     }
 
     // These also exist as CommandRegistry commands, but a menu item or toolbar button reaches the
-    // handler directly without passing through the registry — so each one records for itself. The
+    // handler directly without passing through the registry - so each one records for itself. The
     // registry path suppresses the duplicate note (see DemoRecorder.Suppress).
     private void OnUndo(object? sender, Avalonia.Interactivity.RoutedEventArgs e) { RecordAction("edit.undo"); Canvas.Undo(); }
     private void OnRedo(object? sender, Avalonia.Interactivity.RoutedEventArgs e) { RecordAction("edit.redo"); Canvas.Redo(); }
@@ -1025,12 +1025,12 @@ public partial class MainView : UserControl
         Add("file.export", "Export Flattened", "File", () => OnSaveAs(this, empty), CtrlShift(Key.S));
         Add("file.linkGitProject", "Link Git Project Folder...", "File", () => _ = OnLinkGitProjectAsync());
 
-        // Edit — these stay with a focused text field, which has its own undo and select-all.
+        // Edit - these stay with a focused text field, which has its own undo and select-all.
         Add("edit.undo", "Undo", "Edit", () => Canvas.Undo(), Ctrl(Key.Z), suppressInTextInput: true, icon: "Undo");
         Add("edit.redo", "Redo", "Edit", () => Canvas.Redo(), CtrlShift(Key.Z),
             suppressInTextInput: true, icon: "Redo", altGesture: Ctrl(Key.Y));
 
-        // Clipboard — cut/copy/paste stay with a focused text field the same way undo/redo do.
+        // Clipboard - cut/copy/paste stay with a focused text field the same way undo/redo do.
         Add("edit.cut", "Cut", "Edit", () => OnCut(this, empty), Ctrl(Key.X), suppressInTextInput: true, icon: "Cut");
         Add("edit.copy", "Copy", "Edit", () => OnCopy(this, empty), Ctrl(Key.C), suppressInTextInput: true, icon: "Copy");
         Add("edit.copyMerged", "Copy Merged", "Edit", () => OnCopyMerged(this, empty), CtrlShift(Key.C), suppressInTextInput: true);
@@ -1179,7 +1179,7 @@ public partial class MainView : UserControl
             IconName = "PanelDock",
             DockedChrome = new Control[] { DockHeader },
             // Hidden until summoned (key combo / top-right icon); WorkspaceLayout.For then makes
-            // its first appearance Floating rather than docked to a side — see spec: "summoned...
+            // its first appearance Floating rather than docked to a side - see spec: "summoned...
             // floating window by default".
             DefaultPlace = PanelPlace.Hidden,
             DefaultDockSize = 220,
@@ -1343,7 +1343,7 @@ public partial class MainView : UserControl
         {
             DockContent.Children.Add(new TextBlock
             {
-                Text = "Empty — click the gear to add tools or colors.",
+                Text = "Empty - click the gear to add tools or colors.",
                 Foreground = Brushes.Gray,
                 TextWrapping = Avalonia.Media.TextWrapping.Wrap,
                 Width = 190
@@ -1368,7 +1368,7 @@ public partial class MainView : UserControl
 
         if (command is null)
         {
-            // The command was removed (e.g. a stale entry from an older build) — keep the slot
+            // The command was removed (e.g. a stale entry from an older build) - keep the slot
             // visible but inert rather than silently dropping it, so the user can see and remove it.
             btn.Content = "?";
             btn.IsEnabled = false;
@@ -1583,7 +1583,7 @@ public partial class MainView : UserControl
                 doc = DocumentFile.Load(stream);
             Canvas.SetDocument(doc);
             SetClean(file);
-            StatusText.Text = $"{file.Name} — {doc.LayerCount} layer(s)";
+            StatusText.Text = $"{file.Name} - {doc.LayerCount} layer(s)";
         }
         catch (Exception ex)
         {
@@ -1711,7 +1711,7 @@ public partial class MainView : UserControl
         byte r = Convert.ToByte(hex.Substring(1, 2), 16);
         byte g = Convert.ToByte(hex.Substring(3, 2), 16);
         byte bl = Convert.ToByte(hex.Substring(5, 2), 16);
-        // These swatches are labelled "Fg", so they always set the foreground — regardless of
+        // These swatches are labelled "Fg", so they always set the foreground - regardless of
         // which swatch the color wheel currently edits.
         SetForeground(ColorBgra.FromBgra(bl, g, r, 255));
     }
@@ -1974,7 +1974,7 @@ public partial class MainView : UserControl
     }
 
     // Grouped for the toolbar: additive/paint tools, then selection tools, then click-drag shapes
-    // — a divider is drawn between each group in BuildToolPalette.
+    // - a divider is drawn between each group in BuildToolPalette.
     private static readonly (string Key, string Name, string Shortcut)[][] ToolGroups =
     {
         new (string Key, string Name, string Shortcut)[]
@@ -2060,7 +2060,7 @@ public partial class MainView : UserControl
 
     /// <summary>Appends (or, on a reload, replaces) one more WrapPanel group for
     /// ToolRegistry-contributed tools, same ToggleButton/Icons.Create/Tag wiring as every built-in
-    /// group in BuildToolPalette above — additive, the static groups above are untouched.</summary>
+    /// group in BuildToolPalette above - additive, the static groups above are untouched.</summary>
     private void RebuildPluginToolButtons()
     {
         const string marker = "PluginToolGroup";
@@ -2186,8 +2186,8 @@ public partial class MainView : UserControl
 
     private void OnKeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
     {
-        // Avalonia's MenuItem.InputGesture only *renders* the shortcut text — it never handles the
-        // key — so every accelerator in the app is dispatched from here through the registry.
+        // Avalonia's MenuItem.InputGesture only *renders* the shortcut text - it never handles the
+        // key - so every accelerator in the app is dispatched from here through the registry.
         bool inTextBox = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox;
         if (_commands.HandleKey(e, inTextBox)) e.Handled = true;
     }
@@ -2247,7 +2247,7 @@ public partial class MainView : UserControl
 
     private bool _suppressSize;   // guards programmatic updates to SizeBox while applying a size
 
-    /// <summary>Sets the brush/outline size, clamped to range, and syncs SizeBox to match —
+    /// <summary>Sets the brush/outline size, clamped to range, and syncs SizeBox to match -
     /// selecting the matching preset if there is one, and always updating the editable text.</summary>
     private void ApplyBrushSize(int size)
     {
@@ -2285,7 +2285,7 @@ public partial class MainView : UserControl
         ApplyBrushSize(int.TryParse((SizeBox.Text ?? "").Trim(), out int size) ? size : Canvas.BrushWidth);
     }
 
-    /// <summary>Lets the wheel nudge the size while hovering SizeBox, Shift for a bigger jump —
+    /// <summary>Lets the wheel nudge the size while hovering SizeBox, Shift for a bigger jump -
     /// independent of the box's own built-in wheel behavior (see the handledEventsToo hookup).</summary>
     private void OnSizeWheel(object? sender, Avalonia.Input.PointerWheelEventArgs e)
     {
@@ -2299,7 +2299,7 @@ public partial class MainView : UserControl
     private bool _suppressHardness;   // guards programmatic updates to HardnessBox
 
     /// <summary>Sets the paintbrush hardness from a whole-percent value, clamped to range, and
-    /// syncs HardnessBox to match — same shape as ApplyBrushSize/ApplyTolerance above.</summary>
+    /// syncs HardnessBox to match - same shape as ApplyBrushSize/ApplyTolerance above.</summary>
     private void ApplyBrushHardness(int percent)
     {
         percent = Math.Clamp(percent, MinHardness, MaxHardness);
@@ -2369,7 +2369,7 @@ public partial class MainView : UserControl
 
     private bool _suppressTolerance;   // guards programmatic updates to ToleranceBox
 
-    /// <summary>Sets the fill tolerance, clamped to range, and syncs ToleranceBox to match —
+    /// <summary>Sets the fill tolerance, clamped to range, and syncs ToleranceBox to match -
     /// selecting the matching preset if there is one, and always updating the editable text.</summary>
     private void ApplyTolerance(int tol)
     {
@@ -2513,7 +2513,7 @@ public partial class MainView : UserControl
     // ---- history panel ------------------------------------------------------
     //
     // A registered panel like Tools or Layers (see BuildPanelManager). Row 0 is a synthetic
-    // "Start" entry for position 0 (nothing applied yet) — HistoryStack.Steps() only enumerates
+    // "Start" entry for position 0 (nothing applied yet) - HistoryStack.Steps() only enumerates
     // actual edits, but the empty state is a valid, clickable position too.
 
     private void RebuildHistoryPanel()
@@ -2663,7 +2663,7 @@ public partial class MainView : UserControl
         => Canvas.Selection is { IsActive: true } sel ? sel.GetBounds() : (0, 0, doc.Width, doc.Height);
 
     /// <summary>Crops to (x,y,w,h) and, if a selection is active, transparents whatever falls
-    /// outside its shape — so copying a non-rectangular selection copies its actual outline.</summary>
+    /// outside its shape - so copying a non-rectangular selection copies its actual outline.</summary>
     private static unsafe Surface ExtractRegion(Surface source, Selection? selection, int x, int y, int w, int h)
     {
         var region = source.Crop(x, y, w, h);
@@ -2894,7 +2894,7 @@ public partial class MainView : UserControl
             SurfaceOps.CompositeOver(layer.Surface, imported, 0, 0);
             Canvas.SetActiveLayer(layer);
 
-            // Detached-layer accounting — see the identical note on Paste Into New Layer above.
+            // Detached-layer accounting - see the identical note on Paste Into New Layer above.
             Canvas.History.Push(new DelegateMemento("Import Layer",
                 undo: () => { doc.RemoveLayer(layer); Canvas.SetActiveLayer(doc.Layers[^1]); },
                 redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); },
@@ -2984,7 +2984,7 @@ public partial class MainView : UserControl
         StatusText.Text = "Erased";
     }
 
-    /// <summary>Bytes a Surface holds — used to report the memory cost of a detached Layer to
+    /// <summary>Bytes a Surface holds - used to report the memory cost of a detached Layer to
     /// HistoryStack's budget (see the layer-lifecycle DelegateMementos below), the same way
     /// TileDeltaMemento/LayerSurfaceMemento already report theirs.</summary>
     private static long SurfaceBytes(Surface s) => (long)s.Stride * s.Height;
@@ -3065,9 +3065,9 @@ public partial class MainView : UserControl
         doc.RemoveLayer(active);
         Canvas.SetActiveLayer(below);
 
-        // belowBefore is owned by this memento for its whole lifetime (both directions — it's
+        // belowBefore is owned by this memento for its whole lifetime (both directions - it's
         // needed for undo whether or not the step is currently applied), unlike `active`, whose
-        // detached/attached state — and so whether it's this memento's to count/dispose — flips
+        // detached/attached state - and so whether it's this memento's to count/dispose - flips
         // with every toggle.
         Canvas.History.Push(new DelegateMemento("Merge Down",
             undo: () => { below.Surface.CopyFrom(belowBefore); doc.InsertLayer(idx, active); Canvas.SetActiveLayer(active); },

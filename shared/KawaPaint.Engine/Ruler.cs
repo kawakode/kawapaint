@@ -1,4 +1,4 @@
-// KawaPaint — pure math for ruler tick placement. No Avalonia dependency, so it's testable
+// KawaPaint - pure math for ruler tick placement. No Avalonia dependency, so it's testable
 // headlessly; the actual drawing lives in KawaPaint.App.RulerBar.
 
 namespace KawaPaint.Engine;

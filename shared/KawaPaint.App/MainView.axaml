@@ -65,6 +65,23 @@
                 <MenuItem Header="Save _Project…" Click="OnSaveProject" InputGesture="Ctrl+S" Icon="{app:Icon Save}" />
                 <MenuItem Header="_Export Flattened…" Click="OnSaveAs" InputGesture="Ctrl+Shift+S" Icon="{app:Icon Export}" />
                 <Separator />
+                <MenuItem Header="_Record">
+                    <MenuItem x:Name="DemoRecordItem" Header="_Record Demo" Click="OnDemoRecord"
+                              ToolTip.Tip="Record what you do as a replayable .kpdemo file" />
+                    <Separator />
+                    <MenuItem x:Name="DemoPlayItem" Header="_Play Demo…" Click="OnDemoPlay" />
+                    <MenuItem x:Name="DemoPauseItem" Header="_Pause" Click="OnDemoPausePlayback" IsEnabled="False" />
+                    <MenuItem x:Name="DemoStopItem" Header="_Stop Playback" Click="OnDemoStopPlayback" IsEnabled="False" />
+                    <Separator />
+                    <MenuItem Header="Playback _Speed">
+                        <MenuItem Header="0.5×" Tag="0.5" Click="OnDemoSpeed" />
+                        <MenuItem Header="1×" Tag="1" Click="OnDemoSpeed" />
+                        <MenuItem Header="2×" Tag="2" Click="OnDemoSpeed" />
+                        <MenuItem Header="4×" Tag="4" Click="OnDemoSpeed" />
+                        <MenuItem Header="8×" Tag="8" Click="OnDemoSpeed" />
+                    </MenuItem>
+                </MenuItem>
+                <Separator />
                 <MenuItem Header="E_xit" Click="OnExit" Icon="{app:Icon Exit}" />
             </MenuItem>
             <MenuItem Header="_Edit" Classes="topbar">
@@ -244,22 +261,6 @@
                 <MenuItem Header="_Manage Plugins…" Click="OnManagePlugins" Icon="{app:Icon Plugin}" />
                 <Separator />
                 <MenuItem Header="_Reset Layout" Click="OnResetLayout" />
-            </MenuItem>
-            <MenuItem Header="_Demo" Classes="topbar">
-                <MenuItem x:Name="DemoRecordItem" Header="_Record Demo" Click="OnDemoRecord"
-                          ToolTip.Tip="Record what you do as a replayable .kpdemo file" />
-                <Separator />
-                <MenuItem x:Name="DemoPlayItem" Header="_Play Demo…" Click="OnDemoPlay" />
-                <MenuItem x:Name="DemoPauseItem" Header="_Pause" Click="OnDemoPausePlayback" IsEnabled="False" />
-                <MenuItem x:Name="DemoStopItem" Header="_Stop Playback" Click="OnDemoStopPlayback" IsEnabled="False" />
-                <Separator />
-                <MenuItem Header="Playback _Speed">
-                    <MenuItem Header="0.5×" Tag="0.5" Click="OnDemoSpeed" />
-                    <MenuItem Header="1×" Tag="1" Click="OnDemoSpeed" />
-                    <MenuItem Header="2×" Tag="2" Click="OnDemoSpeed" />
-                    <MenuItem Header="4×" Tag="4" Click="OnDemoSpeed" />
-                    <MenuItem Header="8×" Tag="8" Click="OnDemoSpeed" />
-                </MenuItem>
             </MenuItem>
             <MenuItem Header="_Help" Classes="topbar">
                 <MenuItem Header="_About KawaPaint…" Click="OnAbout" />

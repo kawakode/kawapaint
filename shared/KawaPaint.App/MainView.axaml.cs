@@ -168,7 +168,7 @@ public partial class MainView : UserControl
         ApplyHistorySettings();
         SyncWheelToActiveColor();
         RefreshSwatches();
-        LoadDemoDocument();
+        LoadStartupDocument();
         Canvas.History.Changed += (_, _) => MarkDirty();
         // Posted rather than called inline: History.Changed can fire from inside HistoryList's
         // own SelectionChanged dispatch (a row click -> OnHistorySelected -> JumpToHistory ->
@@ -181,6 +181,7 @@ public partial class MainView : UserControl
         RebuildCustomDock();
         SetClean(null);
         SelectTool("Pencil");
+        InitializeDemo();   // after BuildCommands: it hooks the registry's dispatch scope
 
         _autosave = new AutosaveService(_settings, () => _session);
         _autosave.Saved += name => StatusText.Text = $"Autosaved {name} at {DateTime.Now:HH:mm}";
@@ -312,7 +313,7 @@ public partial class MainView : UserControl
 
     // ---- documents --------------------------------------------------------
 
-    private void LoadDemoDocument()
+    private void LoadStartupDocument()
     {
         var doc = new Document(800, 600);
 
@@ -339,6 +340,7 @@ public partial class MainView : UserControl
 
     private async void OnNew(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        RecordSkipped("New Image");
         if (!await ConfirmDiscardAsync()) return;
 
         int w, h;
@@ -366,6 +368,7 @@ public partial class MainView : UserControl
 
     private async void OnOpen(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        RecordSkipped("Open Image");
         if (!await ConfirmDiscardAsync()) return;
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
@@ -426,6 +429,7 @@ public partial class MainView : UserControl
 
     private async void OnOpenProject(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        RecordSkipped("Open Project");
         if (!await ConfirmDiscardAsync()) return;
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
@@ -581,6 +585,7 @@ public partial class MainView : UserControl
         if (sender is not MenuItem mi || mi.Tag is not string tag) return;
         var layer = Canvas.ActiveLayer;
         if (layer is null) return;
+        RecordAction("effect." + tag);   // parameterless: fully reproducible from the tag alone
 
         KawaPaint.Engine.IEffect fx = tag switch
         {
@@ -627,6 +632,7 @@ public partial class MainView : UserControl
     {
         var doc = Canvas.Document;
         if (doc is null) return;
+        RecordSkipped("Resize Image");
         if (OwnerWindow is not { } owner)
         {
             // TODO(web): Resize needs a dialog for the target size; not available in the browser build yet.
@@ -647,6 +653,7 @@ public partial class MainView : UserControl
     {
         var doc = Canvas.Document;
         if (doc is null) return;
+        RecordSkipped("Canvas Size");
         if (OwnerWindow is not { } owner)
         {
             // TODO(web): Canvas Size needs a dialog for the target size/anchor; not available in
@@ -672,6 +679,7 @@ public partial class MainView : UserControl
 
         var (x, y, w, h) = sel.GetBounds();
         if (w <= 0 || h <= 0) return;
+        RecordAction("image.crop");
         ApplyDocumentOp("Crop to Selection", d => DocumentOps.Crop(d, x, y, w, h));
         StatusText.Text = $"Cropped to {w}×{h}";
     }
@@ -679,6 +687,7 @@ public partial class MainView : UserControl
     private void OnFlipH(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         var doc = Canvas.Document; if (doc is null) return;
+        RecordAction("image.flipH");
         DocumentOps.FlipHorizontal(doc);
         Canvas.History.Push(new DelegateMemento("Flip Horizontal",
             () => DocumentOps.FlipHorizontal(doc), () => DocumentOps.FlipHorizontal(doc)));
@@ -689,6 +698,7 @@ public partial class MainView : UserControl
     private void OnFlipV(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         var doc = Canvas.Document; if (doc is null) return;
+        RecordAction("image.flipV");
         DocumentOps.FlipVertical(doc);
         Canvas.History.Push(new DelegateMemento("Flip Vertical",
             () => DocumentOps.FlipVertical(doc), () => DocumentOps.FlipVertical(doc)));
@@ -701,6 +711,7 @@ public partial class MainView : UserControl
 
     private void Rotate(bool cw)
     {
+        RecordAction(cw ? "image.rotateCW" : "image.rotateCCW");
         string name = cw ? "Rotate 90° CW" : "Rotate 90° CCW";
         ApplyDocumentOp(name, d => DocumentOps.Rotate90(d, cw));
         StatusText.Text = cw ? "Rotated 90° CW" : "Rotated 90° CCW";
@@ -711,12 +722,14 @@ public partial class MainView : UserControl
         var doc = Canvas.Document;
         if (doc is null) return;
         if (doc.LayerCount <= 1) { StatusText.Text = "Already a single layer"; return; }
+        RecordAction("image.flatten");
         ApplyDocumentOp("Flatten Image", DocumentOps.Flatten);
         StatusText.Text = "Flattened";
     }
 
     private void OnSelectNone(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        RecordAction("select.none");
         Canvas.Selection?.SelectNone();
         Canvas.NotifySelectionChanged();
         StatusText.Text = "Selection cleared";
@@ -724,6 +737,7 @@ public partial class MainView : UserControl
 
     private void OnSelectAll(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        RecordAction("select.all");
         Canvas.Selection?.SelectAll();
         Canvas.NotifySelectionChanged();
         StatusText.Text = "Selected all";
@@ -731,6 +745,7 @@ public partial class MainView : UserControl
 
     private void OnInvertSelection(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        RecordAction("select.invert");
         Canvas.Selection?.Invert();
         Canvas.NotifySelectionChanged();
         StatusText.Text = "Selection inverted";
@@ -739,6 +754,9 @@ public partial class MainView : UserControl
     private async void OnAdjust(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (sender is not MenuItem mi || mi.Tag is not string tag || Canvas.ActiveLayer is null) return;
+        // Whatever the user types into the dialog is what makes the result, and the demo format
+        // doesn't carry dialog parameters — so this is logged for playback, not replayed.
+        RecordSkipped("adjustment '" + tag + "'");
         if (OwnerWindow is not { } owner)
         {
             // TODO(web): live-preview Adjustment dialogs (Brightness/Contrast, Hue/Saturation,
@@ -957,6 +975,7 @@ public partial class MainView : UserControl
     private async void OnCurves(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (Canvas.ActiveLayer is null) return;
+        RecordSkipped("Curves");
         if (OwnerWindow is not { } owner)
         {
             // TODO(web): Curves needs an in-canvas dialog host; not available in the browser build yet.
@@ -967,12 +986,15 @@ public partial class MainView : UserControl
         StatusText.Text = "Curves";
     }
 
-    private void OnUndo(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.Undo();
-    private void OnRedo(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.Redo();
-    private void OnZoomIn(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.ZoomIn();
-    private void OnZoomOut(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.ZoomOut();
-    private void OnZoomFit(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.ZoomToFit();
-    private void OnZoomActual(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Canvas.ZoomActual();
+    // These also exist as CommandRegistry commands, but a menu item or toolbar button reaches the
+    // handler directly without passing through the registry — so each one records for itself. The
+    // registry path suppresses the duplicate note (see DemoRecorder.Suppress).
+    private void OnUndo(object? sender, Avalonia.Interactivity.RoutedEventArgs e) { RecordAction("edit.undo"); Canvas.Undo(); }
+    private void OnRedo(object? sender, Avalonia.Interactivity.RoutedEventArgs e) { RecordAction("edit.redo"); Canvas.Redo(); }
+    private void OnZoomIn(object? sender, Avalonia.Interactivity.RoutedEventArgs e) { RecordAction("view.zoomIn"); Canvas.ZoomIn(); }
+    private void OnZoomOut(object? sender, Avalonia.Interactivity.RoutedEventArgs e) { RecordAction("view.zoomOut"); Canvas.ZoomOut(); }
+    private void OnZoomFit(object? sender, Avalonia.Interactivity.RoutedEventArgs e) { RecordAction("view.zoomFit"); Canvas.ZoomToFit(); }
+    private void OnZoomActual(object? sender, Avalonia.Interactivity.RoutedEventArgs e) { RecordAction("view.zoomActual"); Canvas.ZoomActual(); }
 
     // ---- commands ---------------------------------------------------------
     //
@@ -1199,13 +1221,17 @@ public partial class MainView : UserControl
     /// wherever it was last shown (its dock side, or Floating at its last position).</summary>
     private void OnPanelToggle(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (sender is ToggleButton { Tag: string id }) _panels.ToggleVisible(id);
+        if (sender is not ToggleButton { Tag: string id }) return;
+        RecordAction("panel.toggle." + id);
+        _panels.ToggleVisible(id);
     }
 
     /// <summary>Per-panel float button: undocks a docked panel, or docks a floating one.</summary>
     private void OnPanelFloatToggle(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (sender is ToggleButton { Tag: string id }) _panels.ToggleFloat(id);
+        if (sender is not ToggleButton { Tag: string id }) return;
+        RecordAction("panel.float." + id);
+        _panels.ToggleFloat(id);
     }
 
     private void RefreshPanelToggleButtons()
@@ -1287,6 +1313,7 @@ public partial class MainView : UserControl
     private void OnSetRulerUnit(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (sender is not MenuItem { Tag: string tag } || !Enum.TryParse<RulerUnit>(tag, out var unit)) return;
+        RecordAction("view.rulerUnit." + tag);
         _settings.Settings.Workspace.RulerUnit = unit;
         ApplyRulerUnit(unit);
         _settings.Save();
@@ -1294,6 +1321,7 @@ public partial class MainView : UserControl
 
     private void OnToggleRulers(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        RecordAction("view.rulers.toggle");
         var workspace = _settings.Settings.Workspace;
         workspace.ShowRulers = !workspace.ShowRulers;
         ApplyRulerVisibility(workspace.ShowRulers);
@@ -1501,6 +1529,7 @@ public partial class MainView : UserControl
     private void OnPluginEffect(KawaPaint.Engine.Plugins.PluginEffectDescriptor descriptor)
     {
         if (Canvas.ActiveLayer is null) return;
+        RecordSkipped("plugin effect '" + descriptor.DisplayName + "'");
         if (OwnerWindow is not { } owner)
         {
             StatusText.Text = "Plugin effects aren't available in the browser build yet";
@@ -1751,6 +1780,7 @@ public partial class MainView : UserControl
 
     private void OnSwapColors(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        RecordAction("color.swap");
         (Canvas.BrushColor, Canvas.SecondaryColor) = (Canvas.SecondaryColor, Canvas.BrushColor);
         SyncWheelToActiveColor();
         RefreshSwatches();
@@ -1875,6 +1905,7 @@ public partial class MainView : UserControl
 
     private void SetForeground(ColorBgra c)
     {
+        RecordColor(Core.Demo.DemoColorSlot.Foreground, c);
         Canvas.BrushColor = c;
         if (!_editingSecondary) SyncWheelToActiveColor();
         RefreshSwatches();
@@ -1882,6 +1913,7 @@ public partial class MainView : UserControl
 
     private void SetBackground(ColorBgra c)
     {
+        RecordColor(Core.Demo.DemoColorSlot.Background, c);
         Canvas.SecondaryColor = c;
         if (_editingSecondary) SyncWheelToActiveColor();
         RefreshSwatches();
@@ -2079,6 +2111,7 @@ public partial class MainView : UserControl
 
     private void SelectTool(string tag)
     {
+        RecordTool(tag);
         _currentToolTag = tag;
         foreach (var b in _toolButtons)
             b.IsChecked = (b.Tag as string) == tag;
@@ -2133,7 +2166,14 @@ public partial class MainView : UserControl
     {
         if (sender is not ToggleButton { Tag: string tag }) return;
         if (!Enum.TryParse<SelectionCombineMode>(tag, out var mode)) return;
+        ApplySelectionCombineMode(mode);
+    }
 
+    /// <summary>Sets the combine mode and re-syncs the four buttons. Split out from the click
+    /// handler so demo playback can set it without a ToggleButton to hang the Tag off.</summary>
+    private void ApplySelectionCombineMode(SelectionCombineMode mode)
+    {
+        RecordParam(Core.Demo.DemoParam.SelectionCombineMode, (int)mode);
         Canvas.SelectionCombineMode = mode;
 
         // These four act as a radio group; Avalonia's ToggleButton has no built-in GroupName
@@ -2156,6 +2196,16 @@ public partial class MainView : UserControl
     {
         var layer = Canvas.ActiveLayer;
         if (layer is null) return;
+
+        // The typed string is dialog input, so it isn't in the demo file. Opening a modal prompt
+        // in the middle of a replay would also stall the player's clock behind it.
+        if (IsPlayingDemo)
+        {
+            StatusText.Text = "Demo: skipped Text (the typed string isn't recorded)";
+            return;
+        }
+        RecordSkipped("Text");
+
         if (OwnerWindow is not { } owner)
         {
             // TODO(web): Text tool needs an in-canvas prompt for the string/size; not available
@@ -2202,6 +2252,7 @@ public partial class MainView : UserControl
     private void ApplyBrushSize(int size)
     {
         size = Math.Clamp(size, MinBrushSize, MaxBrushSize);
+        RecordParam(Core.Demo.DemoParam.BrushSize, size);
         if (Canvas is not null) Canvas.BrushWidth = size;
         if (SizeBox is null) return;
 
@@ -2252,6 +2303,7 @@ public partial class MainView : UserControl
     private void ApplyBrushHardness(int percent)
     {
         percent = Math.Clamp(percent, MinHardness, MaxHardness);
+        RecordParam(Core.Demo.DemoParam.Hardness, percent);
         if (Canvas is not null) Canvas.BrushHardness = percent / 100.0;
         if (HardnessBox is null) return;
 
@@ -2296,17 +2348,23 @@ public partial class MainView : UserControl
 
     private void OnAntialias(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (Canvas is not null && AntialiasCheck is not null) Canvas.Antialias = AntialiasCheck.IsChecked ?? true;
+        if (Canvas is null || AntialiasCheck is null) return;
+        Canvas.Antialias = AntialiasCheck.IsChecked ?? true;
+        RecordParam(Core.Demo.DemoParam.Antialias, Canvas.Antialias);
     }
 
     private void OnFillShapes(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (Canvas is not null && FillShapesCheck is not null) Canvas.FillShapes = FillShapesCheck.IsChecked ?? false;
+        if (Canvas is null || FillShapesCheck is null) return;
+        Canvas.FillShapes = FillShapesCheck.IsChecked ?? false;
+        RecordParam(Core.Demo.DemoParam.FillShapes, Canvas.FillShapes);
     }
 
     private void OnGlobalFill(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (Canvas is not null && GlobalFillCheck is not null) Canvas.GlobalFill = GlobalFillCheck.IsChecked ?? false;
+        if (Canvas is null || GlobalFillCheck is null) return;
+        Canvas.GlobalFill = GlobalFillCheck.IsChecked ?? false;
+        RecordParam(Core.Demo.DemoParam.GlobalFill, Canvas.GlobalFill);
     }
 
     private bool _suppressTolerance;   // guards programmatic updates to ToleranceBox
@@ -2316,6 +2374,7 @@ public partial class MainView : UserControl
     private void ApplyTolerance(int tol)
     {
         tol = Math.Clamp(tol, MinTolerance, MaxTolerance);
+        RecordParam(Core.Demo.DemoParam.Tolerance, tol);
         if (Canvas is not null) Canvas.FillTolerance = tol;
         if (ToleranceBox is null) return;
 
@@ -2383,6 +2442,8 @@ public partial class MainView : UserControl
             {
                 if (_suppress) return;
                 bool now = check.IsChecked ?? true;
+                if (Canvas.Document is { } d)
+                    RecordAction($"layer.visible.{d.IndexOf(capturedLayer)}.{(now ? 1 : 0)}");
                 capturedLayer.Visible = now;
                 Canvas.History.Push(new DelegateMemento("Toggle Visibility",
                     undo: () => capturedLayer.Visible = !now,
@@ -2486,11 +2547,16 @@ public partial class MainView : UserControl
     private void OnHistorySelected(object? sender, SelectionChangedEventArgs e)
     {
         if (_suppressHistory) return;
-        if (HistoryList.SelectedItem is ListBoxItem { Tag: int position }) Canvas.JumpToHistory(position);
+        if (HistoryList.SelectedItem is ListBoxItem { Tag: int position })
+        {
+            RecordAction("history.jump." + position);
+            Canvas.JumpToHistory(position);
+        }
     }
 
     private void OnClearHistory(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        RecordAction("history.clear");
         Canvas.ClearHistory();
         StatusText.Text = "History cleared";
     }
@@ -2499,7 +2565,10 @@ public partial class MainView : UserControl
     {
         if (_suppress) return;
         if (LayerList.SelectedItem is ListBoxItem { Tag: Layer layer })
+        {
+            if (Canvas.Document is { } doc) RecordAction("layer.select." + doc.IndexOf(layer));
             Canvas.SetActiveLayer(layer);
+        }
     }
 
     // ---- layer drag-reorder ----------------------------------------------
@@ -2559,6 +2628,7 @@ public partial class MainView : UserControl
         int from = _dragFromIndex, to = doc.IndexOf(layer);
         if (to < 0 || to == from) return;
 
+        RecordAction($"layer.reorder.{from}.{to}");
         Canvas.History.Push(new DelegateMemento("Reorder Layer",
             undo: () => doc.MoveLayer(to, from),
             redo: () => doc.MoveLayer(from, to)));
@@ -2628,6 +2698,7 @@ public partial class MainView : UserControl
 
     private async void OnCopy(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        RecordAction("edit.copy");
         var doc = Canvas.Document;
         var layer = Canvas.ActiveLayer;
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
@@ -2644,6 +2715,7 @@ public partial class MainView : UserControl
 
     private async void OnCopyMerged(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        RecordAction("edit.copyMerged");
         var doc = Canvas.Document;
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (doc is null || clipboard is null) return;
@@ -2660,6 +2732,7 @@ public partial class MainView : UserControl
 
     private async void OnCut(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        RecordAction("edit.cut");
         var doc = Canvas.Document;
         var layer = Canvas.ActiveLayer;
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
@@ -2709,6 +2782,7 @@ public partial class MainView : UserControl
 
     private async void OnPaste(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        RecordSkipped("Paste");
         var doc = Canvas.Document;
         var layer = Canvas.ActiveLayer;
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
@@ -2748,6 +2822,7 @@ public partial class MainView : UserControl
 
     private async void OnPasteIntoNewLayer(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        RecordSkipped("Paste Into New Layer");
         var doc = Canvas.Document;
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (doc is null || clipboard is null) return;
@@ -2799,6 +2874,7 @@ public partial class MainView : UserControl
     {
         var doc = Canvas.Document;
         if (doc is null) return;
+        RecordSkipped("Import Layer");
 
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
@@ -2836,6 +2912,7 @@ public partial class MainView : UserControl
 
     private async void OnPasteIntoNewImage(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        RecordSkipped("Paste Into New Image");
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard is null) return;
 
@@ -2858,6 +2935,7 @@ public partial class MainView : UserControl
         var doc = Canvas.Document;
         var layer = Canvas.ActiveLayer;
         if (doc is null || layer is null) return;
+        RecordAction("select.fill");
 
         var (x, y, w, h) = SelectionOrCanvasBounds(doc);
         if (w <= 0 || h <= 0) return;
@@ -2884,6 +2962,7 @@ public partial class MainView : UserControl
         var doc = Canvas.Document;
         var layer = Canvas.ActiveLayer;
         if (doc is null || layer is null) return;
+        RecordAction("select.erase");
 
         var (x, y, w, h) = SelectionOrCanvasBounds(doc);
         if (w <= 0 || h <= 0) return;
@@ -2914,6 +2993,7 @@ public partial class MainView : UserControl
     {
         var doc = Canvas.Document;
         if (doc is null) return;
+        RecordAction("layer.add");
         var layer = doc.AddLayer();
         Canvas.SetActiveLayer(layer);
 
@@ -2934,6 +3014,7 @@ public partial class MainView : UserControl
         var doc = Canvas.Document;
         var active = Canvas.ActiveLayer;
         if (doc is null || active is null || doc.LayerCount <= 1) return;
+        RecordAction("layer.delete");
 
         int idx = doc.IndexOf(active);
         doc.RemoveLayer(active);   // not disposed: undo may restore it
@@ -2953,6 +3034,7 @@ public partial class MainView : UserControl
         var doc = Canvas.Document;
         var active = Canvas.ActiveLayer;
         if (doc is null || active is null) return;
+        RecordAction("layer.duplicate");
 
         int idx = doc.IndexOf(active);
         var dup = active.Clone();
@@ -2975,6 +3057,7 @@ public partial class MainView : UserControl
         if (doc is null || active is null) return;
         int idx = doc.IndexOf(active);
         if (idx <= 0) { StatusText.Text = "Nothing below to merge into"; return; }
+        RecordAction("layer.mergeDown");
 
         var below = doc.Layers[idx - 1];
         var belowBefore = below.Surface.Clone();
@@ -3003,6 +3086,7 @@ public partial class MainView : UserControl
         int from = doc.IndexOf(active);
         int to = from + delta;
         if (to < 0 || to >= doc.LayerCount) return;
+        RecordAction(delta > 0 ? "layer.up" : "layer.down");
         doc.MoveLayer(from, to);
 
         Canvas.History.Push(new DelegateMemento("Reorder Layer",
@@ -3021,6 +3105,7 @@ public partial class MainView : UserControl
         if (BlendCombo.SelectedItem is BlendMode mode)
         {
             var layer = Canvas.ActiveLayer;
+            RecordAction("layer.blend." + mode);
             BlendMode old = e.RemovedItems.Count > 0 && e.RemovedItems[0] is BlendMode om ? om : layer.BlendMode;
             layer.BlendMode = mode;
             Canvas.History.Push(new DelegateMemento("Blend Mode",
@@ -3047,8 +3132,12 @@ public partial class MainView : UserControl
         if (layer is null || _opacityBefore is null) return;
         byte before = _opacityBefore.Value, after = layer.Opacity;
         _opacityBefore = null;
-        if (before != after)
-            Canvas.History.Push(new DelegateMemento("Opacity",
-                () => layer.Opacity = before, () => layer.Opacity = after));
+        if (before == after) return;
+
+        // Only the settled value is recorded, not every frame of the slider drag: the intermediate
+        // values leave no trace in the document, and a replay of them would just be noise.
+        RecordAction("layer.opacity." + after);
+        Canvas.History.Push(new DelegateMemento("Opacity",
+            () => layer.Opacity = before, () => layer.Opacity = after));
     }
 }

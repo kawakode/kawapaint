@@ -48,11 +48,28 @@ public sealed class CommandRegistry
     public IEnumerable<IGrouping<string, AppCommand>> ByCategory()
         => _ordered.GroupBy(c => c.Category);
 
+    /// <summary>
+    /// Optional hook wrapping every command dispatch, whatever fired it — menu item, keyboard
+    /// shortcut or dock button. It returns a scope that is disposed once the command has run.
+    /// The demo recorder uses it to log the command id once and then suppress the duplicate note
+    /// the command's own menu handler would otherwise make while it runs.
+    /// </summary>
+    public Func<AppCommand, IDisposable?>? DispatchScope { get; set; }
+
+    /// <summary>The single funnel every dispatch path goes through, so <see cref="DispatchScope"/>
+    /// sees all of them.</summary>
+    private void Run(AppCommand command)
+    {
+        if (!command.IsEnabled) return;
+        using var scope = DispatchScope?.Invoke(command);
+        command.Execute();
+    }
+
     public bool Execute(string id)
     {
         var command = Find(id);
         if (command is null || !command.IsEnabled) return false;
-        command.Execute();
+        Run(command);
         return true;
     }
 
@@ -91,7 +108,7 @@ public sealed class CommandRegistry
             if (!matches) continue;
             if (!command.IsEnabled) return false;
 
-            command.Execute();
+            Run(command);
             return true;
         }
         return false;
@@ -102,7 +119,7 @@ public sealed class CommandRegistry
     {
         var command = Find(id) ?? throw new ArgumentException($"Unknown command '{id}'.", nameof(id));
         var item = new MenuItem { Header = command.Label, InputGesture = GestureFor(command) };
-        item.Click += (_, _) => command.Execute();
+        item.Click += (_, _) => Run(command);
         return item;
     }
 }

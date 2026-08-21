@@ -296,6 +296,14 @@ public sealed class SurfaceView : Control
             context.DrawEllipse(null, CursorLight, cs, r + 1, r + 1);
             context.DrawEllipse(null, CursorDark, cs, r, r);
         }
+
+        if (_demoCursorImage is Point dc)
+        {
+            Point p = ImageToControl(dc.X, dc.Y);
+            double r = Math.Max(4.0, Math.Max(1.0, BrushWidth / 2.0) * _zoom);
+            context.DrawEllipse(_demoCursorDown ? DemoCursorFill : null, DemoCursorPen, p, r, r);
+            context.DrawEllipse(null, DemoCursorPen, p, 1.5, 1.5);
+        }
     }
 
     private void DrawMarchingAnts(DrawingContext context, Selection sel)
@@ -361,7 +369,7 @@ public sealed class SurfaceView : Control
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
     {
         base.OnPointerWheelChanged(e);
-        if (_composite is null) return;
+        if (SuppressPointerInput || _composite is null) return;
 
         if (e.Delta.Y == 0)
         {
@@ -393,7 +401,46 @@ public sealed class SurfaceView : Control
 
     private Point ControlToImage(Point p) => new((p.X - _origin.X) / _zoom, (p.Y - _origin.Y) / _zoom);
 
+    private Point ImageToControl(double ix, double iy) => new(_origin.X + ix * _zoom, _origin.Y + iy * _zoom);
+
     private bool ShowsBrushCursor => CurrentTool is PencilTool or EraserTool or CloneStampTool or RecolorTool;
+
+    /// <summary>
+    /// Restores an exact zoom/pan, as recorded in a demo's View events. Every other zoom path is
+    /// relative to an anchor, which cannot reproduce a recorded view on a differently sized window.
+    /// </summary>
+    public void SetView(double zoom, double originX, double originY)
+    {
+        if (_composite is null) return;
+        _fitPending = false;   // an explicit view beats the pending initial fit
+        _zoom = Math.Clamp(zoom, 0.02, 64.0);
+        _origin = new Point(originX, originY);
+        InvalidateVisual();
+        ZoomChanged?.Invoke(_zoom);
+        ViewChanged?.Invoke();
+    }
+
+    // ---- demo playback cursor --------------------------------------------
+    //
+    // A replay with no visible pointer is hard to read: strokes appear from nowhere and the pauses
+    // between them look like the app hung. This is a separate overlay from the brush cursor above
+    // because it has to show for every tool, and has to show the button state.
+
+    private Point? _demoCursorImage;
+    private bool _demoCursorDown;
+
+    private static readonly IPen DemoCursorPen = new Pen(new SolidColorBrush(Color.FromArgb(230, 255, 220, 80)), 1.5);
+    private static readonly IBrush DemoCursorFill = new SolidColorBrush(Color.FromArgb(110, 255, 220, 80));
+
+    /// <summary>Places the replay cursor at an image-space point. Null hides it.</summary>
+    public void SetDemoCursor(double? ix, double? iy, bool down)
+    {
+        Point? next = ix is null || iy is null ? null : new Point(ix.Value, iy.Value);
+        if (next == _demoCursorImage && down == _demoCursorDown) return;
+        _demoCursorImage = next;
+        _demoCursorDown = down;
+        InvalidateVisual();
+    }
 
     protected override void OnPointerExited(PointerEventArgs e)
     {
@@ -432,9 +479,18 @@ public sealed class SurfaceView : Control
 
     public void ZoomActual() => ZoomAround(ViewportCenter, 1.0 / _zoom);
 
+    /// <summary>
+    /// While true, real pointer and wheel input on the canvas is ignored. Demo playback sets this:
+    /// it drives strokes through BeginStroke/ExtendStroke, and a stray mouse move over the canvas
+    /// would otherwise be handed to the very same in-flight gesture and drawn into the replay.
+    /// (Found by moving the mouse during a replay and watching a line shoot off to the pointer.)
+    /// </summary>
+    public bool SuppressPointerInput { get; set; }
+
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
+        if (SuppressPointerInput) return;
         var pt = e.GetCurrentPoint(this);
 
         if (pt.Properties.IsMiddleButtonPressed || pt.Properties.IsRightButtonPressed)
@@ -445,13 +501,42 @@ public sealed class SurfaceView : Control
         }
         else if (pt.Properties.IsLeftButtonPressed && ActiveLayer is not null && _composite is not null)
         {
-            _drawing = true;
-            Layer layer = ActiveLayer;
-
-            _preStroke?.Dispose();
-            _preStroke = layer.Surface.Clone();
-
             Point img = ControlToImage(pt.Position);
+            bool ctrl = e.KeyModifiers.HasFlag(KeyModifiers.Control);
+            if (BeginStroke(img.X, img.Y, ctrl)) StrokeBegan?.Invoke(img.X, img.Y, ctrl);
+            e.Pointer.Capture(this);
+        }
+    }
+
+    /// <summary>
+    /// Raised when a stroke starts from real pointer input, with the image-space coordinate and
+    /// whether Ctrl was held. Deliberately *not* raised by <see cref="BeginStroke"/> itself, so a
+    /// demo being replayed through that method cannot re-record itself. Same for the two below.
+    /// </summary>
+    public event Action<double, double, bool>? StrokeBegan;
+
+    public event Action<double, double>? StrokeExtended;
+
+    public event Action? StrokeEnded;
+
+    /// <summary>
+    /// Starts a tool gesture at an image-space point. Shared by the pointer handler and by demo
+    /// playback, which is the reason it takes image coordinates rather than a control-space Point:
+    /// a replay must land on the same pixels regardless of the window size or zoom it runs at.
+    /// Returns false when there is nothing to draw on.
+    /// </summary>
+    public bool BeginStroke(double ix, double iy, bool ctrl)
+    {
+        if (ActiveLayer is null || _composite is null) return false;
+        if (_drawing) EndStroke();
+
+        _drawing = true;
+        Layer layer = ActiveLayer;
+
+        _preStroke?.Dispose();
+        _preStroke = layer.Surface.Clone();
+
+        {
             _toolCtx = new ToolContext
             {
                 Layer = layer,
@@ -464,10 +549,10 @@ public sealed class SurfaceView : Control
                 FillTolerance = FillTolerance,
                 GlobalFill = GlobalFill,
                 FillShapes = FillShapes,
-                CtrlHeld = e.KeyModifiers.HasFlag(KeyModifiers.Control),
+                CtrlHeld = ctrl,
                 DocumentVersion = _documentVersion,
-                X = img.X,
-                Y = img.Y,
+                X = ix,
+                Y = iy,
                 PushHistory = () =>
                 {
                     _pendingHistoryLayer = layer;
@@ -485,13 +570,31 @@ public sealed class SurfaceView : Control
             };
 
             CurrentTool.PointerDown(_toolCtx);
-            e.Pointer.Capture(this);
         }
+
+        return true;
+    }
+
+    /// <summary>Continues the in-flight gesture at an image-space point. No-op when none is.</summary>
+    public void ExtendStroke(double ix, double iy)
+    {
+        if (!_drawing || _toolCtx is null) return;
+        _toolCtx.X = ix;
+        _toolCtx.Y = iy;
+        CurrentTool.PointerMove(_toolCtx);
+    }
+
+    /// <summary>Finishes the in-flight gesture and commits its undo step. No-op when none is.</summary>
+    public void EndStroke()
+    {
+        if (!_drawing) return;
+        FinishGesture();
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
+        if (SuppressPointerInput) return;
         Point p = e.GetPosition(this);
 
         if (CursorMoved is not null)
@@ -516,9 +619,8 @@ public sealed class SurfaceView : Control
         else if (_drawing && _toolCtx is not null)
         {
             Point img = ControlToImage(p);
-            _toolCtx.X = img.X;
-            _toolCtx.Y = img.Y;
-            CurrentTool.PointerMove(_toolCtx);
+            ExtendStroke(img.X, img.Y);
+            StrokeExtended?.Invoke(img.X, img.Y);
         }
     }
 
@@ -568,8 +670,11 @@ public sealed class SurfaceView : Control
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
+        if (SuppressPointerInput) return;
         bool wasActive = _panning || _drawing;
+        bool wasDrawing = _drawing;
         FinishGesture();
+        if (wasDrawing) StrokeEnded?.Invoke();
         if (wasActive) e.Pointer.Capture(null);
     }
 
@@ -582,6 +687,9 @@ public sealed class SurfaceView : Control
     protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
     {
         base.OnPointerCaptureLost(e);
+        if (SuppressPointerInput) return;   // a replay's gesture is not the pointer's to lose
+        bool wasDrawing = _drawing;
         FinishGesture();
+        if (wasDrawing) StrokeEnded?.Invoke();
     }
 }

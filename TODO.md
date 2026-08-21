@@ -1,11 +1,87 @@
 # KawaPaint — resume-here notes
 
-Status snapshot: 2026-08-20, branch `master` (updated post-2.4, post-JXL/JP2-Windows-packaging,
+Status snapshot: 2026-08-21, branch `master` (updated post-2.4, post-JXL/JP2-Windows-packaging,
 post-3.x-classic-PDN-plugin-bridge, post-3.x-BitmapEffect-tier-spike-proven-impossible,
-post-bughunt-sweep, post-second-bughunt-pass-B1..B7-all-fixed, post-UI-gaps-pass).
+post-bughunt-sweep, post-second-bughunt-pass-B1..B7-all-fixed, post-UI-gaps-pass,
+post-demo-recorder).
 Full roadmap/rationale lives in Claude memory
 (`feature-roadmap-tiers`) and the published plan:
 https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
+
+## Demo recorder — added 2026-08-21
+
+Doom-style session recording: capture the user's *inputs* and replay them against the same
+starting document, rather than storing frames or a video. New `Demo` menu (Record / Play / Pause /
+Stop / Playback Speed 0.5×–8×) and a `DemoStatusText` readout in the status bar.
+
+Four new files under `shared/KawaPaint.App/Core/Demo/` — `DemoEvent` (opcodes), `DemoFile`
+(the `.kpdemo` container), `DemoRecorder`, `DemoPlayer` — plus `MainView.Demo.cs`, which is the
+only part that knows what an editor action *is*. Everything else is taps into existing code.
+
+**What made this cheap:** `SurfaceView`'s pointer handlers already work in image coordinates, and
+`CommandRegistry` already made actions ID-addressable. `SurfaceView.OnPointerPressed` was split
+into `BeginStroke`/`ExtendStroke`/`EndStroke` so a replay drives the identical code path, with
+`StrokeBegan`/`StrokeExtended`/`StrokeEnded` events raised *only* from the pointer handlers so a
+replay can't re-record itself. `CommandRegistry.DispatchScope` is a single hook wrapping every
+command dispatch (menu, shortcut, dock button) — it logs the id and suppresses the duplicate note
+the command's own handler would make.
+
+**Recording taps live in the handlers, not just the registry.** Menu items and toolbar buttons in
+this codebase call `OnXxx` directly and never touch `CommandRegistry`, so tapping only the registry
+silently missed the Undo *button* while catching Ctrl+Z. ~50 `RecordAction`/`RecordSkipped` calls
+now sit in the handlers themselves; the registry's suppression scope stops the double-count.
+
+**Coverage:** strokes, tool switches, fg/bg colour, size/hardness/tolerance/AA/fill-shapes/global-
+fill/combine-mode, zoom+pan, every registry command, layer ops (add/delete/duplicate/merge/
+reorder/select/visibility/opacity/blend), image ops (flip/rotate/crop/flatten), parameterless
+effects, history jump/clear, rulers. Recorded-but-not-replayed (`Skipped`, surfaced in the status
+bar during playback): anything whose result is dialog input or external state — adjustments,
+Curves, Resize, Canvas Size, Import Layer, plugin effects, the Text tool's string, clipboard
+pastes, and all file open/save. Extending to those needs a parameter-source indirection through
+each dialog call site; the `Skipped` opcode is the hook for it.
+
+### Verification (both kinds, and the second kind found bugs the first missed)
+
+Headless harness (`scratchpad/demotest`, not committed, `ProjectReference` to the real
+`KawaPaint.App`): format round trip, corrupt-file rejection, size, and replay fidelity run through
+the **real** `PencilTool`/`PaintbrushTool`/`EraserTool`.
+
+Live: launched the real `win/bin/Debug/net10.0/KawaPaint.Win.exe`, drove it with the PowerShell +
+`user32.dll` pattern (menus, colour swatches, four spiral drags, the toolbar Undo button), saved a
+`.kpdemo` through the real file picker, replayed it, and pixel-diffed the 800×600 canvas region of
+the two screenshots. **Result: 0 of 480,000 pixels differ**, and still 0 when the replay is
+harassed with mouse sweeps, a click and a drag across the canvas, and 0 at 8× speed.
+
+Three real bugs came out of that live diff, none visible from reading the code:
+
+1. **Dedupe of repeated pointer samples was unsound.** The recorder skipped a move that landed on
+   the already-stored point. `PencilTool.PointerMove` alpha-blends a disc even for a zero-length
+   segment, so the dropped duplicate lost a dab and the replay came out lighter — showing up as
+   specks clustered at stroke starts, where a real mouse repeats positions most. Now every sample
+   is kept; the harness has a regression test asserting the difference is non-zero.
+2. **Coordinate precision was too coarse.** 1/16 px let a coordinate near a rounding boundary flip
+   a whole pencil pixel (18 differing over a 300-sample drag). Measured 1/16 → 1/4096: 1/4096 is
+   byte-exact for all three tools and is also where `DemoEvent.X`'s float storage tops out. Costs
+   ~5 bytes/sample.
+3. **Live pointer input leaked into a replay's stroke.** `_drawing` is set by the demo's
+   `BeginStroke`, so a real mouse move over the canvas got handed to the same in-flight gesture and
+   drew a line out to the pointer. `SurfaceView.SuppressPointerInput` now gates all five pointer
+   entry points while playback owns the canvas.
+
+### Size
+
+~5 bytes per pointer sample (fixed-point delta + zigzag varint + varint time delta, gzipped, with
+an inline string dictionary for repeated tool tags / action ids). Idle time is free — the recorder
+only emits on change. Measured: **a 44s four-stroke session with its full starting image embedded
+is 2,223 bytes**; 13s of continuous drawing is 3.4 KB; an unbroken 5m42s of it is 92 KB. The
+starting document rides along as `.kwp` bytes (~1 KB for the gradient sample image), and is skipped
+entirely when the canvas was one uniform colour, which is what `File ▸ New` leaves behind.
+
+### Relation to the snapshot-vs-command-log fork below
+
+A `.kpdemo` *is* a command log, but a replay-from-start one — it does not touch the undo stack's
+snapshot design, and it is not evidence for reopening that ruling. It does show the input taps a
+Tier 4 command log would need, if that ever gets revisited.
 
 ## UI gaps closed 2026-08-20
 
@@ -1638,6 +1714,13 @@ prioritized git-compat truncate-only over this.
 
 ## Working notes for whoever resumes
 
+- **Do not bulk-edit these files with `perl -0pi` from Git Bash on the Windows box.** It reads the
+  file as Latin-1, so every non-ASCII character comes back double-encoded: the em dashes all over
+  this codebase's comments and UI strings turn `—` (`e2 80 94`) into `â` (`c3a2 c280 c294`), and
+  the app then renders "* untitled â KawaPaint" in its own title bar. It corrupts the file even on
+  a substitution that matches nothing, because `-p` rewrites unconditionally. Hit this during the
+  demo-recorder work and repaired 56 sequences in `MainView.axaml.cs`. Use the editing tools, or
+  pass `perl -CSD`. To detect it afterwards, scan for `[Â-ô][-¿]{1,3}`.
 - **No input-automation tool in this sandbox** (no xdotool/wl-copy/ydotool/xclip). Verification
   pattern used throughout: (1) headless console harness project under
   `/tmp/.../scratchpad/codectest` with a `ProjectReference` to the real `KawaPaint.Engine`/

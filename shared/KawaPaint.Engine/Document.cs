@@ -1,5 +1,7 @@
 namespace KawaPaint.Engine;
 
+using KawaPaint.Engine.MailMerge;
+
 /// <summary>
 /// An image: a fixed canvas size and an ordered stack of layers (index 0 = bottom).
 /// Compositing walks bottom → top using each layer's blend mode + opacity.
@@ -7,12 +9,14 @@ namespace KawaPaint.Engine;
 public sealed class Document : IDisposable
 {
     private readonly List<Layer> _layers = new();
+    private readonly List<DynamicTextZone> _dynamicTextZones = new();
 
     public int Width { get; }
     public int Height { get; }
 
     public IReadOnlyList<Layer> Layers => _layers;
     public int LayerCount => _layers.Count;
+    public IList<DynamicTextZone> DynamicTextZones => _dynamicTextZones;
 
     /// <summary>Pixels per inch, for the ruler and any future print-size math. Purely metadata -
     /// nothing here rescales pixels based on it.</summary>
@@ -109,6 +113,7 @@ public sealed class Document : IDisposable
             cloned.Name = layer.Name;
             copy.AddLayer(cloned);
         }
+        foreach (var zone in _dynamicTextZones) copy.DynamicTextZones.Add(zone.Clone());
         return copy;
     }
 

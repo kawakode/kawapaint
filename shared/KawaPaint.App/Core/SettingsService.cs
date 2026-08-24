@@ -57,7 +57,8 @@ public sealed class SettingsService
     /// </summary>
     private static AppSettings Migrate(AppSettings settings)
     {
-        // No migrations yet - version 1 is the first shipped schema.
+        if (settings.SchemaVersion < 2 && settings.ExportPresets.Count == 0)
+            settings.ExportPresets = AppSettings.CreateDefaultExportPresets();
         settings.SchemaVersion = AppSettings.CurrentSchemaVersion;
         return settings;
     }

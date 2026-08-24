@@ -26,6 +26,16 @@ public static class DocumentOps
                 BlendMode = layer.BlendMode
             });
         }
+        foreach (var source in doc.DynamicTextZones)
+        {
+            int left = Math.Max(0, source.X - x), top = Math.Max(0, source.Y - y);
+            int right = Math.Min(w, source.X + source.Width - x);
+            int bottom = Math.Min(h, source.Y + source.Height - y);
+            if (right <= left || bottom <= top) continue;
+            var zone = source.Clone();
+            zone.X = left; zone.Y = top; zone.Width = right - left; zone.Height = bottom - top;
+            result.DynamicTextZones.Add(zone);
+        }
         return result;
     }
 
@@ -41,6 +51,16 @@ public static class DocumentOps
                 Visible = layer.Visible,
                 BlendMode = layer.BlendMode
             });
+        }
+        double sx = (double)w / doc.Width, sy = (double)h / doc.Height;
+        foreach (var source in doc.DynamicTextZones)
+        {
+            var zone = source.Clone();
+            zone.X = (int)Math.Round(source.X * sx); zone.Y = (int)Math.Round(source.Y * sy);
+            zone.Width = Math.Max(1, (int)Math.Round(source.Width * sx));
+            zone.Height = Math.Max(1, (int)Math.Round(source.Height * sy));
+            zone.FontSize = Math.Max(1, source.FontSize * (float)Math.Min(sx, sy));
+            result.DynamicTextZones.Add(zone);
         }
         return result;
     }
@@ -65,6 +85,13 @@ public static class DocumentOps
                 Visible = layer.Visible,
                 BlendMode = layer.BlendMode
             });
+        }
+        foreach (var source in doc.DynamicTextZones)
+        {
+            var zone = source.Clone();
+            zone.X += dx; zone.Y += dy;
+            if (zone.X + zone.Width > 0 && zone.Y + zone.Height > 0 && zone.X < w && zone.Y < h)
+                result.DynamicTextZones.Add(zone);
         }
         return result;
     }
@@ -109,6 +136,23 @@ public static class DocumentOps
                 BlendMode = layer.BlendMode
             });
         }
+        foreach (var source in doc.DynamicTextZones)
+        {
+            var zone = source.Clone();
+            if (clockwise)
+            {
+                zone.X = doc.Height - source.Y - source.Height;
+                zone.Y = source.X;
+            }
+            else
+            {
+                zone.X = source.Y;
+                zone.Y = doc.Width - source.X - source.Width;
+            }
+            zone.Width = source.Height;
+            zone.Height = source.Width;
+            result.DynamicTextZones.Add(zone);
+        }
         return result;
     }
 
@@ -117,6 +161,7 @@ public static class DocumentOps
     {
         var result = new Document(doc.Width, doc.Height) { Dpi = doc.Dpi };
         result.AddLayer(new Layer(doc.Flatten(), "Flattened"));
+        foreach (var zone in doc.DynamicTextZones) result.DynamicTextZones.Add(zone.Clone());
         return result;
     }
 }

@@ -63,7 +63,15 @@
                 </MenuItem>
                 <Separator />
                 <MenuItem Header="Save _Project…" Click="OnSaveProject" InputGesture="Ctrl+S" Icon="{app:Icon Save}" />
-                <MenuItem Header="_Export Flattened…" Click="OnSaveAs" InputGesture="Ctrl+Shift+S" Icon="{app:Icon Export}" />
+                <MenuItem x:Name="ExportPresetsMenu" Header="_Export" Icon="{app:Icon Export}">
+                    <MenuItem Header="Export Flattened…" Click="OnSaveAs" InputGesture="Ctrl+Shift+S" />
+                    <Separator />
+                    <MenuItem Header="_Mail Merge from CSV…" Click="OnMailMerge" />
+                    <MenuItem Header="Manage Presets…" Click="OnManageExportPresets" />
+                </MenuItem>
+                <Separator />
+                <MenuItem Header="_Metadata…" Click="OnMetadata"
+                          ToolTip.Tip="Inspect EXIF/IPTC/XMP in image files and remove it without re-encoding them" />
                 <Separator />
                 <MenuItem Header="_Record">
                     <MenuItem x:Name="DemoRecordItem" Header="_Record Demo" Click="OnDemoRecord"

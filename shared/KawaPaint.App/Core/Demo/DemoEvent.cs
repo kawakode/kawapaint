@@ -6,6 +6,9 @@
 // stream. That is what keeps a whole painting session down to a few kilobytes - and it is also
 // what makes the starting document part of the format rather than an afterthought (see DemoFile).
 
+using System.Collections.Generic;
+using System.Linq;
+
 namespace KawaPaint.App.Core.Demo;
 
 public enum DemoOp : byte
@@ -37,6 +40,9 @@ public enum DemoOp : byte
     /// </summary>
     Skipped = 0x21,
 
+    /// <summary>An action plus committed numeric dialog values (format v2 and later).</summary>
+    ActionArgs = 0x22,
+
     /// <summary>Zoom/pan. Cosmetic, but a demo that doesn't follow the user's view is confusing.</summary>
     View = 0x30
 }
@@ -64,7 +70,8 @@ public enum DemoColorSlot : byte { Foreground = 0, Background = 1 }
 public readonly struct DemoEvent
 {
     public DemoEvent(int timeMs, DemoOp op, float x = 0, float y = 0, float z = 0,
-                     int a = 0, int b = 0, uint value = 0, string? text = null)
+                     int a = 0, int b = 0, uint value = 0, string? text = null,
+                     double[]? args = null)
     {
         TimeMs = timeMs;
         Op = op;
@@ -75,6 +82,7 @@ public readonly struct DemoEvent
         B = b;
         Value = value;
         Text = text;
+        Args = args;
     }
 
     /// <summary>Milliseconds since the recording started. Stored on disk as a delta.</summary>
@@ -108,6 +116,9 @@ public readonly struct DemoEvent
     /// <summary>Tool tag, action id, or marker text.</summary>
     public string? Text { get; }
 
+    /// <summary>Committed dialog values for <see cref="DemoOp.ActionArgs"/>.</summary>
+    public double[]? Args { get; }
+
     public static DemoEvent Down(int t, double x, double y, bool ctrl)
         => new(t, DemoOp.PointerDown, (float)x, (float)y, a: ctrl ? 1 : 0);
 
@@ -125,6 +136,9 @@ public readonly struct DemoEvent
         => new(t, DemoOp.Param, a: (int)kind, b: value);
 
     public static DemoEvent Action(int t, string id) => new(t, DemoOp.Action, text: id);
+
+    public static DemoEvent Action(int t, string id, IReadOnlyList<double> args)
+        => new(t, DemoOp.ActionArgs, text: id, args: args.ToArray());
 
     public static DemoEvent Skipped(int t, string label) => new(t, DemoOp.Skipped, text: label);
 

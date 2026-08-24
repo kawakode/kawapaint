@@ -19,6 +19,28 @@ A modern, cross-platform image editor compatible with Paint.NET 3.36 file format
 
 Open `KawaPaint.slnx` to build any platform; all share the same engine and UI code.
 
+## Batch export
+
+Named export presets are managed from **File > Export > Manage Presets**. Presets can resize or
+pad, choose codec settings, run a `.kpscript`, apply filename patterns, and emit caption/alt-text
+sidecars. The desktop executables also expose the same engine from the command line:
+
+```text
+kawapaint --preset "Art Square" --in image.kwp --out-dir exported
+kawapaint --script cleanup.kpscript --in-dir photos --pattern *.png --out-dir cleaned
+```
+
+Preset CLI runs read the normal KawaPaint `settings.json`; use `--settings <path>` to select a
+different settings file.
+
+### Mail merge from CSV
+
+Use the **Dynamic Text / CSV Zone** tool to place a non-destructive text area on a template. Its
+text may reference CSV columns—for example `Binder — {StudentName}` or `{FirstName} {LastName}`.
+Click a zone again to edit or delete it, then choose **File > Export > Mail Merge from CSV**. Select
+the CSV, an export preset and an output folder; KawaPaint creates one image per row while leaving
+the template unchanged. Comma-, semicolon- and tab-delimited files are accepted.
+
 ## Credits
 
 **KawaPaint** is maintained by Kawa.

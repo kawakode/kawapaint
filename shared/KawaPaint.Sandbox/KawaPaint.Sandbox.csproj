@@ -2,6 +2,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\KawaPaint.Engine\KawaPaint.Engine.csproj" />
+    <ProjectReference Include="..\KawaPaint.App\KawaPaint.App.csproj" />
+    <ProjectReference Include="..\KawaPaint.Cli\KawaPaint.Cli.csproj" />
     <!-- ReferenceOutputAssembly=false: forces build order (the sample/fixture plugin DLLs must
          exist on disk before the plugin smoke test runs) without linking Sandbox against plugin
          code directly - the point is exercising the real ALC-based PluginManager.LoadFrom loader,

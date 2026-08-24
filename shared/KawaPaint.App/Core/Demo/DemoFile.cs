@@ -25,7 +25,7 @@ public sealed class DemoFile
     public const string Extension = ".kpdemo";
 
     private static readonly byte[] Magic = { (byte)'K', (byte)'P', (byte)'D', (byte)'E', (byte)'M', (byte)'O', 0 };
-    private const byte FormatVersion = 1;
+    private const byte FormatVersion = 2;
 
     /// <summary>
     /// Fixed-point denominator for stored coordinates. Not an arbitrary round number: measured
@@ -127,6 +127,13 @@ public sealed class DemoFile
                     WriteString(w, strings, e.Text ?? "");
                     break;
 
+                case DemoOp.ActionArgs:
+                    WriteString(w, strings, e.Text ?? "");
+                    var args = e.Args ?? Array.Empty<double>();
+                    WriteVarUInt(w, (uint)args.Length);
+                    foreach (double arg in args) w.Write(arg);
+                    break;
+
                 case DemoOp.Color:
                     w.Write((byte)e.A);
                     w.Write(e.Value);
@@ -157,9 +164,9 @@ public sealed class DemoFile
             if (magic[i] != Magic[i]) throw new InvalidDataException("Not a KawaPaint demo file.");
 
         int version = stream.ReadByte();
-        if (version != FormatVersion)
+        if (version is not (1 or FormatVersion))
             throw new InvalidDataException(
-                $"Demo format version {version} is not supported by this build (expected {FormatVersion}).");
+                $"Demo format version {version} is not supported by this build (expected 1 or {FormatVersion}).");
 
         var demo = new DemoFile();
         using var gz = new GZipStream(stream, CompressionMode.Decompress, leaveOpen: true);
@@ -217,6 +224,17 @@ public sealed class DemoFile
                 case DemoOp.Action:
                     demo.Events.Add(DemoEvent.Action(time, ReadString(r, strings)));
                     break;
+
+                case DemoOp.ActionArgs when version >= 2:
+                {
+                    string id = ReadString(r, strings);
+                    uint argCount = ReadVarUInt(r);
+                    if (argCount > 64) throw new InvalidDataException("Demo action has too many arguments.");
+                    var args = new double[argCount];
+                    for (int a = 0; a < args.Length; a++) args[a] = r.ReadDouble();
+                    demo.Events.Add(DemoEvent.Action(time, id, args));
+                    break;
+                }
 
                 case DemoOp.Skipped:
                     demo.Events.Add(DemoEvent.Skipped(time, ReadString(r, strings)));

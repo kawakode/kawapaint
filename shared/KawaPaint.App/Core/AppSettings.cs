@@ -3,16 +3,19 @@
 // One tree, serialized as JSON. Every configurable behaviour in the app reads from here rather
 // than from its own ad-hoc file, so that enabling git tracking later means tracking one directory.
 
+using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using KawaPaint.Engine;
+using KawaPaint.Engine.Codecs;
+using KawaPaint.Engine.Exporting;
 
 namespace KawaPaint.App.Core;
 
 public sealed class AppSettings
 {
     /// <summary>Bumped whenever a migration is needed; see <see cref="SettingsService.Migrate"/>.</summary>
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
@@ -23,8 +26,41 @@ public sealed class AppSettings
     public PluginSettings Plugins { get; set; } = new();
     public PdnPluginSettings PdnPlugins { get; set; } = new();
 
+    /// <summary>Named, reusable image-export recipes shown under File > Export.</summary>
+    public Dictionary<string, ExportPreset> ExportPresets { get; set; } = CreateDefaultExportPresets();
+
     /// <summary>Most-recently-opened project paths, newest first. See SettingsService.AddRecentFile.</summary>
     public List<string> RecentFiles { get; set; } = new();
+
+    public static Dictionary<string, ExportPreset> CreateDefaultExportPresets() => new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Web PNG"] = new()
+        {
+            CodecId = "png", ResizeMode = ExportResizeMode.FitWithin,
+            Width = 2048, Height = 2048, FilenamePattern = "{name}-web.{ext}"
+        },
+        ["Art Square"] = new()
+        {
+            CodecId = "jpeg", EncodeOptions = new EncodeOptions { Quality = 92 },
+            ResizeMode = ExportResizeMode.FitAndPad, Width = 1080, Height = 1080,
+            PaddingColor = "FFFFFFFF", FilenamePattern = "{name}-square.{ext}",
+            PackageText = "{name}\n\n#art", CopyPackageTextToClipboard = true
+        },
+        ["Art Portrait 4x5"] = new()
+        {
+            CodecId = "jpeg", EncodeOptions = new EncodeOptions { Quality = 92 },
+            ResizeMode = ExportResizeMode.FitAndPad, Width = 1080, Height = 1350,
+            PaddingColor = "FFFFFFFF", FilenamePattern = "{name}-portrait.{ext}",
+            PackageText = "{name}\n\n#art", CopyPackageTextToClipboard = true
+        },
+        ["Art Landscape 16x9"] = new()
+        {
+            CodecId = "jpeg", EncodeOptions = new EncodeOptions { Quality = 92 },
+            ResizeMode = ExportResizeMode.FitAndPad, Width = 1920, Height = 1080,
+            PaddingColor = "FFFFFFFF", FilenamePattern = "{name}-landscape.{ext}",
+            PackageText = "{name}\n\n#art", CopyPackageTextToClipboard = true
+        }
+    };
 }
 
 public sealed class AutosaveSettings

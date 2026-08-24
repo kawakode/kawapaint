@@ -4,13 +4,14 @@
 
 using System.IO.Compression;
 using System.Text.Json;
+using KawaPaint.Engine.MailMerge;
 
 namespace KawaPaint.Engine;
 
 public static class DocumentFile
 {
     public const string Extension = ".kwp";
-    private const int FormatVersion = 1;
+    private const int FormatVersion = 2;
 
     private sealed class Manifest
     {
@@ -19,6 +20,7 @@ public static class DocumentFile
         public int Height { get; set; }
         public double Dpi { get; set; } = 96;
         public List<LayerInfo> Layers { get; set; } = new();
+        public List<DynamicTextZone> DynamicTextZones { get; set; } = new();
     }
 
     private sealed class LayerInfo
@@ -53,17 +55,7 @@ public static class DocumentFile
 
     public static void Save(Document doc, Stream stream)
     {
-        var manifest = new Manifest { Width = doc.Width, Height = doc.Height, Dpi = doc.Dpi };
-        foreach (var layer in doc.Layers)
-        {
-            manifest.Layers.Add(new LayerInfo
-            {
-                Name = layer.Name,
-                Opacity = layer.Opacity,
-                Visible = layer.Visible,
-                BlendMode = layer.BlendMode.ToString()
-            });
-        }
+        var manifest = CreateManifest(doc);
 
         using var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true);
 
@@ -128,17 +120,7 @@ public static class DocumentFile
                     File.Delete(existing);
             }
 
-            var manifest = new Manifest { Width = doc.Width, Height = doc.Height, Dpi = doc.Dpi };
-            foreach (var layer in doc.Layers)
-            {
-                manifest.Layers.Add(new LayerInfo
-                {
-                    Name = layer.Name,
-                    Opacity = layer.Opacity,
-                    Visible = layer.Visible,
-                    BlendMode = layer.BlendMode.ToString()
-                });
-            }
+            var manifest = CreateManifest(doc);
 
             string manifestPath = Path.Combine(directoryPath, "manifest.json");
             string manifestTemp = Path.Combine(directoryPath, $".manifest.json.{Guid.NewGuid():N}.tmp");
@@ -163,6 +145,7 @@ public static class DocumentFile
 
         var manifest = JsonSerializer.Deserialize<Manifest>(File.ReadAllText(manifestPath))
             ?? throw new InvalidDataException("corrupt manifest.json");
+        ValidateVersion(manifest.Version);
 
         var doc = new Document(manifest.Width, manifest.Height) { Dpi = manifest.Dpi };
         string layersDir = Path.Combine(directoryPath, "layers");
@@ -185,6 +168,7 @@ public static class DocumentFile
             };
             doc.AddLayer(layer);
         }
+        foreach (var zone in manifest.DynamicTextZones) doc.DynamicTextZones.Add(zone);
 
         return doc;
     }
@@ -200,6 +184,7 @@ public static class DocumentFile
         using (var ms = manifestEntry.Open())
             manifest = JsonSerializer.Deserialize<Manifest>(ms)
                 ?? throw new InvalidDataException("corrupt manifest.json");
+        ValidateVersion(manifest.Version);
 
         var doc = new Document(manifest.Width, manifest.Height) { Dpi = manifest.Dpi };
         for (int i = 0; i < manifest.Layers.Count; i++)
@@ -225,7 +210,31 @@ public static class DocumentFile
             };
             doc.AddLayer(layer);
         }
+        foreach (var zone in manifest.DynamicTextZones) doc.DynamicTextZones.Add(zone);
 
         return doc;
+    }
+
+    private static Manifest CreateManifest(Document doc)
+    {
+        var manifest = new Manifest { Width = doc.Width, Height = doc.Height, Dpi = doc.Dpi };
+        foreach (var layer in doc.Layers)
+        {
+            manifest.Layers.Add(new LayerInfo
+            {
+                Name = layer.Name,
+                Opacity = layer.Opacity,
+                Visible = layer.Visible,
+                BlendMode = layer.BlendMode.ToString()
+            });
+        }
+        foreach (var zone in doc.DynamicTextZones) manifest.DynamicTextZones.Add(zone.Clone());
+        return manifest;
+    }
+
+    private static void ValidateVersion(int version)
+    {
+        if (version is < 1 or > FormatVersion)
+            throw new InvalidDataException($"KawaPaint project format {version} is not supported by this build.");
     }
 }

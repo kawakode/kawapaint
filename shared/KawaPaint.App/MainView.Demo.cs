@@ -26,6 +26,7 @@ using Avalonia.Platform.Storage;
 using KawaPaint.App.Core.Demo;
 using KawaPaint.App.Core.Scripting;
 using KawaPaint.Engine;
+using KawaPaint.Engine.Scripting;
 
 namespace KawaPaint.App;
 
@@ -150,10 +151,19 @@ public partial class MainView
 
     private void RecordSkipped(string label) => _demoRecorder.NoteSkipped(label);
 
-    /// <summary>Records a parametric effect step (committed AdjustmentDialog values) for the script
-    /// stream only - the demo recorder already logged this as skipped via RecordSkipped, since the
-    /// demo format has no way to carry the dialog's values.</summary>
-    private void RecordScriptAction(string id, double[] args) => _scriptRecorder.NoteAction(id, args);
+    /// <summary>Records committed dialog values in both replayable streams.</summary>
+    private void RecordParameterizedAction(string id, double[] args)
+    {
+        // These effects draw from the clock or Random.Shared while applying, so their numeric
+        // sliders alone cannot reproduce their pixels. Keep surfacing them as skipped until the
+        // effect APIs expose a seed the recorder can carry. Clouds is also color-dependent and is
+        // deliberately absent from ScriptEffects.
+        bool replayable = TrySplit(id, "effect.", out string tag) &&
+            ScriptEffects.IsKnownTag(tag) && tag is not ("noise" or "frostedglass" or "dents");
+        if (replayable) _demoRecorder.NoteAction(id, args);
+        else _demoRecorder.NoteSkipped("adjustment '" + tag + "'");
+        _scriptRecorder.NoteAction(id, args);
+    }
 
     private void RecordTool(string tag) => _demoRecorder.NoteTool(tag);
 
@@ -421,6 +431,11 @@ public partial class MainView
                 if (e.Text is { Length: > 0 } id) RunDemoAction(id);
                 break;
 
+            case DemoOp.ActionArgs:
+                if (e.Text is { Length: > 0 } parameterizedId && e.Args is { } args)
+                    RunDemoAction(parameterizedId, args);
+                break;
+
             case DemoOp.Skipped:
                 StatusText.Text = "Demo: skipped " + e.Text + " (dialog input isn't recorded)";
                 break;
@@ -543,6 +558,25 @@ public partial class MainView
         if (_commands.Find(id) is not null) { _commands.Execute(id); return; }
 
         StatusText.Text = "Demo: unknown action '" + id + "' - skipped";
+    }
+
+    private void RunDemoAction(string id, IReadOnlyList<double> args)
+    {
+        if (!TrySplit(id, "effect.", out string tag) || ScriptEffects.Build(tag, args) is not { } effect ||
+            Canvas.ActiveLayer is not { } layer)
+        {
+            StatusText.Text = "Demo: unsupported parameterized action '" + id + "' - skipped";
+            return;
+        }
+
+        var snapshot = layer.Surface.Clone();
+        effect.Apply(layer.Surface);
+        if (Canvas.Selection is { IsActive: true }) Canvas.Selection.Clip(layer.Surface, snapshot);
+        Canvas.History.Push(TileDeltaMemento.Consume(layer, snapshot, effect.Name));
+        Canvas.RenderComposite();
+        Canvas.InvalidateVisual();
+        Canvas.NotifyLayersChanged();
+        StatusText.Text = "Demo: applied " + effect.Name;
     }
 
     private static bool TrySplit(string id, string prefix, out string rest)

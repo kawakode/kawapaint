@@ -14,6 +14,7 @@
 //     see NoteStrokeMove.
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 
 namespace KawaPaint.App.Core.Demo;
@@ -172,6 +173,12 @@ public sealed class DemoRecorder
     {
         if (Off) return;
         Add(DemoEvent.Action(Now, id));
+    }
+
+    public void NoteAction(string id, IReadOnlyList<double> args)
+    {
+        if (Off) return;
+        Add(DemoEvent.Action(Now, id, args));
     }
 
     /// <summary>

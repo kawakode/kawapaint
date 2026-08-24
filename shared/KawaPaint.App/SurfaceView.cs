@@ -10,6 +10,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using KawaPaint.Engine;
+using KawaPaint.Engine.MailMerge;
 
 namespace KawaPaint.App;
 
@@ -58,6 +59,7 @@ public sealed class SurfaceView : Control
 
     /// <summary>Raised by the text tool at the clicked image point (x,y).</summary>
     public event Action<int, int>? TextRequested;
+    public event Action<int, int>? DynamicTextRequested;
 
     /// <summary>Raised as the pointer moves, with the image-space coordinate under it. Also raised
     /// once with <see cref="CursorGone"/> in both components when the pointer leaves the canvas.</summary>
@@ -278,6 +280,11 @@ public sealed class SurfaceView : Control
     private static readonly IPen EdgePen = new Pen(Brushes.Black, 1);
     private static readonly IPen CursorLight = new Pen(new SolidColorBrush(Color.FromArgb(200, 255, 255, 255)), 1);
     private static readonly IPen CursorDark = new Pen(new SolidColorBrush(Color.FromArgb(200, 0, 0, 0)), 1);
+    private static readonly IBrush DynamicZoneFill = new SolidColorBrush(Color.FromArgb(28, 30, 210, 230));
+    private static readonly IBrush DynamicZoneLabel = new SolidColorBrush(Color.FromArgb(245, 210, 252, 255));
+    private static readonly Typeface DynamicZoneFace = new("Inter");
+    private static readonly IPen DynamicZonePen = new Pen(new SolidColorBrush(Color.FromArgb(230, 30, 210, 230)), 1.5,
+        dashStyle: new DashStyle(new[] { 5d, 3d }, 0));
 
     public override void Render(DrawingContext context)
     {
@@ -305,6 +312,23 @@ public sealed class SurfaceView : Control
 
         if (Selection is { IsActive: true } sel)
             DrawMarchingAnts(context, sel);
+
+        foreach (DynamicTextZone zone in _document!.DynamicTextZones)
+        {
+            var zoneRect = new Rect(_origin.X + zone.X * _zoom, _origin.Y + zone.Y * _zoom,
+                zone.Width * _zoom, zone.Height * _zoom);
+            context.DrawRectangle(DynamicZoneFill, DynamicZonePen, zoneRect);
+
+            if (zoneRect.Width > 24 && zoneRect.Height > 14)
+            {
+                string label = $"{zone.Name}: {zone.Template}";
+                if (label.Length > 80) label = label[..77] + "...";
+                var formatted = new FormattedText(label, System.Globalization.CultureInfo.InvariantCulture,
+                    FlowDirection.LeftToRight, DynamicZoneFace, 10, DynamicZoneLabel);
+                using (context.PushClip(zoneRect.Deflate(3)))
+                    context.DrawText(formatted, zoneRect.TopLeft + new Vector(4, 3));
+            }
+        }
 
         context.DrawRectangle(null, EdgePen, dest);
 
@@ -593,6 +617,7 @@ public sealed class SurfaceView : Control
                 Selection = Selection!,
                 SelectionChanged = NotifySelectionChanged,
                 RequestText = (x, y) => TextRequested?.Invoke(x, y),
+                RequestDynamicText = (x, y) => DynamicTextRequested?.Invoke(x, y),
                 CombineMode = SelectionCombineMode
             };
 
@@ -600,6 +625,12 @@ public sealed class SurfaceView : Control
         }
 
         return true;
+    }
+
+    public void NotifyDynamicZonesChanged()
+    {
+        InvalidateVisual();
+        DocumentChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Continues the in-flight gesture at an image-space point. No-op when none is.</summary>

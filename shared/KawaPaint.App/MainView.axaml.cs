@@ -94,6 +94,7 @@ public partial class MainView : UserControl
         Canvas.DocumentChanged += (_, _) => Dispatcher.UIThread.Post(RebuildLayerPanel);
         Canvas.PrimaryColorPicked += OnColorPicked;
         Canvas.TextRequested += OnTextRequested;
+        Canvas.DynamicTextRequested += OnDynamicTextRequested;
         Canvas.ZoomChanged += z => { if (ZoomText is not null) ZoomText.Text = $"{z * 100:0}%"; };
         Canvas.CursorMoved += OnCursorMoved;
         KeyDown += OnKeyDown;
@@ -152,6 +153,7 @@ public partial class MainView : UserControl
         BuildPanelManager();
         RebuildLayoutPresetsMenu();
         RebuildRecentFilesMenu();
+        RebuildExportPresetsMenu();
         RebuildPluginsMenu();
         // Named handler (not a lambda) so it can be unsubscribed below - these are STATIC events,
         // so without this a MainView instance (and everything it closes over) would stay reachable
@@ -756,9 +758,6 @@ public partial class MainView : UserControl
     private async void OnAdjust(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (sender is not MenuItem mi || mi.Tag is not string tag || Canvas.ActiveLayer is null) return;
-        // Whatever the user types into the dialog is what makes the result, and the demo format
-        // doesn't carry dialog parameters - so this is logged for playback, not replayed.
-        RecordSkipped("adjustment '" + tag + "'");
         if (OwnerWindow is not { } owner)
         {
             // TODO(web): live-preview Adjustment dialogs (Brightness/Contrast, Hue/Saturation,
@@ -971,7 +970,7 @@ public partial class MainView : UserControl
         };
 
         await dlg.ShowDialog(owner);
-        if (dlg.CommittedValues is { } vals) RecordScriptAction("effect." + tag, vals);
+        if (dlg.CommittedValues is { } vals) RecordParameterizedAction("effect." + tag, vals);
         StatusText.Text = dlg.Title ?? "Adjustment";
     }
 
@@ -2014,7 +2013,7 @@ public partial class MainView : UserControl
         {
             ("Pencil", "Pencil", "P"), ("Brush", "Paintbrush", "B"), ("Eraser", "Eraser", "E"), ("Fill", "Paint Bucket", "F"),
             ("Pick", "Color Picker", "K"), ("Gradient", "Gradient", "G"), ("Clone", "Clone Stamp", "C"),
-            ("Recolor", "Recolor", "N"), ("Text", "Text", "T")
+            ("Recolor", "Recolor", "N"), ("Text", "Text", "T"), ("DynamicText", "Dynamic Text / CSV Zone", "")
         },
         new (string Key, string Name, string Shortcut)[]
         {
@@ -2164,6 +2163,7 @@ public partial class MainView : UserControl
             "Ellipse" => new EllipseTool(),
             "Gradient" => new GradientTool(),
             "Text" => new TextTool(),
+            "DynamicText" => new DynamicTextTool(),
             "Move" => new MoveTool(),
             "RectSel" => new RectSelectTool(),
             "EllipseSel" => new EllipseSelectTool(),

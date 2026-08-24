@@ -1,6 +1,7 @@
 <Solution>
   <Project Path="shared/KawaPaint.Engine/KawaPaint.Engine.csproj" />
   <Project Path="shared/KawaPaint.App/KawaPaint.App.csproj" />
+  <Project Path="shared/KawaPaint.Cli/KawaPaint.Cli.csproj" />
   <Project Path="shared/KawaPaint.Sandbox/KawaPaint.Sandbox.csproj" />
   <Project Path="plugins/KawaPaint.Plugins.Sample/KawaPaint.Plugins.Sample.csproj" />
   <Project Path="plugins/KawaPaint.Plugins.ThrowingFixture/KawaPaint.Plugins.ThrowingFixture.csproj" />

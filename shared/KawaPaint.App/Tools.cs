@@ -44,6 +44,7 @@ public sealed class ToolContext
     public required Selection Selection { get; init; }
     public required Action SelectionChanged { get; init; }
     public required Action<int, int> RequestText { get; init; }
+    public required Action<int, int> RequestDynamicText { get; init; }
     public required SelectionCombineMode CombineMode { get; init; }
 }
 
@@ -250,6 +251,15 @@ public sealed class TextTool : ITool
 {
     public string Name => "Text";
     public void PointerDown(ToolContext c) => c.RequestText(c.IX, c.IY);
+    public void PointerMove(ToolContext c) { }
+    public void PointerUp(ToolContext c) { }
+}
+
+/// <summary>Places or edits a non-destructive CSV-backed text zone.</summary>
+public sealed class DynamicTextTool : ITool
+{
+    public string Name => "Dynamic Text";
+    public void PointerDown(ToolContext c) => c.RequestDynamicText(c.IX, c.IY);
     public void PointerMove(ToolContext c) { }
     public void PointerUp(ToolContext c) { }
 }

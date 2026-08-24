@@ -4,10 +4,155 @@ Status snapshot: 2026-08-21, branch `feature/demo-recorder` (updated post-2.4,
 post-JXL/JP2-Windows-packaging, post-3.x-classic-PDN-plugin-bridge,
 post-3.x-BitmapEffect-tier-spike-proven-impossible, post-bughunt-sweep,
 post-second-bughunt-pass-B1..B7-all-fixed, post-UI-gaps-pass, post-demo-recorder,
-post-script-batch-system, post-UI-bug-sweep-U1..U10, post-UI-polish-U11..U18).
+post-script-batch-system, post-UI-bug-sweep-U1..U10, post-UI-polish-U11..U18,
+post-TODO-features-fusion-2026-08-24 - the ten-idea `TODO-features.md` is now merged into
+the tiers below as 2.5-2.9 and a new Tier 5, with per-item feasibility; that file is gone -
+post-2.8-EXIF-strip, post-2.6-export-presets, post-2.9-local-art-packages, and
+post-demo-v2-parameter-capture, and post-2.7-dynamic-zone-mail-merge).
 Full roadmap/rationale lives in Claude memory
 (`feature-roadmap-tiers`) and the published plan:
 https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
+
+## 2.6 export presets + 2.9 local art packages - done 2026-08-24
+
+File > Export now contains named presets and a full preset manager. A preset carries codec id,
+quality/lossless options, None/Fit Within/Exact/Fit and Pad/Fill and Crop sizing, an upscale policy,
+padding colour, flattening, filename tokens, output folder, and an optional `.kpscript`. The shared
+implementation lives under `KawaPaint.Engine/Exporting`, so GUI and CLI (`--preset <name>`, with an
+optional `--settings` or `--out-dir`) use the same validation, transforms and atomic encode path.
+Unavailable native codecs are shown disabled rather than failing after the user chooses one.
+
+The local half of 2.9 ships on that foundation: built-in square, 4:5 portrait and 16:9 landscape
+JPEG package presets create the resized/padded image plus a UTF-8 caption/hashtag/alt-text `.txt`
+sidecar, with filename/text token expansion and optional clipboard copy. No account/OAuth posting
+was added; that half remains gated exactly as described below.
+
+`ExportPresetSmokeTest` verifies real encoded PNG bytes, fit/pad dimensions and background,
+no-upscale behavior, fill/crop, script-before-export, sidecar contents, filename traversal
+containment and temp-file cleanup. The complete solution builds with zero errors (only the existing
+WASM `NativeFileReference` warning), and the full Sandbox suite passes.
+
+## Demo parameter capture - done 2026-08-24
+
+`.kpdemo` format v2 adds a parameterized-action opcode. Deterministic adjustment dialogs now record
+the exact committed slider values and playback builds the same effect through `ScriptEffects`,
+applies it to the active layer and records normal history, instead of reporting every adjustment as
+skipped. The reader remains compatible with v1 files. `DemoFormatSmokeTest` covers v2 double-value
+round-trip and an actual v1 stream load. Noise, Frosted Glass and Dents remain explicitly skipped
+because their current effect APIs do not expose the random seed required for reproducible pixels;
+Clouds also depends on live colors. Dialogs carrying other non-numeric/external state (Curves,
+text, file pickers, clipboard, etc.) remain explicitly skipped.
+
+## 2.7 dynamic-zone mail merge / publipostage - done 2026-08-24
+
+Implemented from the clarified use case: the reusable project carries non-destructive dynamic text
+zones, not a script that happens to draw one fixed string. The new Dynamic Text / CSV Zone tool
+places a zone on the canvas; clicking its cyan outline again edits or deletes it. Each zone stores a
+name, a text template containing any number of `{CSV Header}` fields, position/size, font family and
+size, colour, horizontal/vertical alignment, wrapping and shrink-to-fit. Zone add/edit/delete is
+undoable, remains visually outlined in the editor, does not alter layer pixels, and persists in the
+v2 `.kwp` manifest. Crop, resize, canvas-size, rotate, flatten and document cloning preserve or
+transform zones with the artwork.
+
+File > Export > Mail Merge from CSV chooses the data, output folder, existing export preset and a
+filename pattern. It accepts comma-, semicolon- and tab-delimited CSV (including quoted commas,
+escaped quotes, embedded newlines and UTF BOMs), validates zone fields against the headers, and
+creates one image per row. Values are rasterized into a new top layer on a clone; the template stays
+unchanged. The renderer wraps/alines/clips and can shrink long student names to the zone. Filename
+patterns accept `{row}`, normal export tokens and CSV fields; duplicate resolved names are refused
+instead of silently overwriting an earlier student's cover. Preset resize/script/codec behavior is
+reused after variable text is rendered.
+
+`MailMergeSmokeTest` is the classroom example as a regression test: a two-zone binder-cover
+template round-trips through `.kwp`, parses a 24-student CSV with quoted values, creates 24 distinct
+real PNGs and confirms different rows produce different pixels. It also covers semicolon CSV and a
+missing-header refusal. This deliberately supersedes the earlier proposed `.kpscript` string-args
+design below: persistent canvas zones match the clarified authoring model and keep the base project
+editable; script v2 is no longer a prerequisite for mail merge.
+
+## 2.8 EXIF strip - done 2026-08-24 (the "easiest first" pick off the fused backlog)
+
+File ▸ Metadata…: inspect what EXIF/IPTC/XMP/ICC a set of image files carries, then remove it
+**without decoding or re-encoding the pixels**. New `shared/KawaPaint.Engine/Metadata/`
+(`ImageMetadata` - the report/block/options/result types; `ExifTiffReader`; `MetadataScanner`;
+`MetadataStripper`), plus `MetadataDialog` and `MainView.Metadata.cs` in the App, and
+`MetadataSmokeTest` in the Sandbox.
+
+**The framing that made this smaller than it sounded, and it is worth keeping in mind for 2.6/2.9:**
+KawaPaint has never preserved metadata. Decode and encode both go through `Codecs/SkiaCodec.cs`,
+which hands back a `Surface` and nothing else - so every file this app re-saves *was already* coming
+out stripped, GPS included. "Strip" was therefore not the missing capability. The two things actually
+missing were (a) telling the user what a file contains, and (b) a strip that does **not** re-encode,
+because paying a generation of JPEG quality to delete a GPS tag is a bad trade for what is usually a
+privacy fix. That is what this is: byte-level container surgery, pixels copied through untouched.
+
+**Design notes worth not re-deriving:**
+- *One walker per container, shared by scan and strip.* `MetadataStripper` has no parser; it splices
+  out the byte ranges `MetadataScanner` reports. The walkers return ranges rather than parsed
+  contents precisely so a second parser can't drift and leave the dialog saying one thing while the
+  rewrite does another.
+- *Three formats: JPEG (APPn/COM markers), PNG (chunks), WebP (RIFF).* BMP/ICO have nowhere to put
+  metadata; JXL/JP2 go through the native packs and this code has no business rewriting those
+  containers blind. They report `Format ""`, `CanStrip false`, and the dialog says so.
+- *What is deliberately **not** metadata:* JPEG APP0 (JFIF pixel density - `Document.Dpi` rides
+  through it) and APP14 (Adobe's colour-transform flag, needed to decode YCCK/CMYK correctly).
+  Dropping either changes how the file decodes. ICC profiles *are* metadata but are kept by default,
+  since removing one visibly changes the image, which is not what "remove metadata" means to anyone
+  - `MetadataStripOptions.KeepColorProfile`, off-switchable for a strict anonymise.
+- *WebP is the only container needing more than a splice*: its VP8X header carries flag bits
+  announcing the EXIF/XMP/ICC chunks, so those bits get cleared and the RIFF length corrected.
+  JPEG and PNG need neither (PNG CRCs are per-chunk, so removing whole chunks leaves survivors
+  valid).
+- *EXIF parsing is read-only and one directory deep.* IFD0 only, no recursion into the Exif or GPS
+  sub-directories - IFD0 is where the GPS *pointer* tag lives, which is the fact that matters, and
+  not following offsets means a corrupt file cannot walk the reader into a loop. Every read is
+  bounds-checked and every failure degrades to "field absent", because this runs while merely
+  listing files the user picked. Writing EXIF back is the genuinely hard half and is still open -
+  see 2.8's entry in the fused backlog for the per-format injection difficulty.
+- *Licensing:* nothing was taken on. MetadataExtractor (Apache-2.0) reads but does not write, and
+  there is no comfortable permissively-licensed .NET EXIF writer, so this is hand-rolled - which
+  also keeps the app self-contained. Relevant given why this fork exists at all (FORK.TXT).
+
+**One real bug, found by the test and not by reading the code.** Both the JPEG and PNG walkers
+originally reported success when they simply *ran out of bytes* at a segment/chunk boundary: the
+loop condition fails and the walk exits exactly as tidily as reaching EOI does, with no malformed
+length to trip over. A JPEG truncated mid-download therefore reported `CanStrip: true` and would
+have been rewritten. Fixed by making success mean "stopped somewhere it meant to stop" - an explicit
+`reachedEnd`/`sawIend` flag for JPEG/PNG and an `i == b.Length` check for WebP. The regression is
+locked in for all three walkers (`MalformedInputRefuses`), cutting at an exact segment boundary
+rather than an arbitrary offset, since the boundary case is the one a naive walker gets wrong.
+Note what `CanStrip` does **not** claim, now documented on the property: a JPEG's entropy-coded scan
+is never parsed, so a file truncated *after* SOS still walks cleanly - stripping it is still well
+defined, it just comes out as damaged as it went in.
+
+**Verified three ways, all against real bytes:**
+1. *Detailed scratchpad harness* (`scratchpad/metatest`, `ProjectReference` to the real Engine, not
+   committed): 47 assertions, all passing - synthetic EXIF-with-GPS round trips for all three
+   containers, ICC keep/remove policy, APP0/APP14 survival, malformed and non-image input, and
+   `StripFile` on disk including in-place-twice and no-temp-files-left.
+2. *Real photos.* `Downloads/anamk108/sample_left.jpg` and `sample_right.jpg` are genuine Photoshop
+   output carrying a ~6.8 KB APP13/IPTC block. Both strip to exactly `original - removed` bytes, and
+   **decode to bit-identical pixels afterwards** - which is the whole claim of the feature.
+3. *The real GUI*, driven with `.claude/skills/run-desktop`. File ▸ Metadata… → native multi-select
+   picker → the dialog listed `photo.jpg (jpeg)` / `remove IPTC / Photoshop (APP13) 6.7 KB` /
+   `remove Comment (COM) 41 bytes` with the summary `1 file(s) · 1 carrying 6.8 KB of metadata` →
+   Remove Metadata with no folder chosen correctly showed the orange "Choose an output folder first."
+   guard instead of doing nothing → Browse… → Run. Results dialog: `1 file(s): 1 cleaned, 0 skipped,
+   0 failed, 6.8 KB removed`, status bar `Metadata: 1/1 cleaned`. On disk: 36,670 → 29,723 bytes, the
+   **source left byte-identical to the original**, and the GUI's output byte-identical to the
+   harness's independently verified stripped bytes.
+
+A durable headless version lives in `KawaPaint.Sandbox/MetadataSmokeTest.cs` (wired into
+`Program.cs`). Its EXIF blocks are built by hand so it carries no binary fixture; the real-photo case
+is gated on `KAWAPAINT_TEST_PHOTO` pointing at a tagged image, matching how the PDN plugin test gates
+on a real install.
+
+**Still open, and tracked in the fused backlog's 2.8 entry:** editing/preserving metadata rather than
+only removing it (IFD rewriting plus per-format re-injection - JPEG and PNG are straightforward,
+WebP needs the VP8X container rewritten, JXL/JP2 need their own answer), and "strip location only",
+which needs the writer half before it can be built. `MetadataScanner.ScanFile` and
+`MetadataStripper.StripFile` are already path-based and Avalonia-free, so wiring this into
+`KawaPaint.Cli` or an export preset (2.6) is a small job whenever either is wanted.
 
 ## UI bug sweep U1..U10 - fixed 2026-08-24
 
@@ -1112,8 +1257,304 @@ panel defaults or redo-binding looks wrong later):
    first toggle-visible was a silent no-op forever. Fixed: Hidden now falls back to Floating.
 2. Redo was two separate `AppCommand` registrations (Ctrl+Shift+Z, Ctrl+Y) - visible as a
    duplicate in the dock picker. Added `AppCommand.AlternateGesture` instead.
+## Feature backlog fused from `TODO-features.md` - 2026-08-24
+
+`TODO-features.md` (untracked, repo root) held ten one-line ideas in French. They are folded into the
+tier scheme here and that file is deleted - nothing was dropped, the original wording is preserved in
+the provenance table at the end of this section. Five now have shipped work, wholly or in a
+deliberately separated local/strip half.
+
+The feasibility ratings below are first-hand: every one was checked against the actual code in this
+repo this pass, and the file paths and line numbers cited were read, not recalled. Where something
+could *not* be verified from here (a tablet, an Android device, a third-party API's current terms),
+that is said explicitly rather than papered over.
+
+Rating vocabulary, used consistently below:
+- **Shipped** - already done; cross-referenced to the section that did it.
+- **Clear** - no unknowns. The insertion points exist and are named. The estimate is reliable.
+- **Clear-with-caveat** - the build is clear, but one named thing has to be settled or verified first.
+- **Spike first** - plausible, but this project's rule applies (never design from documentation
+  alone): something external has to be proven hands-on before any production code is written.
+- **Gated** - blocked on a decision or an external constraint, not on effort. Don't build without an
+  explicit go-ahead, same posture as 4.x.
+
+### Already shipped
+
+- **"Enregistrement type demo pour replay"** -> done 2026-08-21; see the Demo recorder section above
+  (byte-exact replay, 0 of 480,000 pixels differing, still 0 at 8x). The numeric parameter-capture
+  follow-on is also done 2026-08-24 via the backward-compatible `.kpdemo` v2 opcode described at
+  the top. Seedless stochastic effects and non-numeric/external dialog state remain honest
+  `Skipped` events.
+- **"Batch/Scripting"** -> done 2026-08-21; see the Script / batch-apply system section above (GUI
+  record + CLI, `.kpscript`, `BatchRunner`, 3-valued exit codes, live-verified end to end). Known
+  gaps in rough value order: no string arguments (`ScriptStep.Args` is `List<double>` -
+  `Scripting/ScriptFile.cs:18`; this is the same format-v2 change 2.7 needs, so do them together);
+  the deliberate exclusions (`image.crop` needs a live selection, `effect.clouds` reads live fg/bg,
+  Curves has no factory-function shape to transcribe); and no conditionals or loops - with a
+  reasonable argument that a script should stay a linear list, and that anything branching belongs in
+  a host-language binding rather than a bespoke mini-language.
+  `shared/KawaPaint.Cli` is now listed directly in `KawaPaint.slnx` as well as referenced by both
+  desktop heads, so it is visible to solution readers and IDEs rather than only building transitively.
+
+### 2.5 - Explicit graphics-tablet support (`Support explicite tablettes dessin`) - **Spike first**
+
+Pressure driving brush radius and/or opacity, tilt, eraser-tip mapping, and a stylus-vs-finger
+distinction.
+
+**Why it is cheap here, structurally.** `StrokeOps` already takes radius *per dab*, not per stroke -
+`_stroke.Dab(c.X, c.Y, c.BrushWidth / 2.0, c.BrushHardness)` (`Tools.cs:99`) and `DabLine`
+(`Tools.cs:108`). Per-sample pressure therefore needs no engine rewrite at all; it is a `ToolContext`
+field (`Tools.cs:11-47`), and because every property there is `required init`, adding
+`Pressure`/`XTilt`/`YTilt`/`PointerKind` is a compile-time-checked change with a single construction
+site to fix. `SurfaceView.OnPointerPressed` already calls `e.GetCurrentPoint(this)` and reads
+`.Properties` (`SurfaceView.cs:521-529`), and Avalonia 12.1.1 exposes `Pressure`, `XTilt`, `YTilt`,
+`Twist` and the pointer type on exactly that object - so the values are one property access away *if
+the backend fills them in*.
+
+**Why it is Spike-first anyway.** Nothing in this repo has ever read those fields, and whether
+Avalonia's Win32 and X11 backends deliver genuinely varying pressure for a real tablet (Win32 pointer
+messages vs. Wintab; X11 XInput2 valuators) is exactly the kind of thing this project does not take
+from documentation. Minimal spike: a temporary debug hook logging the distinct `Properties.Pressure`
+values seen across one drag, on real hardware. **This needs a tablet plugged into the box; there was
+none to test with this pass, and "it compiles" must not be reported as working for this item.**
+
+**Knock-on, worth planning for up front:** the demo recorder. `.kpdemo` pointer samples are x/y/time
+only, so adding pressure without recording it makes every replay diverge. That is `DemoFile` format
+v2, ~1-2 bytes per sample at the existing 1/4096 fixed-point precision (the precision analysis in the
+Demo section applies unchanged), and the existing byte-exact pixel-diff harness proves it.
+
+In scope cheaply once pressure arrives: eraser-tip mapping, and a per-tool "pressure affects:
+size / opacity / both / off" curve stored in `AppSettings`. Out of scope: pressure on shape and
+selection tools. **Estimate:** ~half a session of plumbing plus demo v2, *after* the spike answers.
+
+### 2.6 - Export presets (`Presets d'export`) - **DONE 2026-08-24**
+
+A preset is a named { codec id, `EncodeOptions`, optional fit/resize rule, optional flatten, filename
+pattern, output folder }. Every piece already exists:
+
+- `EncodeOptions` (`Codecs/IImageCodec.cs:14-27`) is already the complete per-encode knob surface,
+  and its "a codec ignores anything it does not understand" contract means a preset can carry knobs a
+  given codec doesn't use without special-casing.
+- `SaveOptionsDialog` already renders quality/lossless per codec id - the preset editor is that
+  dialog plus a name and a destination.
+- `CodecRegistry.Encoders` already filters to what is genuinely available on this platform, which the
+  preset list must respect: a JXL preset on a box without the native pack has to grey out rather than
+  throw, and `CodecUnavailableException` already exists to describe that case.
+- `AppSettings` is typed, versioned, JSON, with an established dictionary-of-named-things precedent
+  (`WorkspaceSettings.Layouts`), so this is `Dictionary<string, ExportPreset>` plus a
+  `CurrentSchemaVersion` bump from 1 to 2 - the first real exercise of that versioning, which is
+  itself worth having.
+- `DocumentOps` / `ResizeDialog` / `CanvasSizeDialog` already provide fit-and-pad vs. scale.
+- `BatchRunner` already does folder-in / folder-out with atomic temp-then-move, so "apply this preset
+  to a folder" is orchestration over existing machinery, not new machinery.
+
+Menu shape: File > Export > *<preset>*, plus Manage Presets..., modeled on `DockEditorDialog`.
+Presets should also be addressable from `KawaPaint.Cli` (`--preset <name>`), which is nearly free
+given `BatchCliRunner`'s existing argument parser.
+
+**One design call to make deliberately:** whether a preset may carry a `.kpscript` to run before
+encoding. It should - one nullable field, and it is exactly what turns "export preset" into the
+"Instagram button" of 2.9. **Estimate:** one session, no spike. **Do this one first** - 2.9 sits
+entirely on top of it and 2.8 wants a preset to live in.
+
+### 2.7 - Mail merge / publipostage (`Publipostage`) - **DONE 2026-08-24 as persistent dynamic zones**
+
+One template document plus one data source (CSV/JSON, one row per output) produces N files. It is the
+inverse loop of what `BatchRunner` does today (one script over N images), reusing the same
+orchestration.
+
+**What already exists - including the part most likely to have been trapped in the UI layer, and
+isn't:** `TextOps.DrawText` (`Engine/TextOps.cs:10`) lives in the **Engine**, calls SkiaSharp
+directly, and takes surface/text/x/y/size/colour/fontFamily. Text rendering is therefore already
+headless, which is the whole feature's foundation. `ScriptFile`/`ScriptExecutor`/`BatchRunner` supply
+the rest.
+
+**The caveat, and it is a real one:** `ScriptStep.Args` is `List<double>`
+(`Scripting/ScriptFile.cs:18`) - there is nowhere to put a string. Mail merge requires `.kpscript`
+format v2 with string arguments, plus a new `text.draw` step id. Note the Text tool is a *tool
+gesture* (`ITool.PointerDown` calls `c.RequestText`, `Tools.cs:252`), deliberately outside
+`IsScriptable`'s allow-list, so `text.draw` is a genuinely new step rather than one that merely needs
+un-excluding.
+
+**The one question to put to the user rather than guess:** `TextOps.DrawText` is left-aligned, with no
+wrapping and no box fitting (`TextOps.cs:20-26` walks lines and advances by font metrics). Merge
+fields are variable-length by nature, so a real mail merge wants a text *box* - wrap, align,
+shrink-to-fit. That is a second, separable piece of work. **Estimate:** one session for CSV + format
+v2 + `text.draw` + per-row filename patterns; a second one if text boxes are wanted.
+
+### 2.8 - EXIF strip / edit (`Exif strip/edit`) - strip **DONE 2026-08-24**, edit **Spike first**, per format
+
+> **The strip half is built and verified** - see the "2.8 EXIF strip" section at the top of this
+> file for the account, the walker bug the tests caught, and the three-way verification. What is
+> written below is the estimate as made *before* building it; it held up, including the framing that
+> "strip" was mostly already true. Everything still open is the **edit** half described further
+> down: IFD rewriting plus per-format re-injection, and "strip location only", which needs the
+> writer before it can exist.
+
+**Current state, checked this pass:** nothing in the Engine touches metadata (a grep for
+`Exif|Metadata|IPTC|XMP` across `shared/` hits only `DocumentSession.cs`, and there for unrelated
+reasons). Both decode and encode go through Skia (`Codecs/SkiaCodec.cs`), which hands back pixels
+only. **So KawaPaint already strips EXIF from everything it saves** - silently, today, GPS included.
+That reframes both halves of the request:
+
+- **Strip** is mostly already true. What is missing is (a) *telling* the user, and (b) a strip path
+  that does **not** re-encode the pixels, for a JPEG the user wants byte-preserved. That second one
+  is APPn-segment surgery on the raw file - walk markers, drop APP1/APP13 (and optionally the APP2
+  ICC profile), rewrite - with no decode and no generation loss. Roughly 100 lines, and exactly the
+  sort of thing `KawaPaint.Sandbox` can test headlessly against real photos.
+- **Edit** - and *preserve on save*, which is what users actually notice - is the hard half: parse
+  TIFF/EXIF IFDs (byte-order marker, tag/type/count/offset, sub-IFDs, and MakerNote blobs that must
+  be copied verbatim or dropped, never rewritten), then re-inject on encode. Injection difficulty is
+  per format and should be scoped per format: **JPEG** = splice an APP1 into Skia's output before the
+  first non-APPn marker, straightforward; **PNG** = add an `eXIf` chunk, straightforward; **WebP** =
+  EXIF lives in an extended-format (VP8X) RIFF container while Skia emits the simple form, so the
+  container has to be rewritten by hand - the same shape of problem as animated WebP in 5.1a;
+  **JXL/JP2** go through the native packs and each needs its own answer.
+
+**Licensing note, and this repo of all repos cares** (see LICENSE.MD / FORK.TXT - the fork exists
+*because* of a licence change): MetadataExtractor is Apache-2.0 and reads well, but it does not
+write. There is no comfortable permissively-licensed .NET EXIF *writer*; ExifTool is an external Perl
+process under Artistic/GPL and this app ships self-contained. Assume hand-rolled, and check the
+licence of anything pulled in before taking the dependency.
+
+**Build the privacy case explicitly:** "strip location only" is what most people actually want, and
+it is a one-tag delete once the IFD parser exists. Pair it with a 2.6 preset. **Estimate:** strip
+~half a session; read-and-display one; full edit with preserve-on-save is JPEG-first as a spike, then
+per format.
+
+### 2.9 - Art-platform export packages (`Integration plateformes art`) - local half **DONE 2026-08-24**, posting **Gated**
+
+The one-liner ("Instagram > generate square, JPG, description, tagging") splits cleanly into a local
+feature and an account integration, and only the first is a KawaPaint-sized problem.
+
+- **Local half - build this.** A 2.6 preset that produces the *package* a platform wants: fit or pad
+  to 1:1 / 4:5 / 16:9, sRGB JPEG at a target quality and maximum dimension, plus a sidecar
+  caption / hashtag / alt-text `.txt` and the caption copied to the clipboard. That is 2.6 plus a
+  padding rule and a text field. **Clear**, ~half a session on top of 2.6.
+- **Posting half - do not start yet.** Direct publishing needs per-platform OAuth, per-platform token
+  storage, and app review. One constraint decides the whole design and should be re-checked before
+  any planning: Instagram's content-publishing path is Graph-API-only, requires a business/creator
+  account linked to a Meta app, and takes an `image_url` that Meta *fetches* - it does not accept a
+  raw byte upload from a desktop client, which implies a publicly reachable host, which a local paint
+  program does not have. If that still holds, "post to Instagram" is not a feature, it is a service.
+  **Gated**, in the same bucket as the 2.4 forge OAuth half and wanting the same kind of design pass.
+  *This paragraph is written from prior knowledge, not from any call made in this repo - verify the
+  current API terms before treating it as settled.*
+
+### 5.1 - Animated GIF, and the animation model behind it (`Support gif animes`) - export **Clear-with-caveat**, timeline **Gated**
+
+Two very different asks share one line, and separating them is most of the value of this entry.
+
+- **5.1a - animated formats in and out.** *Decode:* Skia can walk GIF frames, but the codec contract
+  is single-surface by design - `Surface Decode(Stream)` (`Codecs/IImageCodec.cs:51`) - so multi-frame
+  needs an interface addition (`SupportsFrames` + `DecodeFrames`) that every existing codec then
+  ignores. *Encode:* GIF is registered `canEncode: false` (`Codecs/CodecRegistry.cs:33`) because Skia
+  does not encode GIF at all, so export means **writing the GIF encoder**: LZW, palette quantization
+  (median-cut or octree), dithering, frame disposal and delta rectangles. Well-documented, bounded,
+  roughly 400-600 lines, entirely CPU-side and 100% headless-testable - which suits this Engine well.
+  APNG is the easier neighbour (wrap Skia's per-frame PNG output in `acTL`/`fcTL`/`fdAT` chunks);
+  animated WebP needs the VP8X container written by hand, the same obstacle as WebP EXIF in 2.8.
+- **5.1b - the timeline** (the "Motionity / Affinity-package" half). `Document` is `Width`, `Height`,
+  `List<Layer>` (`Engine/Document.cs`) - there is no frame axis anywhere: not in `.kwp`
+  (`DocumentFile`), not in history (`TileDeltaMemento` keys off layer tiles), not in the layers panel,
+  not in `DocumentOps`. Two honest options: **layers-as-frames** (a per-document flag plus a per-layer
+  delay; no format break, gets animated export working immediately, and matches how GIF authoring
+  works in most raster editors), or a **real frame dimension** (touches the document model, the file
+  format, the history stack, every transform, and the entire UI - a subsystem on the scale of the
+  effect catalogue).
+  **Recommendation: build 5.1a on layers-as-frames now, and put the frame dimension in Open decisions
+  rather than assuming it.** Logged there.
+
+### 5.2 - Android tablets and foldables (`Version mobile`) - port **Clear-with-caveat**, usable UI is multi-session
+
+**The port is unusually well-positioned, and this is the fact that should drive the estimate:** the
+browser head already forced the whole app through `ISingleViewApplicationLifetime`
+(`App.axaml.cs:33`), and `MainView` is a `UserControl` rather than a window. An Android head is
+therefore a new csproj (`Avalonia.Android`, `net10.0-android`) plus an activity - not an app
+restructure. `web/KawaPaint.Web.csproj` is the template to copy, single-view branch included.
+
+The cost is everything around the port, and each of these is a real item:
+
+- **Touch-sized UI.** Menus, toolbar, every dialog, and the `PanelManager`/`WorkspaceLayout` docking
+  system are all mouse-sized. Docking on an 8-inch screen wants its own layout preset at minimum -
+  the saveable-layout-presets work from Tier 1 is the lever for that.
+- **Gestures.** `SurfaceView` pans on middle/right drag and zooms on Ctrl+wheel
+  (`SurfaceView.cs:517-530`); neither exists on a touchscreen. Needs two-finger pan, pinch zoom, and
+  a palm-rejection story - which ties directly to 2.5, since the stylus-vs-finger pointer type is
+  exactly how palm rejection is done.
+- **Native codec packs.** JXL and JP2 are native libraries (`JxlCodec`, `Jp2Codec`, runtime-probed via
+  `IsAvailable`). Android needs per-ABI builds or those formats are simply absent there. The existing
+  probing design degrades gracefully already, which is the good news.
+- **Plugins.** Both the native plugin API and the Paint.NET bridge load assemblies by reflection,
+  which fights the Android linker/AOT model in Release. Likely answer: plugins off on mobile, the
+  same posture the browser build takes.
+- **Foldables specifically.** Avalonia exposes no hinge or posture API; hinge-awareness means binding
+  Jetpack `WindowManager` yourself. Recommend scoping this item to "the layout responds correctly to
+  size changes", and treating true hinge-aware dual-pane as a separate item, raised only if asked for.
+
+**Verification needs a device or an emulator on this box; neither was checked for this pass.**
+**Estimate:** one session to launch on a tablet, several more before the UI is honestly usable. The
+first without the second should not ship.
+
+### 5.3 - 3D model support (`Support modeles 3D`) - **Gated on scoping**; sub-option (a) is **Clear**
+
+"3D models (layer management++)" could mean two very different products, and which one is meant *is*
+the estimate:
+
+- **(a) 3D reference layer.** Import OBJ/glTF, pose a camera, render the mesh into a raster layer;
+  pixels stay the only truth - Krita's reference images, Clip Studio's 3D dolls. This fits the
+  existing architecture almost suspiciously well: the Engine is already pure CPU with `unsafe` pixel
+  loops (`Surface`, `Document.RenderTo`), headless, and unit-testable, so a mesh loader plus a
+  z-buffered triangle rasterizer is ordinary Engine code - no GPU context, no Avalonia dependency,
+  testable in `KawaPaint.Sandbox` like everything else. **Clear**, one to two sessions.
+- **(b) 3D as a live layer type.** A persistent scene graph inside `Document` and `.kwp`, re-rendered
+  on edit, with materials, lighting, gizmos, and a history stack that can undo a camera move. That
+  needs a real renderer (SkiaSharp has no 3D; either a GPU context via Silk.NET or a far larger
+  software renderer) and it changes the document model the same way 5.1b does. This is a different
+  application, not a feature.
+- **(c) Texture / UV painting** - paint on the 2D layer, see it on the model - is usually the actual
+  reason artists ask for 3D in a paint program. It is reachable from (a) plus a UV lookup and a live
+  preview panel, and it is far more useful here than (b).
+
+**Ask which one is meant before writing any code.** Recommended default if the answer comes back as
+"whichever you think": (a), then (c), and never (b) without an explicit decision.
+
+### Suggested order, if nobody says otherwise
+
+1. ~~**2.6 export presets**~~ - **done 2026-08-24**.
+2. ~~**2.9 local half**~~ - **done 2026-08-24**; direct posting remains gated.
+3. ~~**2.8 strip** (including the no-re-encode JPEG path)~~ - **done 2026-08-24**, took about the
+   estimated half session. The edit half remains.
+4. ~~**2.7 mail merge**~~ - **done 2026-08-24** as persistent dynamic canvas zones; no script-v2
+   dependency after the clarified use case.
+5. ~~**Demo parameter capture**~~ - **done 2026-08-24**, with a backward-compatible v2 stream.
+6. **2.5 tablet support** - as soon as there is a tablet on the box to spike against.
+7. **5.1a animated GIF** on layers-as-frames.
+8. **5.2 Android head**, then its UI, once there is a device or emulator.
+9. **5.3(a) 3D reference layer**, if the scoping question comes back as (a).
+
+### Provenance - the original ten lines
+
+| Original (`TODO-features.md`, French) | Landed as |
+|---|---|
+| Enregistrement type demo pour replay | **Shipped** 2026-08-21; parameter capture shipped 2026-08-24 |
+| Support explicite tablettes dessin | 2.5 (Spike first - needs hardware) |
+| Version mobile (tablettes android, foldables) | 5.2 (Clear-with-caveat; the UI is the cost, not the port) |
+| Support gif animes (voir pour integration Motionity > package type Affinity) | 5.1a (Clear-with-caveat) + 5.1b (Gated) |
+| Support modeles 3D (gestion des couches++) | 5.3 (Gated on scoping; option (a) Clear) |
+| Integration plateformes art (Ex: Instagram > genere carre, JPG, description, tagging) | 2.9 local half **shipped 2026-08-24** + posting half (Gated) |
+| Presets d'export | **Shipped 2026-08-24** (2.6) |
+| Batch/Scripting | **Shipped** 2026-08-21 (Script / batch-apply system) |
+| Publipostage | **Shipped 2026-08-24** as persistent dynamic zones + CSV batch rendering |
+| Exif strip/edit | 2.8 — **strip done 2026-08-24** / edit still Spike first |
+
 
 ## Not started - pick one, each is its own multi-hour subsystem
+
+Tiers 2.5-2.9 and the whole of Tier 5 also live in the "Feature backlog fused from
+`TODO-features.md`" section immediately above, with feasibility ratings and a suggested order -
+they are not repeated here. This section holds the older tiers plus the long-form accounts of
+2.1/2.3/2.4/3.x, some of which are done and kept for their rationale.
 
 ### 2.4 forge integrations
 **Explicitly out of scope for this pass.** Local git history is done (2.3); forge half (GitHub/GitLab/Gitea 
@@ -1886,6 +2327,22 @@ prioritized git-compat truncate-only over this.
   above, but the command-log alternative is what unlocks Tier 4 - noted here as the fork point).
 - Git scope: backup/versioning of projects + config, or the literal undo timeline? Assumed:
   backup/versioning only.
+- **Animation model (new 2026-08-24, from 5.1):** layers-as-frames, or a real frame dimension in
+  `Document`/`.kwp`/history/every transform? Assumed: **layers-as-frames**, because it gets animated
+  GIF export working without breaking the document model. The frame dimension is the "Motionity /
+  Affinity package" version of the idea and is a subsystem, not a feature - don't start it without an
+  explicit go-ahead. This is a second fork point of the same kind as the snapshot-vs-command-log one.
+- **Is Android first-class (new 2026-08-24, from 5.2)?** Assumed: same posture as the browser build -
+  a real target, features gracefully absent, but the desktop remains the design centre. If it is
+  meant to be first-class instead, the touch UI is the project, not the port.
+- **What does "3D support" mean (new 2026-08-24, from 5.3)?** Assumed: a 3D *reference layer* that
+  renders to pixels (option (a)), then UV/texture painting (option (c)). A live 3D layer type
+  (option (b)) changes the document model and needs an explicit decision. **Worth asking outright** -
+  the three readings differ by more than an order of magnitude in cost.
+- **Third-party posting (new 2026-08-24, from 2.9):** publishing straight to art platforms is gated
+  in the same bucket as the 2.4 forge OAuth half - accounts, tokens, app review, and (for Instagram)
+  an API that fetches a public URL instead of accepting an upload. Assumed: build the local export
+  *package* only, never the account integration, until told otherwise.
 - ~~Native plugin API before Paint.NET compat, or the reverse?~~ Resolved: native API first (2.4),
   Paint.NET compat as a reflection-based bridge on top of it (3.x classic tier, done 2026-08-19) -
   played out exactly as assumed, `EffectRegistry`/`PluginParameterSpec`/`PluginEffectDialog` all

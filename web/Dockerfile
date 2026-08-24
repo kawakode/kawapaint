@@ -28,5 +28,6 @@ RUN dotnet publish web/KawaPaint.Web.csproj -c Release -o /app/publish
 # Runtime: the published output is static files (HTML/JS/WASM) - no .NET runtime needed to serve it.
 FROM nginx:alpine AS final
 COPY --from=build /app/publish/wwwroot /usr/share/nginx/html
-COPY web/nginx.conf /etc/nginx/conf.d/default.conf
+COPY web/nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY --chmod=755 web/docker-entrypoint.d/30-configure-base-path.sh /docker-entrypoint.d/30-configure-base-path.sh
 EXPOSE 80

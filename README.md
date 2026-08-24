@@ -19,6 +19,23 @@ A modern, cross-platform image editor compatible with Paint.NET 3.36 file format
 
 Open `KawaPaint.slnx` to build any platform; all share the same engine and UI code.
 
+## Docker
+
+The web image is served at `/` by default:
+
+```text
+docker compose up
+```
+
+Set `BASE_PATH` when publishing it below a URL prefix. For example, this serves the app at
+`http://localhost:8080/app/`:
+
+```text
+BASE_PATH=/app docker compose up
+```
+
+The reverse proxy should preserve that prefix when forwarding requests to the container.
+
 ## Batch export
 
 Named export presets are managed from **File > Export > Manage Presets**. Presets can resize or

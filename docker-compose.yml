@@ -1,5 +1,7 @@
 services:
   web:
     image: ghcr.io/kawakode/kawapaint:latest
+    environment:
+      BASE_PATH: ${BASE_PATH:-/}
     ports:
       - "8080:80"

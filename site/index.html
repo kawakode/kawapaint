@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="KawaPaint is a modern, cross-platform image editor with layers, effects, automation, plugins, and Paint.NET project compatibility.">
+  <meta name="theme-color" content="#f4f2ed">
+  <title>KawaPaint | Open source image editor</title>
+  <link rel="icon" href="assets/favicon.ico">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header" data-header>
+    <div class="nav-brand">
+      <a class="brand" href="#top" aria-label="KawaPaint home">
+        <img src="assets/kawapaint-main.png" alt="KawaPaint">
+      </a>
+      <p class="nav-kicker">Open source image editor</p>
+    </div>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" data-nav-toggle>
+      <span></span><span></span>
+      <span class="sr-only">Open navigation</span>
+    </button>
+    <nav id="site-nav" class="site-nav" aria-label="Main navigation" data-nav>
+      <a href="#features">Features</a>
+      <a href="#screenshots">Screenshots</a>
+      <a href="#download">Download</a>
+      <a href="https://github.com/kawakode/kawapaint" target="_blank" rel="noreferrer">Source</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="hero-copy reveal">
+        <h1>Everything you need to edit images.</h1>
+        <p class="hero-intro">KawaPaint brings layers, precise drawing tools, rich effects, repeatable exports, and a familiar desktop workflow to Windows, Linux, and the browser.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="#download">Download KawaPaint</a>
+          <a class="button button-secondary" href="https://github.com/kawakode/kawapaint" target="_blank" rel="noreferrer">View source</a>
+        </div>
+        <dl class="hero-facts" aria-label="Project facts">
+          <div><dt>Platforms</dt><dd>Windows, Linux, Web</dd></div>
+          <div><dt>Project format</dt><dd><a href="https://paint.net">Paint.NET compatible</a></dd></div>
+          <div><dt>License</dt><dd>MIT</dd></div>
+        </dl>
+      </div>
+
+      <figure class="hero-shot reveal reveal-delay">
+        <div class="window-frame">
+          <div class="window-bar" aria-hidden="true">
+            <span></span><span></span><span></span>
+            <b>KawaPaint</b>
+          </div>
+          <img src="assets/app-workspace.png" alt="KawaPaint workspace showing a layered geometric composition and drawing tools">
+        </div>
+        <figcaption>A focused workspace with the controls you need close at hand.</figcaption>
+      </figure>
+    </section>
+
+    <section class="statement reveal" aria-label="Overview">
+      <p>Built on a shared C# and SkiaSharp engine with a native Avalonia interface.</p>
+      <p>Fast for everyday edits, flexible for repeatable production work.</p>
+    </section>
+
+    <section class="section features" id="features">
+      <div class="section-heading reveal">
+        <p class="eyebrow">Feature list</p>
+        <h2>A complete editing toolkit</h2>
+        <p>From a quick crop to a scripted batch, KawaPaint keeps the entire workflow in one application.</p>
+      </div>
+
+      <div class="feature-grid">
+        <article class="feature-card reveal">
+          <span class="feature-number">01</span>
+          <h3>Drawing and shapes</h3>
+          <ul>
+            <li>Pencil and soft paintbrush with adjustable size and hardness</li>
+            <li>Eraser, color picker, clone stamp, and recolor tools</li>
+            <li>Paint bucket with tolerance and global fill modes</li>
+            <li>Linear gradients with foreground and background colors</li>
+            <li>Lines, rectangles, rounded rectangles, ellipses, stars, arrows, and freeform shapes</li>
+            <li>Antialiased outlines and optional filled shapes</li>
+            <li>Text and reusable dynamic text zones</li>
+          </ul>
+        </article>
+
+        <article class="feature-card reveal">
+          <span class="feature-number">02</span>
+          <h3>Layers and selections</h3>
+          <ul>
+            <li>Layer visibility, naming, reordering, duplication, import, merge, and flatten</li>
+            <li>Opacity controls and 14 blend modes</li>
+            <li>Rectangle, ellipse, lasso, and magic wand selections</li>
+            <li>Replace, add, subtract, and intersect selection modes</li>
+            <li>Move selected pixels without flattening the document</li>
+            <li>Cut, copy, copy merged, and flexible paste placement</li>
+            <li>Fill, erase, invert, crop, and deselect operations</li>
+          </ul>
+        </article>
+
+        <article class="feature-card reveal">
+          <span class="feature-number">03</span>
+          <h3>Image adjustments</h3>
+          <ul>
+            <li>Brightness and contrast, hue and saturation, levels, and curves</li>
+            <li>Automatic levels, black and white, sepia, and color inversion</li>
+            <li>Resize, canvas size, crop, rotate, and flip operations</li>
+            <li>Live previews for parameterized adjustments</li>
+            <li>Gaussian, motion, radial, zoom, surface, and unfocus blurs</li>
+            <li>Sharpen, emboss, edge detect, posterize, and noise controls</li>
+          </ul>
+        </article>
+
+        <article class="feature-card reveal">
+          <span class="feature-number">04</span>
+          <h3>Effects library</h3>
+          <ul>
+            <li>Bulge, twist, polar inversion, tile, frosted glass, pixelate, and dents</li>
+            <li>Median, outline, relief, vignette, and noise reduction</li>
+            <li>Clouds, Julia fractal, and Mandelbrot fractal generators</li>
+            <li>Glow, red eye removal, and portrait softening</li>
+            <li>Ink sketch, pencil sketch, and oil painting styles</li>
+            <li>Fragment and other configurable blur treatments</li>
+          </ul>
+        </article>
+
+        <article class="feature-card reveal">
+          <span class="feature-number">05</span>
+          <h3>Files and export</h3>
+          <ul>
+            <li>Layered KawaPaint projects compatible with the Paint.NET 3.36 format</li>
+            <li>PNG, JPEG, WebP, ICO, JPEG XL, and JPEG 2000 encoding</li>
+            <li>BMP and GIF import, plus content-based format detection</li>
+            <li>Named export presets for resize, pad, fill and crop, quality, and filenames</li>
+            <li>Caption and alt text sidecar packages</li>
+            <li>CSV mail merge for producing personalized image sets</li>
+            <li>EXIF, IPTC, XMP, GPS, and ICC metadata inspection and removal</li>
+          </ul>
+        </article>
+
+        <article class="feature-card reveal">
+          <span class="feature-number">06</span>
+          <h3>Automation and safety</h3>
+          <ul>
+            <li>Record edits as reusable KawaPaint scripts</li>
+            <li>Batch apply scripts to individual files or entire folders</li>
+            <li>Command line export presets and scripted pipelines</li>
+            <li>Record and replay interactive demos at selectable speeds</li>
+            <li>Configurable autosave with crash recovery</li>
+            <li>Memory-aware undo history with disk spill support</li>
+            <li>Optional local Git history for settings and linked projects</li>
+          </ul>
+        </article>
+
+        <article class="feature-card reveal">
+          <span class="feature-number">07</span>
+          <h3>A workspace that adapts</h3>
+          <ul>
+            <li>Dock, float, move, or hide Tools, Colors, Color Wheel, Layers, and History</li>
+            <li>Build a custom dock from frequently used controls</li>
+            <li>Save, rename, and restore workspace layouts</li>
+            <li>Editable palettes with import and export</li>
+            <li>Rulers in pixels, inches, centimeters, and millimeters</li>
+            <li>Fit, actual size, and stepped zoom controls</li>
+            <li>Searchable command palette and keyboard shortcuts</li>
+          </ul>
+        </article>
+
+        <article class="feature-card reveal">
+          <span class="feature-number">08</span>
+          <h3>Open and extensible</h3>
+          <ul>
+            <li>Native Windows and Linux applications from one shared engine</li>
+            <li>WebAssembly edition for running in a modern browser</li>
+            <li>Plugin API for custom effects and drawing tools</li>
+            <li>Paint.NET classic effect plugin bridge on desktop</li>
+            <li>Plugin manager with discovery, reload, and per-plugin controls</li>
+            <li>Open source C# code under the MIT license</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="section gallery" id="screenshots">
+      <div class="section-heading reveal">
+        <p class="eyebrow">Inside KawaPaint</p>
+        <h2>Familiar from the first click</h2>
+        <p>A clear dark interface keeps the canvas central while detailed controls remain easy to reach.</p>
+      </div>
+
+      <div class="gallery-grid">
+        <button class="gallery-item gallery-wide reveal" type="button" data-lightbox="assets/app-effects.png" aria-label="Open effects screenshot">
+          <img src="assets/app-effects.png" alt="KawaPaint effects menu with adjustment, blur, render, photo, and artistic categories" loading="lazy">
+          <span><b>Effects that stay organized</b><small>Adjust, distort, render, and stylize from one clear menu.</small></span>
+        </button>
+        <button class="gallery-item reveal" type="button" data-lightbox="assets/app-panels.png" aria-label="Open panels screenshot">
+          <img src="assets/app-panels.png" alt="KawaPaint with floating Layers and History panels and a docked color palette" loading="lazy">
+          <span><b>Your workspace, your layout</b><small>Dock or float panels and keep the canvas open.</small></span>
+        </button>
+        <button class="gallery-item reveal" type="button" data-lightbox="assets/app-workspace.png" aria-label="Open workspace screenshot">
+          <img src="assets/app-workspace.png" alt="KawaPaint editing workspace with rulers and the floating drawing tools panel" loading="lazy">
+          <span><b>Tools where you need them</b><small>A compact toolbox with direct access to every core tool.</small></span>
+        </button>
+      </div>
+    </section>
+
+    <section class="section download" id="download">
+      <div class="download-panel reveal">
+        <div class="download-copy">
+          <p class="eyebrow">Latest release</p>
+          <h2>Start creating with KawaPaint</h2>
+          <p>Self-contained builds include everything needed to run. No separate .NET installation is required.</p>
+          <p class="release-line"><span data-release-label>0.6.0-beta</span><span>MIT licensed</span><span>Source available</span></p>
+        </div>
+        <div class="download-options">
+          <a class="download-card" data-download="windows" href="https://github.com/kawakode/kawapaint/releases/download/0.6.0-beta/KawaPaint-0.6.0-beta-win-x64.zip">
+            <span class="platform-icon" aria-hidden="true"><img src="assets/windows.svg" alt=""></span>
+            <span><b>Download for Windows</b><small>x64 · ZIP archive <i data-size="windows">76.4 MB</i></small></span>
+            <span class="download-arrow" aria-hidden="true">↓</span>
+          </a>
+          <a class="download-card" data-download="linux" href="https://github.com/kawakode/kawapaint/releases/download/0.6.0-beta/KawaPaint-0.6.0-beta-linux-x64.zip">
+            <span class="platform-icon platform-linux" aria-hidden="true"><img src="assets/linux.svg" alt=""></span>
+            <span><b>Download for Linux</b><small>x64 · ZIP archive <i data-size="linux">46.5 MB</i></small></span>
+            <span class="download-arrow" aria-hidden="true">↓</span>
+          </a>
+          <a class="text-link" data-release-page href="https://github.com/kawakode/kawapaint/releases/latest">Release notes and all downloads <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+      <p class="download-note reveal">Desktop builds are currently unsigned. Your operating system may show an unknown publisher warning.</p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-brand">
+      <img src="assets/kawapaint-main.png" alt="KawaPaint">
+      <p>A modern image editor, built in the open.</p>
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/kawakode/kawapaint">GitHub</a>
+      <a href="https://github.com/kawakode/kawapaint/releases/latest">Releases</a>
+      <a href="https://github.com/kawakode/kawapaint/blob/master/LICENSE.MD">License</a>
+    </div>
+    <p class="copyright">© <span data-year></span> KawaPaint contributors.</p>
+  </footer>
+
+  <dialog class="lightbox" data-lightbox-dialog aria-label="Screenshot preview">
+    <button type="button" data-lightbox-close aria-label="Close screenshot">Close</button>
+    <img src="" alt="Expanded KawaPaint screenshot" data-lightbox-image>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

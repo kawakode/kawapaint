@@ -45,9 +45,15 @@ public sealed class Palette
 
     public static Palette LoadOrDefault(Stream stream)
     {
-        try { return JsonSerializer.Deserialize<Palette>(stream) ?? Default(); }
+        try { return Load(stream); }
         catch { return Default(); }
     }
+
+    /// <summary>Reads a palette, throwing if the stream isn't one. Use this wherever falling back
+    /// to the defaults would be mistaken for a successful load - see MainView.OnLoadPalette.</summary>
+    public static Palette Load(Stream stream) =>
+        JsonSerializer.Deserialize<Palette>(stream)
+        ?? throw new InvalidDataException("The file is empty or not a KawaPaint palette.");
 
     public static Palette Default()
     {

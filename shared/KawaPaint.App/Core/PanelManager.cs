@@ -14,6 +14,7 @@ using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 
@@ -22,6 +23,10 @@ namespace KawaPaint.App.Core;
 public sealed class PanelManager
 {
     private const double GripThickness = 6;
+
+    /// <summary>How much of a floating panel must stay inside the window - enough of the title bar
+    /// to grab, in both axes. See ClampToLayer.</summary>
+    private const double MinVisible = 80;
 
     private readonly DockPanel _rootDock;
     private readonly Panel _floatingLayer;
@@ -36,6 +41,13 @@ public sealed class PanelManager
         _floatingLayer = floatingLayer;
         _fill = fill;
         Layout = layout;
+
+        // A layout saved on a larger window, or simply making this one smaller, would otherwise
+        // leave floating panels sitting outside the visible area for good - see ClampToLayer.
+        _floatingLayer.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == Visual.BoundsProperty) ClampFloatingHosts();
+        };
     }
 
     public WorkspaceLayout Layout { get; private set; }
@@ -162,10 +174,40 @@ public sealed class PanelManager
 
         var host = GetOrCreateHost(descriptor);
         host.Attach(descriptor.Content);
-        host.Root.Margin = new Thickness(Math.Max(0, placement.FloatX), Math.Max(0, placement.FloatY), 0, 0);
         host.Root.Width = placement.FloatWidth;
         host.Root.Height = placement.FloatHeight;
+        host.Root.Margin = ClampToLayer(placement.FloatX, placement.FloatY);
         _floatingLayer.Children.Add(host.Root);
+    }
+
+    /// <summary>
+    /// Keeps a floating panel's top-left inside the window. Without this a panel can be dragged
+    /// out past the right or bottom edge - or restored there from a layout saved on a larger
+    /// window - and its title bar, the only handle for moving or re-docking it, goes with it; the
+    /// sole way back was View ▸ Panels ▸ Reset Layout. A strip of the panel is always kept
+    /// on-screen rather than its whole width, so a wide panel near an edge still behaves.
+    /// </summary>
+    private Thickness ClampToLayer(double x, double y)
+    {
+        // Before the first layout pass the layer has no size yet and there is nothing to clamp to.
+        if (_floatingLayer.Bounds.Width > 0) x = Math.Min(x, _floatingLayer.Bounds.Width - MinVisible);
+        if (_floatingLayer.Bounds.Height > 0) y = Math.Min(y, _floatingLayer.Bounds.Height - MinVisible);
+
+        return new Thickness(Math.Max(0, x), Math.Max(0, y), 0, 0);
+    }
+
+    /// <summary>Re-clamps every floating panel after the available area changed - shrinking the
+    /// window would otherwise strand panels outside it. Deliberately does not Notify(): this is
+    /// the window being resized, not the user rearranging anything, and it should not write
+    /// settings on every frame of a resize drag.</summary>
+    private void ClampFloatingHosts()
+    {
+        foreach (var host in _hosts.Values)
+        {
+            if (host.Root.Parent is null) continue;
+            var clamped = ClampToLayer(host.Root.Margin.Left, host.Root.Margin.Top);
+            if (clamped != host.Root.Margin) host.Root.Margin = clamped;
+        }
     }
 
     private void Notify() => LayoutChanged?.Invoke(this, EventArgs.Empty);
@@ -181,13 +223,20 @@ public sealed class PanelManager
         return host;
     }
 
+    /// <summary>Highest ZIndex handed out so far. Monotonic - a floating panel is raised by taking
+    /// the next value rather than by shuffling anything down.</summary>
+    private int _topZ;
+
     private void BringToFront(Control root)
     {
-        // Reordering detaches and reattaches the visual subtree, which cancels an in-flight drag,
-        // so only touch the collection when the host is not already on top.
-        if (_floatingLayer.Children.Count > 0 && ReferenceEquals(_floatingLayer.Children[^1], root)) return;
-        _floatingLayer.Children.Remove(root);
-        _floatingLayer.Children.Add(root);
+        // ZIndex, not a reorder of _floatingLayer.Children. Removing and re-adding a control
+        // detaches it from the visual tree, which drops the pointer capture a drag depends on -
+        // so raising had to be skipped whenever the panel was already on top, and could not be
+        // wired to the title bar at all (see the Tunnel handler in FloatHost). It also meant
+        // Apply(), which rebuilds that collection in registration order, silently reshuffled the
+        // stacking on every placement change. A ZIndex lives on the control, so it survives both.
+        if (root.ZIndex == _topZ && _topZ != 0) return;
+        root.ZIndex = ++_topZ;
     }
 
     /// <summary>Which edges a resize drag is moving. Corners combine two flags.</summary>
@@ -258,7 +307,12 @@ public sealed class PanelManager
                 BoxShadow = BoxShadows.Parse("0 4 16 0 #A0000000"),
                 Child = grid
             };
-            Root.PointerPressed += (_, _) => _owner.BringToFront(Root);
+            // Tunnel: the title bar's own press handler marks the event handled to start its drag,
+            // so a bubbling handler here never saw the most natural way to raise a panel - clicking
+            // its title bar - and only a click on the panel body raised it. Running first is safe
+            // now that raising is only a ZIndex change and does not reparent anything.
+            Root.AddHandler(InputElement.PointerPressedEvent, (_, _) => _owner.BringToFront(Root),
+                            RoutingStrategies.Tunnel);
         }
 
         public Border Root { get; }
@@ -340,9 +394,7 @@ public sealed class PanelManager
         {
             if (!_moving) return;
             var delta = e.GetPosition(_owner._floatingLayer) - _dragOrigin;
-            Root.Margin = new Thickness(
-                Math.Max(0, _dragStartBounds.X + delta.X),
-                Math.Max(0, _dragStartBounds.Y + delta.Y), 0, 0);
+            Root.Margin = _owner.ClampToLayer(_dragStartBounds.X + delta.X, _dragStartBounds.Y + delta.Y);
         }
 
         // ---- drag to resize ----
@@ -389,7 +441,7 @@ public sealed class PanelManager
 
             Root.Width = Math.Max(minWidth, width);
             Root.Height = Math.Max(minHeight, height);
-            Root.Margin = new Thickness(Math.Max(0, x), Math.Max(0, y), 0, 0);
+            Root.Margin = _owner.ClampToLayer(x, y);
         }
 
         private void OnDragEnd(object? sender, PointerReleasedEventArgs e)

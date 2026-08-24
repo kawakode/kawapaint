@@ -39,7 +39,9 @@ public sealed class AdjustmentDialog : Window
 
         Title = title;
         Width = 400;
-        Height = 90 + specs.Length * 46 + 52;
+        // Was a hand-tuned "90 + sliders*46 + 52" guess at the chrome; let the layout say instead,
+        // so a font or DPI that measures differently can't clip the button row.
+        SizeToContent = SizeToContent.Height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
@@ -100,6 +102,15 @@ public sealed class AdjustmentDialog : Window
         root.Children.Add(buttons);
 
         Content = root;
+
+        // Most of these effects have a non-neutral default (Add Noise 25, Pixelate 8, Gaussian
+        // Blur 5, ...). Without this the canvas showed the *unmodified* image until a slider was
+        // touched, so a straight OK applied a result the user had never actually been shown - and
+        // any nudge made the image jump. Preview on open so what is on screen always matches what
+        // OK will commit. Deferred to Opened so the dialog is up before the first full-surface
+        // Apply, rather than the window appearing to hang on a large image.
+        Opened += (_, _) => Preview();
+
         Closed += (_, _) => { _previewTimer?.Stop(); if (!_committed) Revert(); };
     }
 

@@ -31,7 +31,7 @@ public sealed class CanvasSizeDialog : Window
     {
         Title = "Canvas Size";
         Width = 340;
-        Height = 300;
+        SizeToContent = SizeToContent.Height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 

@@ -18,7 +18,7 @@ public sealed class ResizeDialog : Window
     {
         Title = "Resize Image";
         Width = 320;
-        Height = 180;
+        SizeToContent = SizeToContent.Height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 

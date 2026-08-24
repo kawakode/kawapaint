@@ -17,7 +17,7 @@ public sealed class ConfirmSaveDialog : Window
     {
         Title = "Unsaved changes";
         Width = 420;
-        Height = 150;
+        SizeToContent = SizeToContent.Height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 

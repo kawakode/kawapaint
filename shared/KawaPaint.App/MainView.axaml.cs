@@ -23,6 +23,7 @@ public partial class MainView : UserControl
     private bool _suppress;   // guards programmatic updates to layer-panel controls
     private bool _suppressHistory;   // guards programmatic updates to the History panel's selection
     private byte? _opacityBefore;
+    private Layer? _opacityLayer;   // the layer that edit started on; see CommitOpacityChange
     private Layer? _dragLayer;     // row being dragged, null when no drag is in flight
     private int _dragFromIndex;    // its index at pointer-down, for a single undo entry
     private double _dragStartY;
@@ -1388,12 +1389,17 @@ public partial class MainView : UserControl
         return btn;
     }
 
+    /// <param name="hex">As stored by DockEntry, i.e. ColorBgra.ToHexString's AARRGGBB form.
+    /// Parsed through ColorBgra so the alpha survives and so a hand-edited settings entry that
+    /// isn't a colour at all leaves an inert slot instead of throwing while the dock is built.</param>
     private Button BuildDockColorButton(string hex)
     {
-        byte r = Convert.ToByte(hex.Substring(1, 2), 16);
-        byte g = Convert.ToByte(hex.Substring(3, 2), 16);
-        byte b = Convert.ToByte(hex.Substring(5, 2), 16);
-        var color = ColorBgra.FromBgra(b, g, r, 255);
+        if (!ColorBgra.TryParseHexString(hex, out var color))
+        {
+            var bad = new Button { Width = 32, Height = 32, Margin = new Thickness(2), Content = "?", IsEnabled = false };
+            ToolTip.SetTip(bad, hex + " (not a colour)");
+            return bad;
+        }
 
         var btn = new Button
         {
@@ -1404,7 +1410,7 @@ public partial class MainView : UserControl
             Background = new SolidColorBrush(Color.FromArgb(color.A, color.R, color.G, color.B)),
             Classes = { "swatch" }
         };
-        ToolTip.SetTip(btn, hex);
+        ToolTip.SetTip(btn, color.ToDisplayHexString());
         btn.Click += (_, _) => SetForeground(color);
         return btn;
     }
@@ -1675,13 +1681,23 @@ public partial class MainView : UserControl
         StatusText.Text = "Renamed layout to \"" + newName + "\"";
     }
 
-    private void OnDeleteLayoutPreset(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    private async void OnDeleteLayoutPreset(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         var workspace = _settings.Settings.Workspace;
         if (workspace.Layouts.Count <= 1)
         {
             StatusText.Text = "Can't delete the only layout";
             return;
+        }
+
+        // The menu item has always promised a prompt with its ellipsis; until now it deleted a
+        // saved arrangement outright, with nothing to undo it.
+        if (OwnerWindow is { } owner)
+        {
+            var confirm = new ConfirmDialog("Delete Layout",
+                $"Delete the layout \"{workspace.ActiveLayout}\"? This can't be undone.",
+                confirmLabel: "Delete", destructive: true);
+            if (!await confirm.ShowDialog<bool>(owner)) return;
         }
 
         string removed = workspace.ActiveLayout;
@@ -1710,12 +1726,10 @@ public partial class MainView : UserControl
     private void OnColor(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (sender is not Button b || b.Tag is not string hex) return;
-        byte r = Convert.ToByte(hex.Substring(1, 2), 16);
-        byte g = Convert.ToByte(hex.Substring(3, 2), 16);
-        byte bl = Convert.ToByte(hex.Substring(5, 2), 16);
+        if (!ColorBgra.TryParseHexString(hex, out var color)) return;
         // These swatches are labelled "Fg", so they always set the foreground - regardless of
         // which swatch the color wheel currently edits.
-        SetForeground(ColorBgra.FromBgra(bl, g, r, 255));
+        SetForeground(color);
     }
 
     // ---- color wheel panel ------------------------------------------------
@@ -1875,7 +1889,8 @@ public partial class MainView : UserControl
                 Classes = { "swatch" },
                 Tag = e
             };
-            ToolTip.SetTip(swatch, string.IsNullOrEmpty(e.Name) ? color.ToHexString() : $"{e.Name}  ({color.ToHexString()})");
+            string hex = color.ToDisplayHexString();
+            ToolTip.SetTip(swatch, string.IsNullOrEmpty(e.Name) ? hex : $"{e.Name}  ({hex})");
             swatch.Click += (_, _) => SetForeground(color);
 
             var menu = new ContextMenu();
@@ -1963,11 +1978,27 @@ public partial class MainView : UserControl
         });
         var file = files.FirstOrDefault();
         if (file is null) return;
-        await using (var stream = await file.OpenReadAsync())
-            _palette = Palette.LoadOrDefault(stream);
+
+        // Deliberately NOT Palette.LoadOrDefault: that swallows a parse failure and hands back the
+        // 12 built-in colours, which PersistPalette would then write straight over the user's own
+        // palette.kwpal - silent data loss, reported as "Palette loaded". Load strictly instead and
+        // leave the current palette untouched when the file turns out not to be one.
+        Palette loaded;
+        try
+        {
+            await using var stream = await file.OpenReadAsync();
+            loaded = Palette.Load(stream);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"Couldn't load {file.Name}: {ex.Message}";
+            return;
+        }
+
+        _palette = loaded;
         PersistPalette();
         BuildPaletteStrip();
-        StatusText.Text = "Palette loaded";
+        StatusText.Text = $"Palette loaded - {_palette.Colors.Count} colour(s)";
     }
 
     private void OnTool(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -2437,7 +2468,7 @@ public partial class MainView : UserControl
                 Width = 40, Height = 30, Background = Brushes.DimGray,
                 BorderBrush = Brushes.Gray, BorderThickness = new Thickness(1),
                 VerticalAlignment = VerticalAlignment.Center,
-                Child = new Image { Source = MakeThumbnail(layer.Surface, 38, 28), Stretch = Stretch.Uniform }
+                Child = new Image { Source = ThumbnailFor(layer), Stretch = Stretch.Uniform }
             };
             var capturedLayer = layer;
             check.IsCheckedChanged += (_, _) =>
@@ -2492,24 +2523,94 @@ public partial class MainView : UserControl
             OpacitySlider.Value = active.Opacity;
         }
 
+        PruneThumbnails(doc);
         _suppress = false;
     }
 
-    private static unsafe WriteableBitmap MakeThumbnail(Surface s, int maxW, int maxH)
+    // ---- layer thumbnails ---------------------------------------------------
+    //
+    // RebuildLayerPanel runs on every DocumentChanged, and most of those change no layer pixels at
+    // all (selecting a row, finishing a drag-reorder). Each rebuild used to downsample every layer
+    // into a brand-new WriteableBitmap and drop the previous one on the floor for the finalizer to
+    // collect - a native allocation per layer per event. Now each layer keeps one bitmap, redrawn
+    // in place only when SurfaceView.CompositeVersion says the pixels may have moved.
+
+    private const int ThumbWidth = 38;
+    private const int ThumbHeight = 28;
+
+    private readonly System.Collections.Generic.Dictionary<Layer, (WriteableBitmap Bitmap, int Version)> _thumbnails = new();
+
+    private WriteableBitmap ThumbnailFor(Layer layer)
     {
-        double scale = Math.Min((double)maxW / s.Width, (double)maxH / s.Height);
-        int tw = Math.Max(1, (int)(s.Width * scale));
-        int th = Math.Max(1, (int)(s.Height * scale));
-        using var small = s.Resized(tw, th);
-        var wb = new WriteableBitmap(new PixelSize(tw, th), new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Unpremul);
-        using (var fb = wb.Lock())
+        int version = Canvas.CompositeVersion;
+
+        if (_thumbnails.TryGetValue(layer, out var cached))
         {
-            int rowBytes = tw * 4;
-            byte* dst = (byte*)fb.Address;
-            for (int y = 0; y < th; y++)
-                System.Buffer.MemoryCopy(small.GetRowPointer(y), dst + (long)y * fb.RowBytes, fb.RowBytes, rowBytes);
+            if (cached.Version == version) return cached.Bitmap;
+
+            // Same layer, same target size: repaint the bitmap we already have.
+            var size = ThumbnailSize(layer.Surface);
+            if (cached.Bitmap.PixelSize == size)
+            {
+                RenderThumbnail(layer.Surface, cached.Bitmap, size);
+                _thumbnails[layer] = (cached.Bitmap, version);
+                return cached.Bitmap;
+            }
+
+            // The layer was resized under us (a canvas-level op), so the old bitmap is the wrong
+            // shape and has to go.
+            DisposeLater(cached.Bitmap);
         }
+
+        var created = MakeThumbnail(layer.Surface);
+        _thumbnails[layer] = (created, version);
+        return created;
+    }
+
+    /// <summary>Drops cached thumbnails for layers the document no longer holds. Called from
+    /// RebuildLayerPanel, which is the only thing that puts entries in.</summary>
+    private void PruneThumbnails(Document doc)
+    {
+        System.Collections.Generic.List<Layer>? gone = null;
+        foreach (var layer in _thumbnails.Keys)
+            if (doc.IndexOf(layer) < 0) (gone ??= new()).Add(layer);
+
+        if (gone is null) return;
+        foreach (var layer in gone)
+        {
+            DisposeLater(_thumbnails[layer].Bitmap);
+            _thumbnails.Remove(layer);
+        }
+    }
+
+    /// <summary>Frees a thumbnail's native buffer on a later dispatcher pass rather than inline.
+    /// The Image showing it has only just been detached by LayerList.Items.Clear(), and disposing
+    /// a bitmap the compositor may still hold for the frame in flight is not safe.</summary>
+    private static void DisposeLater(WriteableBitmap bitmap) =>
+        Dispatcher.UIThread.Post(bitmap.Dispose, DispatcherPriority.Background);
+
+    private static PixelSize ThumbnailSize(Surface s)
+    {
+        double scale = Math.Min((double)ThumbWidth / s.Width, (double)ThumbHeight / s.Height);
+        return new PixelSize(Math.Max(1, (int)(s.Width * scale)), Math.Max(1, (int)(s.Height * scale)));
+    }
+
+    private static WriteableBitmap MakeThumbnail(Surface s)
+    {
+        var size = ThumbnailSize(s);
+        var wb = new WriteableBitmap(size, new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Unpremul);
+        RenderThumbnail(s, wb, size);
         return wb;
+    }
+
+    private static unsafe void RenderThumbnail(Surface s, WriteableBitmap target, PixelSize size)
+    {
+        using var small = s.Resized(size.Width, size.Height);
+        using var fb = target.Lock();
+        int rowBytes = size.Width * 4;
+        byte* dst = (byte*)fb.Address;
+        for (int y = 0; y < size.Height; y++)
+            System.Buffer.MemoryCopy(small.GetRowPointer(y), dst + (long)y * fb.RowBytes, fb.RowBytes, rowBytes);
     }
 
     // ---- history panel ------------------------------------------------------
@@ -3120,7 +3221,14 @@ public partial class MainView : UserControl
     private void OnOpacityChanged(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
         if (_suppress || Canvas?.ActiveLayer is null) return;
-        _opacityBefore ??= Canvas.ActiveLayer.Opacity;   // first change of a gesture: remember the pre-edit value
+        // First change of a gesture: remember the pre-edit value, and which layer it belongs to.
+        // The commit can arrive after the active layer has moved on (LostFocus fires as the click
+        // that selected another row lands), and applying A's undo entry to B is silently wrong.
+        if (_opacityBefore is null)
+        {
+            _opacityBefore = Canvas.ActiveLayer.Opacity;
+            _opacityLayer = Canvas.ActiveLayer;
+        }
         Canvas.ActiveLayer.Opacity = (byte)Math.Round(e.NewValue);
         Canvas.RenderComposite();
         Canvas.InvalidateVisual();
@@ -3130,10 +3238,11 @@ public partial class MainView : UserControl
 
     private void CommitOpacityChange()
     {
-        var layer = Canvas.ActiveLayer;
+        var layer = _opacityLayer;
         if (layer is null || _opacityBefore is null) return;
         byte before = _opacityBefore.Value, after = layer.Opacity;
         _opacityBefore = null;
+        _opacityLayer = null;
         if (before == after) return;
 
         // Only the settled value is recorded, not every frame of the slider drag: the intermediate

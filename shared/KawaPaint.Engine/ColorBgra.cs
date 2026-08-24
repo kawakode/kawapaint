@@ -119,13 +119,52 @@ public struct ColorBgra : IEquatable<ColorBgra>
 
     private static int ClampToByte(double v) => v < 0 ? 0 : v > 255 ? 255 : (int)(v + 0.5);
 
-    public static ColorBgra ParseHexString(string hexString) => FromUInt32(Convert.ToUInt32(hexString, 16));
+    /// <summary>
+    /// Parses a hex colour string. Accepts this struct's own <see cref="ToHexString"/> form
+    /// (AARRGGBB) as well as the six-digit RRGGBB form AXAML colour literals use, with or without
+    /// a leading '#'. Tolerating both matters because the two are mixed in practice - a palette
+    /// colour is serialized with ToHexString, while the toolbar's fixed swatches carry "#RRGGBB"
+    /// tags - and reading one as the other silently yields a different colour rather than failing.
+    /// </summary>
+    public static ColorBgra ParseHexString(string hexString) =>
+        TryParseHexString(hexString, out var color)
+            ? color
+            : throw new FormatException($"'{hexString}' is not a hex colour (expected RRGGBB or AARRGGBB).");
 
+    /// <summary>Non-throwing <see cref="ParseHexString"/>, for values that reach us from settings
+    /// files or other places a malformed string should be skipped rather than fatal.</summary>
+    public static bool TryParseHexString(string? hexString, out ColorBgra color)
+    {
+        color = default;
+
+        ReadOnlySpan<char> s = (hexString ?? string.Empty).AsSpan().Trim();
+        if (s.Length > 0 && s[0] == '#') s = s[1..];
+        if (s.Length is not (6 or 8)) return false;
+        if (!uint.TryParse(s, System.Globalization.NumberStyles.HexNumber,
+                           System.Globalization.CultureInfo.InvariantCulture, out uint v)) return false;
+
+        byte a = s.Length == 8 ? (byte)(v >> 24) : (byte)255;
+        color = FromBgra((byte)v, (byte)(v >> 8), (byte)(v >> 16), a);
+        return true;
+    }
+
+    /// <summary>The round-trip serialization form, AARRGGBB with no '#'. Kept exactly as-is
+    /// because saved data (palette files, pinned dock entries) is written with it - show
+    /// <see cref="ToDisplayHexString"/> to people instead.</summary>
     public readonly string ToHexString()
     {
         int rgb = (R << 16) | (G << 8) | B;
         return $"{A:X2}{rgb:X6}";
     }
+
+    /// <summary>
+    /// The human-facing form: "#RRGGBB", or "#AARRGGBB" when the colour is not fully opaque.
+    /// <see cref="ToHexString"/> leads with alpha and omits the '#', so an ordinary opaque colour
+    /// reads as "FF2050E0" in a tooltip where "#2050E0" is what anyone would expect - and the
+    /// leading FF looks like part of the colour. Still round-trips: ParseHexString takes both.
+    /// </summary>
+    public readonly string ToDisplayHexString() =>
+        A == 255 ? $"#{R:X2}{G:X2}{B:X2}" : $"#{A:X2}{R:X2}{G:X2}{B:X2}";
 
     public readonly bool Equals(ColorBgra other) => Bgra == other.Bgra;
 

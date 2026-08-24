@@ -17,7 +17,7 @@ public sealed class PastePlacementDialog : Window
     {
         Title = "Paste";
         Width = 480;
-        Height = 170;
+        SizeToContent = SizeToContent.Height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 

@@ -4,10 +4,122 @@ Status snapshot: 2026-08-21, branch `feature/demo-recorder` (updated post-2.4,
 post-JXL/JP2-Windows-packaging, post-3.x-classic-PDN-plugin-bridge,
 post-3.x-BitmapEffect-tier-spike-proven-impossible, post-bughunt-sweep,
 post-second-bughunt-pass-B1..B7-all-fixed, post-UI-gaps-pass, post-demo-recorder,
-post-script-batch-system).
+post-script-batch-system, post-UI-bug-sweep-U1..U10, post-UI-polish-U11..U18).
 Full roadmap/rationale lives in Claude memory
 (`feature-roadmap-tiers`) and the published plan:
 https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
+
+## UI bug sweep U1..U10 - fixed 2026-08-24
+
+A read-through of the UI layer (MainView, SurfaceView, PanelManager, every dialog) looking for
+defects rather than missing features. All ten fixed; solution builds clean (0 errors, only the
+pre-existing WASM `NativeFileReference` warning). Six were verified by driving the running app
+(`.claude/skills/run-desktop`), noted per item.
+
+- **U1 - dock colour swatches showed, and applied, the wrong colour.** `MainView.BuildDockColorButton`
+  and `DockEditorDialog.ParseHex` both parsed their hex with `Substring(1,2)/(3,2)/(5,2)`, i.e. as
+  `#RRGGBB`. What they actually receive is `ColorBgra.ToHexString()`'s `AARRGGBB` with **no** `#`, so
+  every channel was read one byte early: palette Blue `FF2050E0` came out as RGB(242,5,14), a red.
+  The parse was evidently copied from `OnColor`, whose XAML `Tag="#2050E0"` really is `#RRGGBB`.
+  Fixed by making `ColorBgra.ParseHexString` tolerant of both forms (+ a non-throwing
+  `TryParseHexString`) and routing all three call sites through it; alpha now survives too, and a
+  hand-edited settings entry that isn't a colour leaves an inert slot instead of throwing mid-build.
+  The serialized format is unchanged, so existing pinned entries keep working.
+  *Verified in-app: pinned palette "Blue" → blue swatch in the editor and the dock, and clicking it
+  sets fg `#2050E0`.*
+- **U2 - the Paintbrush had no on-canvas size ring.** `SurfaceView.ShowsBrushCursor` listed Pencil/
+  Eraser/CloneStamp/Recolor but not `PaintbrushTool` (a separate class, not a `PencilTool` subclass),
+  so the one tool with *both* a size and a hardness control was the only one giving no footprint
+  feedback. *Verified in-app at size 60.*
+- **U3 - a bad palette file silently destroyed the user's palette.** `OnLoadPalette` used
+  `Palette.LoadOrDefault`, which swallows a parse failure and returns the 12 built-in colours -
+  which `PersistPalette()` then wrote straight over `palette.kwpal`, reporting "Palette loaded".
+  Added a strict `Palette.Load` and used it; the current palette is now left untouched and the real
+  error is reported. *Verified in-app: loading a text file renamed `.kwpal` reports the parse error
+  and leaves the 13-colour `palette.kwpal` byte-identical.*
+- **U4 - Preferences had OK/Cancel reversed** relative to every other dialog in the app.
+  *Verified in-app.*
+- **U5 - Batch Apply's "Run" did nothing, silently,** with "Save to folder" selected and no folder
+  chosen - it just `return`ed. Now shows why, cleared as soon as a folder is picked or "overwrite
+  the originals" is selected. (Not GUI-verified; needs a real `.kpscript` plus targets.)
+- **U6 - Curves previewed on every pointer move.** Each `Changed` ran a full-surface
+  `CurvesEffect.Apply` + recomposite, so dragging a control point stutters on a large image. Given
+  the same 60 ms `DispatcherTimer` debounce `AdjustmentDialog` already uses, including the flush in
+  `Commit()` so OK commits the curve actually on screen.
+- **U7 - a floating panel could be dragged off-screen and lost for good.** `FloatHost.OnMoveDelta`
+  clamped only to `>= 0`; nothing stopped a drag past the right/bottom edge, taking the title bar -
+  the only handle for moving or re-docking it - with it. Only escape was View ▸ Panels ▸ Reset
+  Layout. Added `PanelManager.ClampToLayer` (keeps `MinVisible` = 80px inside), applied on move,
+  resize and placement, plus a `BoundsProperty` hook so shrinking the window re-clamps rather than
+  stranding panels. Does not `Notify()` - a window resize is not the user rearranging anything.
+  *Verified in-app both ways: a drag to x=1750 on a 1280 window stops at 1200; shrinking the window
+  to 760 pulls a panel from x≈1085 to the new edge, no layout loop, app stays responsive.*
+- **U8 - the coordinate readout and both ruler markers froze when the pointer left the canvas.**
+  `CursorMoved` only ever fired from `OnPointerMoved`, so they kept pointing at wherever the pointer
+  last was. `OnPointerExited` now reports `SurfaceView.CursorGone` once (skipped mid-gesture, where
+  the pointer is captured and leaving the control doesn't mean the user stopped drawing).
+  *Verified in-app.*
+- **U9 - the live-preview dialogs previewed nothing until a slider moved.** Most effects have a
+  non-neutral default (Add Noise 25, Pixelate 8, Gaussian Blur 5, ...), so OK straight after opening
+  applied a result never actually shown, and any nudge made the image jump. `AdjustmentDialog` now
+  previews on `Opened`. *Verified in-app with Add Noise.*
+- **U10 - an opacity edit could be committed against the wrong layer.** `CommitOpacityChange` read
+  `Canvas.ActiveLayer` at commit time, but `_opacityBefore` was captured from whichever layer was
+  active when the drag started - and the commit can arrive after the active layer moved on
+  (`LostFocus` fires as the click selecting another row lands). The layer is now captured alongside
+  the value. Also pinned the status bar to one line (`MaxLines`/`TextTrimming`, full text as the
+  tooltip): `System.Text.Json` error messages embed a newline and grew the whole bar to two rows.
+
+## UI polish pass U11..U18 - done 2026-08-24
+
+The six items the U1..U10 sweep had listed as "suggested, not done", plus two bugs that surfaced
+while verifying them. Builds clean; all eight verified by driving the app.
+
+- **U11 - "Delete Current…" destroyed a saved layout with no prompt**, despite the ellipsis
+  promising one. Added `ConfirmDialog` (the app had no general yes/no - `ConfirmSaveDialog` is
+  specifically Save/Discard/Cancel), with Cancel as the default button for destructive prompts so
+  Enter dismisses rather than deletes. *Verified: Cancel keeps the layout, Delete removes it.*
+- **U12 - hex was shown to users in the storage format.** `ToHexString` is alpha-first and has no
+  `#`, so a palette colour read as "FF2050E0" in the dock editor and palette tooltips. Added
+  `ColorBgra.ToDisplayHexString` ("#RRGGBB", or "#AARRGGBB" when not opaque) and used it at every
+  user-facing site; `ToHexString` is untouched, so saved data still round-trips. *Verified: the
+  pinned dock row now reads "#2050E0".*
+- **U13 - the window opened at a fixed 1100x720 every run** while its panel layout was persisted,
+  so an arrangement made for a maximized window came back squeezed. `WorkspaceSettings.Window`
+  now carries position, size and a maximized flag. A saved position is only reused if a connected
+  screen still covers it, so unplugging a monitor can't strand the window off-screen.
+  *Verified: 200,120 980x640 survives a close/reopen exactly; closing maximized reopens maximized
+  and un-maximizes back to 200,120 980x640.*
+- **U14 - fixed pixel heights on `CanResize=false` dialogs.** Fifteen dialogs now use
+  `SizeToContent.Height` with their explicit width kept. This deletes two guesses that were bound
+  to drift - `AdjustmentDialog`'s `90 + sliders*46 + 52` and `SaveOptionsDialog`'s
+  `webp ? 220 : 190` - and `AboutDialog`'s scroller became `MaxHeight` so short content closes up
+  instead of leaving dead space. Deliberately skipped: `SettingsDialog` (its tab pages differ in
+  height, so the window would jump on every tab switch) and `BatchResultsDialog` (resizable by
+  design). *Verified: New Image, About, Curves, Posterize (1 slider) and Dents (4 sliders).*
+- **U15 - `PanelManager.Apply()` discarded floating z-order**, rebuilding `_floatingLayer.Children`
+  in registration order on every placement change. Raising now sets `ZIndex` instead of reordering
+  that collection, so stacking lives on the control and survives Apply(). *Verified: raise a panel,
+  toggle another panel to force Apply(), the raised one stays in front.*
+- **U16 - clicking a floating panel's title bar didn't raise it** (found while testing U15). The
+  title bar's press handler marks the event handled to start its drag, so the bubbling
+  `BringToFront` never ran - only a click on the panel *body* raised it. It couldn't simply be
+  wired earlier before, either: the old reorder-based raise detached the control and dropped the
+  drag's pointer capture. With ZIndex that constraint is gone, so the handler moved to Tunnel.
+  *Verified.*
+- **U17 - layer thumbnails were reallocated on every panel rebuild.** `RebuildLayerPanel` runs on
+  every `DocumentChanged` - including ones that change no pixels, like selecting a row - and each
+  pass built a new `WriteableBitmap` per layer and dropped the previous one for the finalizer.
+  Each layer now keeps one bitmap, repainted in place only when the new `SurfaceView.CompositeVersion`
+  says pixels may have moved. That version is the safe direction to cache on: layer pixels cannot
+  change visibly without a recomposite, so a blend/opacity change costs one redundant redraw and
+  never a stale thumbnail. Bitmaps for deleted layers are dropped and disposed on a later
+  dispatcher pass, once the visual tree that referenced them is gone. *Verified: a stroke updates
+  the thumbnail, selecting another row reuses them intact, and delete → undo prunes and rebuilds
+  without crashing.*
+- **U18 - the Curves hint was silently cut off** at "double-click to" (found while checking U14's
+  effect on that dialog) - the line is longer than the 320px window. It wraps now, and
+  SizeToContent gives it the second line.
 
 ## Script / batch-apply system - added 2026-08-21
 

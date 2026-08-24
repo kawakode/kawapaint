@@ -108,6 +108,27 @@ public sealed class WorkspaceSettings
 
     [JsonConverter(typeof(JsonStringEnumConverter<RulerUnit>))]
     public RulerUnit RulerUnit { get; set; } = RulerUnit.Pixels;
+
+    /// <summary>Desktop window geometry from the last run; null until the app has been closed
+    /// once, and always null on the browser build, which has no window to restore.</summary>
+    public WindowGeometry? Window { get; set; }
+}
+
+/// <summary>
+/// Where the desktop window was, in screen pixels. Panel placement has been persisted since the
+/// docking framework landed, but the window holding it opened at a fixed 1100x720 every time,
+/// so a layout arranged for a maximized window came back squeezed into a small one.
+/// </summary>
+public sealed class WindowGeometry
+{
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Width { get; set; }
+    public double Height { get; set; }
+
+    /// <summary>X/Y/Width/Height are the *restored* geometry even when this is true, so
+    /// un-maximizing after a restore lands where the window used to be rather than at a default.</summary>
+    public bool Maximized { get; set; }
 }
 
 public sealed class PluginSettings

@@ -34,7 +34,7 @@ public sealed class PluginManagerDialog : Window
 
         Title = "Manage Plugins";
         Width = 480;
-        Height = 620;
+        SizeToContent = SizeToContent.Height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 

@@ -25,7 +25,7 @@ public sealed class DockEditorDialog : Window
     {
         Title = "Customize Dock";
         Width = 520;
-        Height = 420;
+        SizeToContent = SizeToContent.Height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
@@ -37,7 +37,7 @@ public sealed class DockEditorDialog : Window
         foreach (var color in availableColors)
             _available.Items.Add(new ListBoxItem
             {
-                Content = ColorRow(color.Color, string.IsNullOrEmpty(color.Name) ? color.Color.ToHexString() : color.Name),
+                Content = ColorRow(color.Color, string.IsNullOrEmpty(color.Name) ? color.Color.ToDisplayHexString() : color.Name),
                 Tag = DockEntry.ForColor(color.Color.ToHexString())
             });
 
@@ -136,18 +136,21 @@ public sealed class DockEditorDialog : Window
         _pinned.Items.Clear();
         foreach (var entry in _pinnedEntries)
         {
-            object content = entry.Kind == DockEntryKind.Color
-                ? ColorRow(ParseHex(entry.Value), entry.Value)
-                : commands.FirstOrDefault(c => c.Id == entry.Value)?.Label ?? entry.Value;
+            object content;
+            if (entry.Kind == DockEntryKind.Color)
+            {
+                // entry.Value is the stored AARRGGBB form; label the row with the readable one
+                // rather than echoing it. A value that isn't a colour at all (hand-edited
+                // settings) keeps its raw text next to an empty swatch, so it can be seen and removed.
+                bool parsed = ColorBgra.TryParseHexString(entry.Value, out var color);
+                content = ColorRow(parsed ? color : ColorBgra.Transparent,
+                                   parsed ? color.ToDisplayHexString() : entry.Value);
+            }
+            else
+            {
+                content = commands.FirstOrDefault(c => c.Id == entry.Value)?.Label ?? entry.Value;
+            }
             _pinned.Items.Add(new ListBoxItem { Content = content, Tag = entry });
         }
-    }
-
-    private static ColorBgra ParseHex(string hex)
-    {
-        byte r = System.Convert.ToByte(hex.Substring(1, 2), 16);
-        byte g = System.Convert.ToByte(hex.Substring(3, 2), 16);
-        byte b = System.Convert.ToByte(hex.Substring(5, 2), 16);
-        return ColorBgra.FromBgra(b, g, r, 255);
     }
 }

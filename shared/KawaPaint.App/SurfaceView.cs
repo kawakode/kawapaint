@@ -59,8 +59,14 @@ public sealed class SurfaceView : Control
     /// <summary>Raised by the text tool at the clicked image point (x,y).</summary>
     public event Action<int, int>? TextRequested;
 
-    /// <summary>Raised as the pointer moves, with the image-space coordinate under it.</summary>
+    /// <summary>Raised as the pointer moves, with the image-space coordinate under it. Also raised
+    /// once with <see cref="CursorGone"/> in both components when the pointer leaves the canvas.</summary>
     public event Action<int, int>? CursorMoved;
+
+    /// <summary>Coordinate reported by <see cref="CursorMoved"/> when the pointer is no longer over
+    /// the canvas at all. Subscribers need no special case for it: it is outside every possible
+    /// document, which is already the "not over a pixel" state they render.</summary>
+    public const int CursorGone = int.MinValue;
 
     private Surface? _preStroke;
     private ToolContext? _toolCtx;
@@ -147,10 +153,22 @@ public sealed class SurfaceView : Control
         }
     }
 
+    /// <summary>
+    /// Bumped every time the composite is re-rendered. Panels that derive something from layer
+    /// pixels - the Layers panel's thumbnails - use it to tell a rebuild that needs new pixel work
+    /// from one that does not: a DocumentChanged raised purely by selecting a different row leaves
+    /// this alone. Safe as a cache key in that direction, because layer pixels cannot change
+    /// *visibly* without a recomposite; the reverse is not true (a blend-mode or opacity change
+    /// recomposites without touching any layer's own pixels), which costs a redundant refresh and
+    /// never a stale one.
+    /// </summary>
+    public int CompositeVersion { get; private set; }
+
     /// <summary>Re-flattens the document and pushes the result to the display bitmap.</summary>
     public void RenderComposite()
     {
         if (_document is null || _composite is null) return;
+        CompositeVersion++;
         _document.RenderTo(_composite);
         RefreshBitmap();
     }
@@ -403,7 +421,10 @@ public sealed class SurfaceView : Control
 
     private Point ImageToControl(double ix, double iy) => new(_origin.X + ix * _zoom, _origin.Y + iy * _zoom);
 
-    private bool ShowsBrushCursor => CurrentTool is PencilTool or EraserTool or CloneStampTool or RecolorTool;
+    // The paintbrush belongs here more than any of the others: it is the one tool with both a size
+    // and a hardness control, so its footprint is the hardest to predict without seeing it.
+    private bool ShowsBrushCursor =>
+        CurrentTool is PencilTool or PaintbrushTool or EraserTool or CloneStampTool or RecolorTool;
 
     /// <summary>
     /// Restores an exact zoom/pan, as recorded in a demo's View events. Every other zoom path is
@@ -446,6 +467,12 @@ public sealed class SurfaceView : Control
     {
         base.OnPointerExited(e);
         if (_cursorScreen is not null) { _cursorScreen = null; InvalidateVisual(); }
+
+        // CursorMoved is what drives the status-bar coordinate readout and the two ruler markers.
+        // Without a final off-canvas report they all freeze at wherever the pointer last was and
+        // keep pointing there while it is somewhere else entirely. Skipped mid-gesture, where the
+        // pointer is captured and "left the control" does not mean the user stopped drawing.
+        if (!_panning && !_drawing) CursorMoved?.Invoke(CursorGone, CursorGone);
     }
 
     /// <summary>Raised whenever the zoom factor changes.</summary>

@@ -72,7 +72,9 @@ public sealed class SettingsDialog : Window
             Spacing = 8,
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 12, 0, 0),
-            Children = { ok, cancel }
+            // Cancel then OK, matching every other dialog in the app (see ResizeDialog,
+            // NewImageDialog, AdjustmentDialog, ...) - this one alone had them the other way round.
+            Children = { cancel, ok }
         };
 
         var tabs = new TabControl

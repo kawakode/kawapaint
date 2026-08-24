@@ -17,7 +17,7 @@ public sealed class AboutDialog : Window
     {
         Title = "About KawaPaint";
         Width = 440;
-        Height = 460;
+        SizeToContent = SizeToContent.Height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Icon = new WindowIcon(AssetLoader.Open(new Uri("avares://KawaPaint.App/Assets/icon.ico")));
@@ -64,10 +64,13 @@ public sealed class AboutDialog : Window
             }
         };
 
+        // MaxHeight, not Height: the window now sizes to its content, so this caps how tall the
+        // credits may push it while still letting a shorter list close up rather than leaving a
+        // block of dead space above the Close button.
         var scroller = new ScrollViewer
         {
             Content = content,
-            Height = 380,
+            MaxHeight = 380,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
         };
 

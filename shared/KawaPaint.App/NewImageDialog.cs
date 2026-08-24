@@ -22,7 +22,7 @@ public sealed class NewImageDialog : Window
     {
         Title = "New Image";
         Width = 320;
-        Height = 250;
+        SizeToContent = SizeToContent.Height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 

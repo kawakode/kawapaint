@@ -15,7 +15,7 @@ public sealed class PromptDialog : Window
     {
         Title = title;
         Width = 320;
-        Height = 130;
+        SizeToContent = SizeToContent.Height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 

@@ -24,6 +24,7 @@ public sealed class SaveOptionsDialog : Window
     {
         Title = "Export Options";
         Width = 320;
+        SizeToContent = SizeToContent.Height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
@@ -66,6 +67,5 @@ public sealed class SaveOptionsDialog : Window
         content.Children.Add(buttons);
 
         Content = content;
-        Height = codecId == "webp" ? 220 : 190;
     }
 }

@@ -9,6 +9,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using KawaPaint.Engine;
 
 namespace KawaPaint.App;
@@ -166,6 +167,7 @@ public sealed class CurvesDialog : Window
     private readonly CurveControl _curve;
     private Surface? _snapshot;
     private bool _committed;
+    private DispatcherTimer? _previewTimer;
 
     public CurvesDialog(SurfaceView canvas)
     {
@@ -175,19 +177,23 @@ public sealed class CurvesDialog : Window
 
         Title = "Curves";
         Width = 320;
-        Height = 380;
+        SizeToContent = SizeToContent.Height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
         _curve = new CurveControl { HorizontalAlignment = HorizontalAlignment.Center };
-        _curve.Changed += Preview;
+        _curve.Changed += SchedulePreview;
 
         var hint = new TextBlock
         {
             Text = "Drag points • click to add • double-click to remove",
             Foreground = new SolidColorBrush(Color.FromRgb(0x90, 0x90, 0x90)),
             Margin = new Thickness(0, 6, 0, 0),
-            HorizontalAlignment = HorizontalAlignment.Center
+            HorizontalAlignment = HorizontalAlignment.Center,
+            // Longer than the dialog is wide, so it was silently cut off at "double-click to".
+            // Wrapping plus SizeToContent gives it the second line it needs at any font size.
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.Wrap
         };
 
         var reset = new Button { Content = "Reset" };
@@ -202,7 +208,25 @@ public sealed class CurvesDialog : Window
         buttons.Children.Add(ok);
 
         Content = new StackPanel { Margin = new Thickness(16), Children = { _curve, hint, buttons } };
-        Closed += (_, _) => { if (!_committed) Revert(); };
+        Closed += (_, _) => { _previewTimer?.Stop(); if (!_committed) Revert(); };
+    }
+
+    /// <summary>
+    /// Coalesces a burst of Changed events into one Preview() ~60ms after the last one. Dragging a
+    /// control point raises Changed on every pointer move, and each Preview is a full-surface
+    /// CurvesEffect.Apply plus a recomposite - on a large image that is far more work than the
+    /// frame budget allows, and the drag visibly stutters. Same treatment, and the same interval,
+    /// as AdjustmentDialog's slider debounce.
+    /// </summary>
+    private void SchedulePreview()
+    {
+        if (_previewTimer is null)
+        {
+            _previewTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
+            _previewTimer.Tick += (_, _) => { _previewTimer!.Stop(); Preview(); };
+        }
+        _previewTimer.Stop();
+        _previewTimer.Start();
     }
 
     private void Preview()
@@ -219,6 +243,11 @@ public sealed class CurvesDialog : Window
     {
         if (_snapshot is not null && _layer is not null)
         {
+            // The debounce means the layer's pixels can lag the curve by up to ~60ms; flush so OK
+            // commits the curve that is actually drawn, not a stale in-flight preview.
+            _previewTimer?.Stop();
+            Preview();
+
             _canvas.History.Push(TileDeltaMemento.Consume(_layer, _snapshot, "Curves"));
             _snapshot = null;
             _committed = true;

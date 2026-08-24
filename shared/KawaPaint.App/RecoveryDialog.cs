@@ -15,7 +15,7 @@ public sealed class RecoveryDialog : Window
     {
         Title = "Recover unsaved work?";
         Width = 420;
-        Height = 150;
+        SizeToContent = SizeToContent.Height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 

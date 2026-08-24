@@ -19,7 +19,7 @@ public sealed class TextDialog : Window
     {
         Title = "Add Text";
         Width = 400;
-        Height = 260;
+        SizeToContent = SizeToContent.Height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 

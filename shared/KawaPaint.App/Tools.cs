@@ -8,6 +8,21 @@ using KawaPaint.Engine;
 
 namespace KawaPaint.App;
 
+[Flags]
+public enum PressureMapping
+{
+    None = 0,
+    Size = 1,
+    Opacity = 2,
+    SizeAndOpacity = Size | Opacity
+}
+
+public enum ToolPointerKind { Mouse, Pen, Touch }
+
+public readonly record struct ToolPointerSample(double X, double Y, double Pressure = 1,
+    double XTilt = 0, double YTilt = 0, double Twist = 0,
+    ToolPointerKind Kind = ToolPointerKind.Mouse, bool IsEraser = false);
+
 public sealed class ToolContext
 {
     public required Layer Layer { get; init; }
@@ -25,6 +40,9 @@ public sealed class ToolContext
     public required bool GlobalFill { get; init; }
     public required bool FillShapes { get; init; }
     public required bool CtrlHeld { get; init; }
+    public required PressureMapping PressureResponse { get; init; }
+    public required ToolPointerKind PointerKind { get; init; }
+    public required bool IsEraser { get; init; }
 
     /// <summary>Identifies which document these coordinates belong to. Changes whenever a different
     /// document is loaded or a canvas-level op (crop/resize/rotate/flatten) replaces it, so a tool
@@ -33,8 +51,18 @@ public sealed class ToolContext
 
     public double X { get; set; }
     public double Y { get; set; }
+    public double Pressure { get; set; } = 1;
+    public double XTilt { get; set; }
+    public double YTilt { get; set; }
+    public double Twist { get; set; }
     public int IX => (int)Math.Round(X);
     public int IY => (int)Math.Round(Y);
+
+    public double PressureRadius => Math.Max(0.5, BrushWidth / 2.0 *
+        (PressureResponse.HasFlag(PressureMapping.Size) ? Math.Clamp(Pressure, 0.01, 1) : 1));
+
+    public double PressureOpacity => PressureResponse.HasFlag(PressureMapping.Opacity)
+        ? Math.Clamp(Pressure, 0.01, 1) : 1;
 
     public required Action PushHistory { get; init; }
     public required Action Composite { get; init; }
@@ -71,7 +99,7 @@ public interface ITool
 public sealed class PencilTool : ITool
 {
     private SoftBrushStroke? _stroke;
-    private double _lx, _ly;
+    private double _lx, _ly, _lastRadius, _lastOpacity;
     public string Name => "Pencil";
 
     public void PointerDown(ToolContext c)
@@ -79,7 +107,9 @@ public sealed class PencilTool : ITool
         c.PushHistory();
         _stroke = new SoftBrushStroke(c.Layer.Surface.Width, c.Layer.Surface.Height);
         _lx = c.X; _ly = c.Y;
-        _stroke.Dab(c.X, c.Y, c.BrushWidth / 2.0, 1, c.Antialias);
+        _lastRadius = c.PressureRadius;
+        _lastOpacity = c.PressureOpacity;
+        _stroke.Dab(c.X, c.Y, _lastRadius, 1, c.Antialias, _lastOpacity);
         _stroke.Flush(c.Layer.Surface, c.PreStroke, c.PrimaryColor);
         c.CompositeStroke(c.X, c.Y, c.X, c.Y);
     }
@@ -88,7 +118,10 @@ public sealed class PencilTool : ITool
     {
         if (_stroke is null) return;
         double oldX = _lx, oldY = _ly;
-        _stroke.DabLine(oldX, oldY, c.X, c.Y, c.BrushWidth / 2.0, 1, c.Antialias);
+        double radius = c.PressureRadius, opacity = c.PressureOpacity;
+        _stroke.DabLine(oldX, oldY, c.X, c.Y, _lastRadius, radius, 1, c.Antialias,
+            _lastOpacity, opacity);
+        _lastRadius = radius; _lastOpacity = opacity;
         _lx = c.X; _ly = c.Y;
         _stroke.Flush(c.Layer.Surface, c.PreStroke, c.PrimaryColor);
         c.CompositeStroke(oldX, oldY, c.X, c.Y);
@@ -106,7 +139,7 @@ public sealed class PencilTool : ITool
 public sealed class PaintbrushTool : ITool
 {
     private SoftBrushStroke? _stroke;
-    private double _lx, _ly;
+    private double _lx, _ly, _lastRadius, _lastOpacity;
     public string Name => "Paintbrush";
 
     public void PointerDown(ToolContext c)
@@ -114,7 +147,9 @@ public sealed class PaintbrushTool : ITool
         c.PushHistory();
         _stroke = new SoftBrushStroke(c.Layer.Surface.Width, c.Layer.Surface.Height);
         _lx = c.X; _ly = c.Y;
-        _stroke.Dab(c.X, c.Y, c.BrushWidth / 2.0, c.BrushHardness);
+        _lastRadius = c.PressureRadius;
+        _lastOpacity = c.PressureOpacity;
+        _stroke.Dab(c.X, c.Y, _lastRadius, c.BrushHardness, opacity: _lastOpacity);
         _stroke.Flush(c.Layer.Surface, c.PreStroke, c.PrimaryColor);
         c.CompositeStroke(c.X, c.Y, c.X, c.Y);
     }
@@ -124,7 +159,10 @@ public sealed class PaintbrushTool : ITool
         if (_stroke is null) return;   // move without a preceding down (tool switched mid-drag)
 
         double oldX = _lx, oldY = _ly;
-        _stroke.DabLine(oldX, oldY, c.X, c.Y, c.BrushWidth / 2.0, c.BrushHardness);
+        double radius = c.PressureRadius, opacity = c.PressureOpacity;
+        _stroke.DabLine(oldX, oldY, c.X, c.Y, _lastRadius, radius, c.BrushHardness, true,
+            _lastOpacity, opacity);
+        _lastRadius = radius; _lastOpacity = opacity;
         _lx = c.X; _ly = c.Y;
         _stroke.Flush(c.Layer.Surface, c.PreStroke, c.PrimaryColor);
         c.CompositeStroke(oldX, oldY, c.X, c.Y);
@@ -138,26 +176,36 @@ public sealed class PaintbrushTool : ITool
 /// <summary>Eraser: overwrites the active layer with transparency.</summary>
 public sealed class EraserTool : ITool
 {
-    private double _lx, _ly;
+    private SoftBrushStroke? _stroke;
+    private double _lx, _ly, _lastRadius, _lastOpacity;
     public string Name => "Eraser";
 
     public void PointerDown(ToolContext c)
     {
         c.PushHistory();
+        _stroke = new SoftBrushStroke(c.Layer.Surface.Width, c.Layer.Surface.Height);
         _lx = c.X; _ly = c.Y;
-        BrushOps.FillDisc(c.Layer.Surface, c.IX, c.IY, c.BrushWidth / 2, ColorBgra.Transparent, StampMode.Set);
+        _lastRadius = c.PressureRadius;
+        _lastOpacity = c.PressureOpacity;
+        _stroke.Dab(c.X, c.Y, _lastRadius, 1, c.Antialias, _lastOpacity);
+        _stroke.FlushErase(c.Layer.Surface, c.PreStroke);
         c.CompositeStroke(c.X, c.Y, c.X, c.Y);
     }
 
     public void PointerMove(ToolContext c)
     {
         double oldX = _lx, oldY = _ly;
-        BrushOps.DrawLine(c.Layer.Surface, oldX, oldY, c.X, c.Y, c.BrushWidth / 2, ColorBgra.Transparent, StampMode.Set);
+        if (_stroke is null) return;
+        double radius = c.PressureRadius, opacity = c.PressureOpacity;
+        _stroke.DabLine(oldX, oldY, c.X, c.Y, _lastRadius, radius, 1, c.Antialias,
+            _lastOpacity, opacity);
+        _lastRadius = radius; _lastOpacity = opacity;
+        _stroke.FlushErase(c.Layer.Surface, c.PreStroke);
         _lx = c.X; _ly = c.Y;
         c.CompositeStroke(oldX, oldY, c.X, c.Y);
     }
 
-    public void PointerUp(ToolContext c) { }
+    public void PointerUp(ToolContext c) => _stroke = null;
 }
 
 /// <summary>Eyedropper: samples the composited image into the primary color.</summary>

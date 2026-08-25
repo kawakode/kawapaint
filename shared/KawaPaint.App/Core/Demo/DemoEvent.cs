@@ -6,6 +6,7 @@
 // stream. That is what keeps a whole painting session down to a few kilobytes - and it is also
 // what makes the starting document part of the format rather than an afterthought (see DemoFile).
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -119,11 +120,24 @@ public readonly struct DemoEvent
     /// <summary>Committed dialog values for <see cref="DemoOp.ActionArgs"/>.</summary>
     public double[]? Args { get; }
 
-    public static DemoEvent Down(int t, double x, double y, bool ctrl)
-        => new(t, DemoOp.PointerDown, (float)x, (float)y, a: ctrl ? 1 : 0);
+    public double Pressure => Op is DemoOp.PointerDown or DemoOp.PointerMove ? Z : 1;
+    public double XTilt => (short)(B & 0xffff);
+    public double YTilt => (short)((B >> 16) & 0xffff);
+    public double Twist => Value;
+    public ToolPointerKind PointerKind => (ToolPointerKind)((A >> 1) & 0x3);
+    public bool IsEraser => (A & 0x8) != 0;
 
-    public static DemoEvent Move(int t, double x, double y)
-        => new(t, DemoOp.PointerMove, (float)x, (float)y);
+    public static DemoEvent Down(int t, double x, double y, bool ctrl, double pressure = 1,
+        ToolPointerKind kind = ToolPointerKind.Mouse, bool isEraser = false,
+        double xTilt = 0, double yTilt = 0, double twist = 0)
+        => new(t, DemoOp.PointerDown, (float)x, (float)y, (float)Math.Clamp(pressure, 0, 1),
+            a: (ctrl ? 1 : 0) | ((int)kind << 1) | (isEraser ? 0x8 : 0),
+            b: PackTilts(xTilt, yTilt), value: (uint)Math.Clamp(Math.Round(twist), 0, 359));
+
+    public static DemoEvent Move(int t, double x, double y, double pressure = 1,
+        double xTilt = 0, double yTilt = 0, double twist = 0)
+        => new(t, DemoOp.PointerMove, (float)x, (float)y, (float)Math.Clamp(pressure, 0, 1),
+            b: PackTilts(xTilt, yTilt), value: (uint)Math.Clamp(Math.Round(twist), 0, 359));
 
     public static DemoEvent Up(int t) => new(t, DemoOp.PointerUp);
 
@@ -144,5 +158,9 @@ public readonly struct DemoEvent
 
     public static DemoEvent View(int t, double zoom, double originX, double originY)
         => new(t, DemoOp.View, (float)zoom, (float)originX, (float)originY);
+
+    private static int PackTilts(double x, double y)
+        => (ushort)(short)Math.Clamp(Math.Round(x), -90, 90) |
+           ((int)(ushort)(short)Math.Clamp(Math.Round(y), -90, 90) << 16);
 }
 

@@ -259,12 +259,15 @@ public sealed class SoftBrushStroke
     /// radius) to 1 (solid to the rim, with a single antialiased pixel of edge - the same edge the
     /// hard brush's antialiased path draws, so the two tools agree at hardness 1).
     /// </summary>
-    public void Dab(double cx, double cy, double radius, double hardness, bool antialias = true)
+    public void Dab(double cx, double cy, double radius, double hardness, bool antialias = true,
+        double opacity = 1.0)
     {
         if (_mask.Length == 0) return;
 
         radius = Math.Max(0.5, radius);
         hardness = Math.Clamp(hardness, 0.0, 1.0);
+        opacity = Math.Clamp(opacity, 0.0, 1.0);
+        if (opacity <= 0) return;
 
         double outer = radius + 0.5;
         double falloff = Math.Max(0.5, radius * (1.0 - hardness));
@@ -289,7 +292,7 @@ public sealed class SoftBrushStroke
                 if (t >= 1) t = 1;
                 else t = t * t * (3 - 2 * t);   // smoothstep, so the soft edge has no visible banding
 
-                byte coverage = (byte)(t * 255 + 0.5);
+                byte coverage = (byte)(t * opacity * 255 + 0.5);
                 if (coverage <= _mask[row + x]) continue;
 
                 _mask[row + x] = coverage;
@@ -316,6 +319,27 @@ public sealed class SoftBrushStroke
         {
             double t = (double)i / steps;
             Dab(x0 + dx * t, y0 + dy * t, radius, hardness, antialias);
+        }
+    }
+
+    /// <summary>Dabs a segment while interpolating pressure-derived radius and opacity between
+    /// samples. Spacing follows the smaller endpoint radius so a sudden pressure drop cannot leave
+    /// a gap in the stroke.</summary>
+    public void DabLine(double x0, double y0, double x1, double y1,
+        double radius0, double radius1, double hardness, bool antialias,
+        double opacity0, double opacity1)
+    {
+        double dx = x1 - x0, dy = y1 - y0;
+        double dist = Math.Sqrt(dx * dx + dy * dy);
+        double step = Math.Max(0.5, Math.Min(radius0, radius1) * 0.25);
+        int steps = Math.Max(1, (int)(dist / step));
+
+        for (int i = 0; i <= steps; i++)
+        {
+            double t = (double)i / steps;
+            Dab(x0 + dx * t, y0 + dy * t,
+                radius0 + (radius1 - radius0) * t, hardness, antialias,
+                opacity0 + (opacity1 - opacity0) * t);
         }
     }
 
@@ -350,6 +374,41 @@ public sealed class SoftBrushStroke
                 dst[x] = alpha == 0
                     ? baseline
                     : ColorBgra.BlendOver(baseline, ColorBgra.FromBgra(color.B, color.G, color.R, (byte)alpha));
+            }
+        }
+
+        ResetDirty();
+    }
+
+    /// <summary>Applies the accumulated mask as a non-destructive alpha eraser. Partial pressure
+    /// reduces alpha without changing the hidden RGB value; full coverage restores the historical
+    /// transparent-black eraser result.</summary>
+    public unsafe void FlushErase(Surface target, Surface preStroke)
+    {
+        if (_maxX < _minX || _maxY < _minY) return;
+        if (target.Width != _width || target.Height != _height ||
+            preStroke.Width != _width || preStroke.Height != _height)
+        {
+            ResetDirty();
+            return;
+        }
+
+        int minX = _minX, maxX = _maxX;
+        for (int y = _minY; y <= _maxY; y++)
+        {
+            ColorBgra* dst = (ColorBgra*)target.GetRowPointer(y);
+            ColorBgra* src = (ColorBgra*)preStroke.GetRowPointer(y);
+            int row = y * _width;
+
+            for (int x = minX; x <= maxX; x++)
+            {
+                ColorBgra baseline = src[x];
+                int coverage = _mask[row + x];
+                if (coverage == 0) { dst[x] = baseline; continue; }
+                if (coverage == 255) { dst[x] = ColorBgra.Transparent; continue; }
+
+                int alpha = baseline.A * (255 - coverage) / 255;
+                dst[x] = ColorBgra.FromBgra(baseline.B, baseline.G, baseline.R, (byte)alpha);
             }
         }
 

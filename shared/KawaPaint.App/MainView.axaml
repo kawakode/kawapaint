@@ -58,6 +58,8 @@
                 <MenuItem Header="_New" Click="OnNew" InputGesture="Ctrl+N" Icon="{app:Icon New}" />
                 <MenuItem Header="_Open Image…" Click="OnOpen" InputGesture="Ctrl+O" Icon="{app:Icon Open}" />
                 <MenuItem Header="Open _Project…" Click="OnOpenProject" InputGesture="Ctrl+Shift+O" Icon="{app:Icon OpenProject}" />
+                <MenuItem Header="Import _3D Reference..." Click="OnImport3DReference"
+                          ToolTip.Tip="Rasterize an OBJ, glTF or GLB model into a normal layer" />
                 <MenuItem x:Name="RecentFilesMenu" Header="_Recent Files">
                     <MenuItem Header="(none yet)" IsEnabled="False" />
                 </MenuItem>

@@ -50,6 +50,14 @@ kawapaint --script cleanup.kpscript --in-dir photos --pattern *.png --out-dir cl
 Preset CLI runs read the normal KawaPaint `settings.json`; use `--settings <path>` to select a
 different settings file.
 
+## Tablet and 3D references
+
+Pen pressure can control brush size, opacity, or both; eraser tips are recognized automatically.
+Touch input pans and pinch-zooms instead of painting. Configure these under **Preferences > Drawing**.
+
+Use **File > Import 3D Reference** to pose and rasterize an OBJ, glTF or GLB model into an ordinary,
+editable layer. The import supports yaw, pitch, roll, surface color, mesh edges, and undo.
+
 ### Mail merge from CSV
 
 Use the **Dynamic Text / CSV Zone** tool to place a non-destructive text area on a template. Its

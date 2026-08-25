@@ -184,6 +184,7 @@ public partial class MainView : UserControl
         SetupRulers();
         BuildCommands();
         ApplyHistorySettings();
+        ApplyDrawingSettings();
         SyncWheelToActiveColor();
         RefreshSwatches();
         LoadStartupDocument();
@@ -1188,6 +1189,16 @@ public partial class MainView : UserControl
         Canvas.History.SpillDirectory = history.SpillToDisk ? AppPaths.HistorySpillDirectory : null;
     }
 
+    private void ApplyDrawingSettings()
+    {
+        var drawing = _settings.Settings.Drawing;
+        Canvas.PencilPressure = drawing.PencilPressure;
+        Canvas.PaintbrushPressure = drawing.PaintbrushPressure;
+        Canvas.EraserPressure = drawing.EraserPressure;
+        Canvas.PenEraserEnabled = drawing.PenEraserEnabled;
+        Canvas.TouchNavigationEnabled = drawing.TouchNavigationEnabled;
+    }
+
     // ---- modular panel layout --------------------------------------------
     //
     // Placement, dragging, resizing and persistence all live in PanelManager; this section only
@@ -1656,6 +1667,7 @@ public partial class MainView : UserControl
         // AutosaveService and ConfigGitTracker re-read themselves off SettingsService.Changed, but
         // the undo stack's limits are pushed to it rather than pulled, so re-push them here.
         ApplyHistorySettings();
+        ApplyDrawingSettings();
     }
 
     private async void OnManagePlugins(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

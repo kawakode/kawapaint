@@ -25,7 +25,7 @@ public sealed class DemoFile
     public const string Extension = ".kpdemo";
 
     private static readonly byte[] Magic = { (byte)'K', (byte)'P', (byte)'D', (byte)'E', (byte)'M', (byte)'O', 0 };
-    private const byte FormatVersion = 2;
+    private const byte FormatVersion = 3;
 
     /// <summary>
     /// Fixed-point denominator for stored coordinates. Not an arbitrary round number: measured
@@ -116,6 +116,10 @@ public sealed class DemoFile
                     WriteVarInt(w, fy - lastFy);
                     lastFx = fx; lastFy = fy;
                     if (e.Op == DemoOp.PointerDown) w.Write((byte)e.A);
+                    WriteVarUInt(w, (uint)Math.Round(Math.Clamp(e.Pressure, 0, 1) * 4095));
+                    WriteVarInt(w, (int)e.XTilt);
+                    WriteVarInt(w, (int)e.YTilt);
+                    WriteVarUInt(w, (uint)e.Twist);
                     break;
 
                 case DemoOp.PointerUp:
@@ -164,7 +168,7 @@ public sealed class DemoFile
             if (magic[i] != Magic[i]) throw new InvalidDataException("Not a KawaPaint demo file.");
 
         int version = stream.ReadByte();
-        if (version is not (1 or FormatVersion))
+        if (version is not (1 or 2 or FormatVersion))
             throw new InvalidDataException(
                 $"Demo format version {version} is not supported by this build (expected 1 or {FormatVersion}).");
 
@@ -208,9 +212,20 @@ public sealed class DemoFile
                     fx += ReadVarInt(r);
                     fy += ReadVarInt(r);
                     float x = (float)(fx / CoordScale), y = (float)(fy / CoordScale);
+                    int flags = op == DemoOp.PointerDown ? r.ReadByte() : 0;
+                    double pressure = 1, xTilt = 0, yTilt = 0, twist = 0;
+                    if (version >= 3)
+                    {
+                        pressure = ReadVarUInt(r) / 4095.0;
+                        xTilt = ReadVarInt(r);
+                        yTilt = ReadVarInt(r);
+                        twist = ReadVarUInt(r);
+                    }
                     demo.Events.Add(op == DemoOp.PointerDown
-                        ? DemoEvent.Down(time, x, y, r.ReadByte() != 0)
-                        : DemoEvent.Move(time, x, y));
+                        ? DemoEvent.Down(time, x, y, (flags & 1) != 0, pressure,
+                            (ToolPointerKind)((flags >> 1) & 0x3), (flags & 0x8) != 0,
+                            xTilt, yTilt, twist)
+                        : DemoEvent.Move(time, x, y, pressure, xTilt, yTilt, twist));
                     break;
 
                 case DemoOp.PointerUp:

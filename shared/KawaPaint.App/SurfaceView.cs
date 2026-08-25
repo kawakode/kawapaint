@@ -102,6 +102,23 @@ public sealed class SurfaceView : Control
     /// image-to-screen transform; RulerBar uses it to place its ticks.</summary>
     public Point Origin => _origin;
 
+    /// <summary>The canvas-pixel rectangle currently visible through this control. Live effects
+    /// use it as their destination ROI; kernels remain free to sample outside it.</summary>
+    public EffectBounds VisibleImageBounds
+    {
+        get
+        {
+            if (_document is null || _zoom <= 0 || Bounds.Width <= 0 || Bounds.Height <= 0)
+                return default;
+            int left = (int)Math.Floor((0 - _origin.X) / _zoom);
+            int top = (int)Math.Floor((0 - _origin.Y) / _zoom);
+            int right = (int)Math.Ceiling((Bounds.Width - _origin.X) / _zoom);
+            int bottom = (int)Math.Ceiling((Bounds.Height - _origin.Y) / _zoom);
+            return new EffectBounds(left, top, right - left, bottom - top)
+                .Clip(ActiveLayer?.Surface ?? _composite!);
+        }
+    }
+
     /// <summary>Raised whenever Zoom or Origin changes (fit, zoom in/out/actual, wheel-zoom, pan
     /// drag) - a ruler bar redraws on this rather than polling every frame.</summary>
     public event Action? ViewChanged;
@@ -508,7 +525,10 @@ public sealed class SurfaceView : Control
             // _origin the mouse-drag pan already uses.
             if (e.Delta.X != 0)
             {
-                _origin -= new Point(e.Delta.X * 60, 0);
+                // Match Avalonia's ScrollContentPresenter convention: positive wheel X reduces
+                // scroll offset, which moves the content origin to the right. The old subtraction
+                // made a two-finger horizontal gesture run opposite to every native scroller.
+                _origin += new Point(e.Delta.X * 60, 0);
                 InvalidateVisual();
                 ViewChanged?.Invoke();
             }

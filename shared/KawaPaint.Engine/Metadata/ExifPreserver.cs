@@ -17,6 +17,8 @@ public static class ExifPreserver
             "png" when block.Length >= 12 => source.AsSpan(block.Offset + 8, block.Length - 12),
             "webp" when block.Length >= 8 => source.AsSpan(block.Offset + 8,
                 BinaryPrimitives.ReadInt32LittleEndian(source.AsSpan(block.Offset + 4, 4))),
+            "jxl" => ExtractJxlPayload(source, block),
+            "jp2" when block.Length >= 24 => source.AsSpan(block.Offset + 24, block.Length - 24),
             _ => ReadOnlySpan<byte>.Empty
         };
         if (payload.StartsWith("Exif\0\0"u8)) payload = payload[6..];
@@ -33,8 +35,64 @@ public static class ExifPreserver
             "jpeg" => InjectJpeg(encoded, tiff),
             "png" => InjectPng(encoded, tiff),
             "webp" => InjectWebP(encoded, tiff, width, height),
+            "jxl" => InjectJxl(encoded, tiff),
+            "jp2" => InjectJp2(encoded, tiff),
             _ => encoded
         };
+    }
+
+    private static ReadOnlySpan<byte> ExtractJxlPayload(byte[] source, MetadataBlock block)
+    {
+        if (!IsoBmffBoxes.TryRead(source, block.Offset, out var box) || box.PayloadLength < 4)
+            return ReadOnlySpan<byte>.Empty;
+        ReadOnlySpan<byte> payload = source.AsSpan(box.PayloadOffset, box.PayloadLength);
+        uint offset = BinaryPrimitives.ReadUInt32BigEndian(payload);
+        return offset <= int.MaxValue && 4L + offset <= payload.Length
+            ? payload[(4 + (int)offset)..] : ReadOnlySpan<byte>.Empty;
+    }
+
+    private static byte[] InjectJxl(byte[] source, byte[] tiff)
+    {
+        MetadataReport report = MetadataScanner.Scan(source);
+        byte[] clean = RemoveBlocks(source, report.Blocks.Where(block => block.Kind == MetadataKind.Exif));
+        if (!IsoBmffBoxes.TryWalk(clean, out var boxes)) return source;
+        int insertAt = boxes.FirstOrDefault(box => box.Type == "ftyp") is { Length: > 0 } ftyp
+            ? ftyp.End : 12;
+        byte[] payload = new byte[checked(4 + tiff.Length)]; // zero TIFF-header offset
+        tiff.CopyTo(payload, 4);
+        return Insert(clean, insertAt, IsoBmffBoxes.BoxBytes("Exif", payload));
+    }
+
+    private static readonly byte[] Jp2ExifUuid =
+        { 0x4A, 0x70, 0x67, 0x54, 0x69, 0x66, 0x66, 0x45, 0x78, 0x69, 0x66, 0x2D, 0x3E, 0x4A, 0x50, 0x32 };
+
+    private static byte[] InjectJp2(byte[] source, byte[] tiff)
+    {
+        MetadataReport report = MetadataScanner.Scan(source);
+        byte[] clean = RemoveBlocks(source, report.Blocks.Where(block => block.Kind == MetadataKind.Exif));
+        if (!IsoBmffBoxes.TryWalk(clean, out var boxes)) return source;
+        int insertAt = boxes.FirstOrDefault(box => box.Type == "jp2h") is { Length: > 0 } header
+            ? header.End : 12;
+        byte[] payload = new byte[checked(Jp2ExifUuid.Length + tiff.Length)];
+        Jp2ExifUuid.CopyTo(payload, 0);
+        tiff.CopyTo(payload, Jp2ExifUuid.Length);
+        return Insert(clean, insertAt, IsoBmffBoxes.BoxBytes("uuid", payload));
+    }
+
+    private static byte[] RemoveBlocks(byte[] source, IEnumerable<MetadataBlock> blocks)
+    {
+        using var output = new MemoryStream(source.Length);
+        CopyExcluding(source, output, 0, blocks.OrderBy(block => block.Offset).ToArray());
+        return output.ToArray();
+    }
+
+    private static byte[] Insert(byte[] source, int offset, byte[] addition)
+    {
+        byte[] output = new byte[checked(source.Length + addition.Length)];
+        Buffer.BlockCopy(source, 0, output, 0, offset);
+        Buffer.BlockCopy(addition, 0, output, offset, addition.Length);
+        Buffer.BlockCopy(source, offset, output, offset + addition.Length, source.Length - offset);
+        return output;
     }
 
     private static byte[] InjectJpeg(byte[] source, byte[] tiff)

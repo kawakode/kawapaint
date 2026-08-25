@@ -25,14 +25,18 @@ public sealed class CloudsEffect : IEffect
     }
     public string Name => "Clouds";
 
-    public unsafe void Apply(Surface s)
+    public unsafe void Apply(Surface s) => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         int w = s.Width, h = s.Height;
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
             int dy = 2 * y - h;
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 int dx = 2 * x - w;
                 double val = PerlinNoise2D.Noise((double)dx / _scale, (double)dy / _scale, 12, _power, _seed);
@@ -72,16 +76,20 @@ public sealed class JuliaFractalEffect : IEffect
         return c;
     }
 
-    public unsafe void Apply(Surface s)
+    public unsafe void Apply(Surface s) => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         const double jr = 0.3125, ji = 0.03;
         int w = s.Width, h = s.Height;
         double invH = 1.0 / h, invZoom = 1.0 / _zoom, aspect = (double)h / w;
 
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 double u = (2.0 * x - w) * invH, v = (2.0 * y - h) * invH;
                 double radius = Math.Sqrt(u * u + v * v);
@@ -131,15 +139,19 @@ public sealed class MandelbrotFractalEffect : IEffect
         return c - Math.Log(y * y + x * x) * InvLogMax;
     }
 
-    public unsafe void Apply(Surface s)
+    public unsafe void Apply(Surface s) => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         int w = s.Width, h = s.Height;
         double invH = 1.0 / h, invZoom = 1.0 / _zoom;
 
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 double u = (2.0 * x - w) * invH, v = (2.0 * y - h) * invH;
                 double radius = Math.Sqrt(u * u + v * v);

@@ -18,8 +18,12 @@ public sealed class MotionBlurEffect : IEffect
     }
     public string Name => "Motion Blur";
 
-    public unsafe void Apply(Surface s)
+    public unsafe void Apply(Surface s) => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         using var src = s.Clone();
         int w = s.Width, h = s.Height;
 
@@ -35,10 +39,10 @@ public sealed class MotionBlurEffect : IEffect
             pts[i] = (sx0 + (ex1 - sx0) * t, sy0 + (ey1 - sy0) * t);
         }
 
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* dst = (ColorBgra*)s.GetRowPointer(y);
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 int sumB = 0, sumG = 0, sumR = 0, sumA = 0, count = 0;
                 foreach (var (dx, dy) in pts)
@@ -71,8 +75,12 @@ public sealed class RadialBlurEffect : IEffect
     }
     public string Name => "Radial Blur";
 
-    public unsafe void Apply(Surface s)
+    public unsafe void Apply(Surface s) => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         using var src = s.Clone();
         int w = s.Width, h = s.Height;
         double cx = w / 2.0, cy = h / 2.0;
@@ -85,10 +93,10 @@ public sealed class RadialBlurEffect : IEffect
             rotations[i] = (Math.Cos(offset), Math.Sin(offset));
         }
 
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* dst = (ColorBgra*)s.GetRowPointer(y);
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 double dx = x - cx, dy = y - cy;
 
@@ -125,18 +133,22 @@ public sealed class ZoomBlurEffect : IEffect
     public ZoomBlurEffect(int amount) => _amount = Math.Clamp(amount, 0, 100);
     public string Name => "Zoom Blur";
 
-    public unsafe void Apply(Surface s)
+    public unsafe void Apply(Surface s) => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         using var src = s.Clone();
         int w = s.Width, h = s.Height;
         double cx = w / 2.0, cy = h / 2.0;
         const int n = 32;
         double zoomFactor = 1.0 - _amount / 400.0;
 
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* dst = (ColorBgra*)s.GetRowPointer(y);
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 double fx = x - cx, fy = y - cy;
                 ColorBgra c0 = src[x, y];
@@ -176,8 +188,12 @@ public sealed class FragmentEffect : IEffect
     }
     public string Name => "Fragment";
 
-    public unsafe void Apply(Surface s)
+    public unsafe void Apply(Surface s) => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         using var src = s.Clone();
         int w = s.Width, h = s.Height;
 
@@ -191,10 +207,10 @@ public sealed class FragmentEffect : IEffect
                           (int)Math.Round(_distance * -Math.Cos(a), MidpointRounding.AwayFromZero));
         }
 
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* dst = (ColorBgra*)s.GetRowPointer(y);
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 int sumB = 0, sumG = 0, sumR = 0, sumA = 0, count = 0;
                 foreach (var (dx, dy) in offsets)

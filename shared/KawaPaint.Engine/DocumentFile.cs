@@ -47,14 +47,15 @@ public static class DocumentFile
     /// fully succeeds, so a failure mid-save (disk full, a layer surface going bad) never leaves a
     /// truncated file where a good one used to be.
     /// </summary>
-    public static void Save(Document doc, string path)
+    public static void Save(Document doc, string path, CancellationToken cancellationToken = default)
     {
         string dir = Path.GetDirectoryName(Path.GetFullPath(path)) is { Length: > 0 } d ? d : ".";
         string temp = Path.Combine(dir, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
         try
         {
             using (var file = File.Create(temp))
-                Save(doc, file);
+                Save(doc, file, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             File.Move(temp, path, overwrite: true);
         }
         catch
@@ -64,8 +65,9 @@ public static class DocumentFile
         }
     }
 
-    public static void Save(Document doc, Stream stream)
+    public static void Save(Document doc, Stream stream, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var manifest = CreateManifest(doc);
         var encodedLayers = doc.Frames.Select(frame => new byte[frame.Layers.Count][]).ToArray();
 
@@ -74,13 +76,14 @@ public static class DocumentFile
         var coordinates = doc.Frames
             .SelectMany((frame, frameIndex) => frame.Layers.Select((_, layerIndex) => (frameIndex, layerIndex)))
             .ToArray();
-        Parallel.ForEach(coordinates, coordinate =>
+        Parallel.ForEach(coordinates, new ParallelOptions { CancellationToken = cancellationToken }, coordinate =>
         {
             using var buffer = new MemoryStream();
             doc.Frames[coordinate.frameIndex].Layers[coordinate.layerIndex].Surface.Encode(buffer);
             encodedLayers[coordinate.frameIndex][coordinate.layerIndex] = buffer.ToArray();
         });
 
+        cancellationToken.ThrowIfCancellationRequested();
         using var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true);
 
         var manifestEntry = zip.CreateEntry("manifest.json", CompressionLevel.Optimal);
@@ -89,8 +92,10 @@ public static class DocumentFile
 
         for (int frameIndex = 0; frameIndex < doc.FrameCount; frameIndex++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int layerIndex = 0; layerIndex < doc.Frames[frameIndex].Layers.Count; layerIndex++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var entry = zip.CreateEntry($"frames/{frameIndex}/layers/{layerIndex}.png", CompressionLevel.Fastest);
                 using var es = entry.Open();
                 es.Write(encodedLayers[frameIndex][layerIndex]);

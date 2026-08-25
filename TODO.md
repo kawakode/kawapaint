@@ -14,6 +14,28 @@ Full roadmap/rationale lives in Claude memory
 (`feature-roadmap-tiers`) and the published plan:
 https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
 
+## Unblocked follow-ups - done 2026-08-25
+
+- **JXL/JP2 metadata:** the scanner, stripper, targeted EXIF editor and export-time EXIF reinjection
+  now understand both ISO-box containers. JXL writes a standard `Exif` box with its TIFF offset;
+  JP2 writes the Exiv2-compatible `JpgTiffExif->JP2` UUID box. Native lossless-container smoke tests
+  inject, extract, edit and strip EXIF while asserting decoded pixels do not change.
+- **Viewport-bounded previews:** `IEffect.Apply` now has a destination `EffectBounds` contract. All
+  built-ins and the classic Paint.NET adapter render only the visible image rectangle during live
+  Adjustment, Curves and plugin previews; OK still computes the complete effect. A 41-effect test
+  proves bounded pixels exactly match a full render and pixels outside the bounds remain untouched.
+- **Replay state:** Noise, Frosted Glass and Dents capture one seed when their dialog opens and carry
+  it in demo/script parameters. Curves records its exact 256-byte LUT, crop records resolved bounds,
+  and both execute headlessly. `AdjustmentDialog` supports checkbox parameters, restoring
+  Mandelbrot's **Invert colors** control and replay value.
+- **Lifecycle/correctness:** disposing autosave now cancels its active token, `DocumentFile.Save`
+  observes cancellation throughout encode/write and before its atomic move, MainView disposes the
+  service on unload, and both `Surface` indexer accessors call `ThrowIfDisposed`.
+- **Input/codec calibration:** horizontal wheel/trackpad panning now follows Avalonia's own
+  `ScrollContentPresenter` delta convention. JP2 quality uses OpenJPEG's fixed-quality PSNR mode,
+  mapping UI 1-100 to 20-50 dB; the native check measured Q20 MSE 182.25 vs Q90 MSE 1.75 on the
+  deterministic test image. Physical trackpad feel remains a manual hardware check.
+
 ## Antialiased selection edges - done 2026-08-25
 
 Tier 1 listed this under "deliberately skipped, not forgotten ... flag if wanted". Flagged, and the
@@ -208,14 +230,14 @@ WASM `NativeFileReference` warning), and the full Sandbox suite passes.
 
 ## Demo parameter capture - done 2026-08-24
 
-`.kpdemo` format v2 adds a parameterized-action opcode. Deterministic adjustment dialogs now record
+`.kpdemo` format v2 adds a parameterized-action opcode. Adjustment dialogs now record
 the exact committed slider values and playback builds the same effect through `ScriptEffects`,
 applies it to the active layer and records normal history, instead of reporting every adjustment as
 skipped. The reader remains compatible with v1 files. `DemoFormatSmokeTest` covers v2 double-value
-round-trip and an actual v1 stream load. Noise, Frosted Glass and Dents remain explicitly skipped
-because their current effect APIs do not expose the random seed required for reproducible pixels;
-Clouds also depends on live colors. Dialogs carrying other non-numeric/external state (Curves,
-text, file pickers, clipboard, etc.) remain explicitly skipped.
+round-trip and an actual v1 stream load. **Follow-up 2026-08-25:** Noise, Frosted Glass and Dents now
+capture and replay a stable seed instead of producing `Skipped`; Curves records its LUT and crop its
+resolved bounds. Dialogs carrying other external state (text, file pickers, clipboard, etc.) remain
+explicitly skipped; Clouds still depends on live colors in demos.
 
 ## 2.7 dynamic-zone mail merge / publipostage - done 2026-08-24
 
@@ -322,8 +344,9 @@ is gated on `KAWAPAINT_TEST_PHOTO` pointing at a tagged image, matching how the 
 on a real install.
 
 **Follow-up completed 2026-08-25:** targeted IFD editing, GPS-only removal, source-EXIF retention in
-projects/transforms, and JPEG/PNG/WebP export re-injection now sit alongside the original stripping
-path. JXL/JP2 metadata writing remains native-format-pack work.
+projects/transforms, and JPEG/PNG/WebP/JXL/JP2 export re-injection now sit alongside the original
+stripping path. Native JXL/JP2 container tests cover inject, extract, targeted edit, strip and
+decode-with-identical-pixels.
 
 ## UI bug sweep U1..U10 - fixed 2026-08-24
 
@@ -472,10 +495,9 @@ calling terminal first, since the Windows host is built `WinExe` (no console of 
 a CI script can tell "broken" from "ran with warnings" apart.
 
 Action-id vocabulary is an **allow-list** (`ScriptRecorder.IsScriptable`), not a deny-list: a future
-command is inert in scripts by default rather than silently scriptable. Excluded on purpose:
-`image.crop` (needs a live selection), `effect.clouds` (its factory reads live foreground/background
-color), Curves (bespoke dialog, no factory-function shape to transcribe), and everything
-colour/undo-stack/viewport/clipboard/file related.
+command is inert in scripts by default rather than silently scriptable. **Follow-up 2026-08-25:**
+`image.crop` records its resolved bounds, Curves records its exact LUT, and Clouds carries its colors
+through v2 string arguments. Colour/undo-stack/viewport/clipboard/file interactions remain excluded.
 
 **Verified:** all five projects (`Engine`, `Cli`, `App`, `Win`, `Linux`) build clean, 0 warnings.
 Real end-to-end CLI run against generated test PNGs - grayscale + brightness/contrast + flip + add
@@ -646,8 +668,9 @@ the control flow checked by hand, but nothing below was reproduced live the way 
 crash above was. Treat each as "confirmed by reading, not by running" until it has a repro -
 especially before writing a fix that assumes the failure shape. Line numbers are as of this date.
 
-**Audit complete as of 2026-08-20.** All 16 findings resolved one way or another: #1-#5 (High) and
-#7-#15 (Medium/Low) fixed and verified; #6 deliberately skipped (user's call - see its entry); #16
+**Audit complete as of 2026-08-20; #6 closed later, on 2026-08-25.** All 16 findings resolved one way
+or another: #1-#5 (High) and #7-#15 (Medium/Low) fixed and verified 2026-08-20; **#6 was skipped by
+the user's call at the time and then fixed in the 2026-08-25 drawing pass** - see its entry; #16
 retracted after failing to reproduce (see its entry - this is the one place "confirmed by reading,
 not by running" turned out to be wrong on the reading side). See each entry for what changed, how it
 was verified, and any known gaps left on purpose.
@@ -725,10 +748,9 @@ was verified, and any known gaps left on purpose.
    frees it; (4) pushing ten detached-layer steps against a tight `MemoryBudgetBytes` (sized above
    `HistoryStack`'s own resident-window floor, so the assertion is achievable by the algorithm) now
    gets trimmed down to budget, with several of the oldest layers' surfaces genuinely freed -
-   confirmed via a deliberately-caused crash on access (`Surface`'s indexer doesn't call
-   `ThrowIfDisposed`, so a disposed surface's pixel access dereferences a null pointer and surfaces
-   as `NullReferenceException`, not `ObjectDisposedException` - a pre-existing, out-of-scope quirk
-   noted for whoever next touches `Surface`, not fixed here); and (5) a contrast run using the old
+    originally confirmed via a deliberately-caused crash on access. **Follow-up 2026-08-25:** both
+    `Surface` indexer accessors now call `ThrowIfDisposed`, so the same check produces the intended
+    `ObjectDisposedException`; this is covered by `EffectBoundsSmokeTest`. And (5) a contrast run using the old
    3-arg `DelegateMemento` shape (no byte/dispose params) on the identical scenario, confirming
    `ResidentBytes` stays exactly zero and nothing is ever reclaimed - proof the `MainView.axaml.cs`
    call-site changes were load-bearing, not cosmetic.
@@ -756,23 +778,37 @@ was verified, and any known gaps left on purpose.
 
 **Medium - visible misbehaviour**
 
-6. **Semi-transparent strokes blotch where discs overlap - scoped, deliberately not fixed
-   2026-08-20.** `BrushOps.DrawLine` (`BrushOps.cs:78-92`) stamps discs every `radius*0.5` px and
-   each `BlendOver`s the previous, so with alpha < 255 the stroke darkens along its length and
-   piles up at polygon vertices and ellipse seams (`ShapeOps.cs:54`, `:196`). Turns out to be two
-   differently-sized problems, not one: (a) shape outlines (ellipse/polygon/rounded-rectangle/line)
-   pile up at vertices because each edge is a separate `BrushOps.DrawLine` call blending
-   independently - fixable by having each shape build one coverage buffer internally and blend
-   once, contained to `ShapeOps.cs`/`BrushOps.cs`, low risk; (b) freehand pencil-stroke darkening
-   spans many `PointerMove`-triggered calls across a whole drag gesture, which needs a persistent
-   per-gesture coverage buffer threaded through `ToolContext` and every tool that blends via
-   `BrushOps.DrawLine` (Pencil, Line, Recolor, Clone Stamp, all shape tools - 10+ call sites) - a
-   real architecture change with meaningfully more regression surface and, like everything else in
-   this codebase, no automated UI test coverage to catch a subtle stroke-rendering regression.
-   Asked the user to pick a scope (shapes-only / full fix / skip); **they chose skip**, consistent
-   with this project's own precedent of not committing to large uncertain changes without a
-   dedicated pass (see the BitmapEffect spike in this file). Revisit as its own task, not bundled
-   into a bugfix sweep.
+6. **~~Semi-transparent strokes blotch where discs overlap~~ - FIXED 2026-08-25** in the
+   performance/metadata/animation/text/drawing pass near the top of this file. **This entry read
+   "deliberately not fixed" until 2026-08-25, long after the fix landed, and that staleness has now
+   actually cost time: a later session read it, ranked the item as available work, and started
+   planning it before checking the code. If a finding here gets fixed by a different pass, correct
+   its entry then, not eventually.**
+
+   *Original finding, kept for the scoping analysis:* `BrushOps.DrawLine` stamped discs every
+   `radius*0.5` px and each `BlendOver`ed the previous, so with alpha < 255 a stroke darkened along
+   its length and piled up at polygon vertices and ellipse seams. Scoped as two differently-sized
+   problems: (a) shape outlines, where each edge was a separate `DrawLine` blending independently -
+   contained, low risk; (b) freehand darkening spanning many `PointerMove` calls across a whole
+   gesture, needing a persistent per-gesture coverage buffer - a real architecture change across
+   10+ call sites. Asked the user to pick a scope; **they chose skip** at the time, consistent with
+   this project's precedent of not bundling large uncertain changes into a bugfix sweep. It was then
+   done properly in its own pass, which is exactly the outcome that entry asked for.
+
+   *What actually shipped, verified by reading the code 2026-08-25:* both halves, and (a) at the
+   root rather than per-shape. `SoftBrushStroke` (`BrushOps.cs`) accumulates one canvas-sized byte
+   coverage mask and each flush re-composites the dirty region from `ToolContext.PreStroke`, so
+   overlap is idempotent and the stroke is capped at the colour's own alpha. `BrushOps.DrawLine`
+   itself routes through it whenever `mode == StampMode.Blend`, so every blending caller inherits
+   the fix; `ShapeOps.StrokePath` wraps rectangle/ellipse/polygon outlines in one mask per path;
+   `DrawRoundedRectangle` is a single SDF pass that writes each pixel once; Pencil, Paintbrush and
+   the Freeform shape tool each hold a `SoftBrushStroke` for the whole gesture.
+
+   *Deliberately still outside this:* `StampMode.Set` (the eraser) stamps discs without a mask, but
+   Set overwrites rather than blends so overlap cannot accumulate; Recolor and Clone Stamp use
+   `RecolorDisc`/`CloneDisc`, which are not alpha compositing and so were never the reported
+   defect - Recolor's own repeat-pass drift is handled separately by pdn's `RestrictTolerance`
+   guard, ported in 2.1.
 
 7. **~~Subtract/Intersect against an empty selection is a no-op instead of the documented
    semantics~~ - fixed 2026-08-20.** `IsSelected` treats `!IsActive` as "everything selected", but
@@ -817,8 +853,11 @@ was verified, and any known gaps left on purpose.
    that out too, but most of this engine's effects (blur/warp/radial kernels) read from anywhere in
    the whole image, not just a local neighborhood, so bounding them to a viewport rect would need
    `IEffect.Apply` to accept partial-surface bounds - the same order of architectural change as bug
-   #6's skipped option, not attempted here. Verified: `dotnet build` on `KawaPaint.App` succeeds.
-   Not runtime-verified - same UI-event-wiring caveat as bugs #1/#5.
+    #6's larger option was. **Follow-up fixed 2026-08-25:** `IEffect.Apply` accepts an
+    `EffectBounds`; every built-in effect and the classic Paint.NET adapter honors it, and the three
+    live-preview dialogs render/recomposite only `SurfaceView.VisibleImageBounds`. OK restores the
+    snapshot and applies the complete effect. `EffectBoundsSmokeTest` proves for all 41 built-ins
+    that the ROI exactly matches a full render and everything outside it stays unchanged.
 
 9. **~~Autosave blocks the UI thread~~ - fixed 2026-08-20.** `Tick` used to do the whole `.kwp`
    write (zip + N PNG encodes) inline on the `DispatcherTimer` callback, freezing the UI thread for
@@ -834,13 +873,12 @@ was verified, and any known gaps left on purpose.
    and raise `Saved`. Added a `_saving` re-entrancy guard: unlike the old fully-synchronous version,
    where a single UI thread structurally couldn't fire the timer again mid-save, a backgrounded save
    can now genuinely still be running when the next tick lands, so something has to stop two
-   encodes from racing on the same recovery folder. **Known accepted gap, not fixed**: `Dispose()`
-   only stops the timer; it doesn't cancel an in-flight background save, so closing the app
-   mid-autosave can let one extra write complete after the service is nominally disposed. Harmless
-   (no corruption, at worst one stray "Autosaved" status message or recovery snapshot during
-   shutdown) but real - a full fix would need a `CancellationToken` threaded through `Task.Run` and
-   `DocumentFile.Save` (which doesn't currently accept one), judged disproportionate to a rare,
-   benign shutdown race. Verified: `dotnet build` on `KawaPaint.App` succeeds, and a throwaway
+    encodes from racing on the same recovery folder. **Follow-up fixed 2026-08-25:** `Dispose()`
+    cancels the active save token, the token is threaded through `Task.Run` and `DocumentFile.Save`,
+    and save checks it during layer encoding, ZIP writing and before the atomic destination move.
+    MainView now disposes the service on unload. `DocumentLifecycleSmokeTest` proves a cancelled save
+    preserves the existing destination and removes its temp file. Verified: `dotnet build` on
+    `KawaPaint.App` succeeds, and a throwaway
    project directly exercised `Document.Clone()` - confirmed deep-copy independence in both
    directions (post-clone edits to the original don't appear in the clone and vice versa) plus every
    property (Dpi, order, opacity, blend mode, visibility) carries over, and specifically caught the
@@ -865,13 +903,11 @@ was verified, and any known gaps left on purpose.
 11. **~~Horizontal scroll zooms out~~ - fixed 2026-08-20.** `e.Delta.Y > 0 ? 1.2 : 1/1.2` treated
     `Delta.Y == 0` (a pure horizontal wheel/trackpad gesture) as zoom-out, since it read "not
     positive" as "negative." Fix: a zero vertical delta now pans horizontally instead (reusing the
-    same `_origin` the mouse-drag pan already uses) rather than zooming at all. **The exact pan
-    direction/speed (`e.Delta.X * 60`) is a judgment call, not verified against real trackpad
-    output** - Avalonia's wheel-delta sign convention varies by platform and natural-scrolling
-    settings, and confirming it feels right needs a real trackpad gesture on the built app, which
-    wasn't done. The bug itself (incorrect zoom-out) is fixed regardless of whether the pan direction
-    ends up feeling backwards; if it does, flipping the sign is a one-character fix. Verified:
-    `dotnet build` on `KawaPaint.App` succeeds.
+    same `_origin` the mouse-drag pan already uses) rather than zooming at all. **Follow-up checked
+    2026-08-25:** Avalonia's `ScrollContentPresenter` adds `-Delta.X` to its logical offset and then
+    arranges content at `-Offset`, which is equivalent to adding `Delta.X` to KawaPaint's content
+    origin; the implementation now follows that convention. `dotnet build` succeeds. Physical feel
+    under OS natural-scrolling settings still requires a real trackpad and remains a manual check.
 
 **Low**
 
@@ -1252,8 +1288,7 @@ B6. **~~`AutosaveService.Dispose()` leaves the service subscribed to settings ch
     today. **Fix:** the same named-handler + unsubscribe shape #13 used, plus a `_disposed` flag that
     makes `Reschedule()` refuse to re-arm regardless of who calls it - belt and braces, since the
     resurrection path runs through a public method. `Dispose`'s doc comment now also records the
-    pre-existing accepted gap unchanged from #9 (an in-flight background save is still not
-    cancelled).
+    later 2026-08-25 follow-up from #9 (an in-flight background save is now cancelled).
 
     **Runtime-verified 2026-08-20 (`uiverify/`) - and the standing "we can't test this headlessly"
     assumption turned out to be wrong.** #9, #13 and the first draft of this entry all recorded "no
@@ -1459,8 +1494,8 @@ Rating vocabulary, used consistently below:
   record + CLI, `.kpscript`, `BatchRunner`, 3-valued exit codes, live-verified end to end). Known
   gaps in rough value order: no string arguments (`ScriptStep.Args` is `List<double>` -
   `Scripting/ScriptFile.cs:18`; this is the same format-v2 change 2.7 needs, so do them together);
-  the deliberate exclusions (`image.crop` needs a live selection, `effect.clouds` reads live fg/bg,
-  Curves has no factory-function shape to transcribe); and no conditionals or loops - with a
+  **The 2026-08-25 follow-up closes the crop and Curves gaps** by recording resolved crop bounds and
+  the exact 256-byte LUT; Clouds already carries colors via v2 string arguments. There are still no conditionals or loops - with a
   reasonable argument that a script should stay a linear list, and that anything branching belongs in
   a host-language binding rather than a bespoke mini-language.
   `shared/KawaPaint.Cli` is now listed directly in `KawaPaint.slnx` as well as referenced by both
@@ -1550,15 +1585,15 @@ un-excluding.
 horizontal/vertical alignment, clipping and shrink-to-fit. Mail-merge smoke coverage exercises the
 persistent zone properties and variable-length row rendering.
 
-### 2.8 - EXIF strip / edit (`Exif strip/edit`) - **DONE 2026-08-25 for JPEG/PNG/WebP**
+### 2.8 - EXIF strip / edit (`Exif strip/edit`) - **DONE 2026-08-25 for JPEG/PNG/WebP/JXL/JP2**
 
 The Metadata dialog supports full stripping or targeted editing. Targeted mode can remove only the
 GPS IFD and edit/clear existing Make, Model and capture-date tags. `MetadataEditor` rewrites the
-JPEG APP1, PNG `eXIf`, or WebP RIFF EXIF container without decoding pixels, preserves unedited EXIF
+JPEG APP1, PNG `eXIf`, WebP RIFF EXIF, JXL `Exif` box or JP2 EXIF UUID box without decoding pixels, preserves unedited EXIF
 (including opaque MakerNote bytes) and other metadata blocks, and repairs container lengths/CRCs.
 Smoke tests verify identical decoded pixels, retained IPTC/PNG text, GPS removal, longer replacement
-values and valid JPEG/PNG/WebP output. JXL/JP2 metadata writing remains format-pack work and was not
-part of this request.
+values and valid output in all five formats. Native JXL/JP2 tests additionally verify that injection,
+targeted editing and stripping leave decoded pixels unchanged.
 
 ### 2.9 - Art-platform export packages (`Integration plateformes art`) - local half **DONE 2026-08-24**, posting **Gated**
 
@@ -1814,8 +1849,8 @@ battery clean afterward.
   edges.
 - `JuliaFractalEffect`/`MandelbrotFractalEffect` drop pdn's quality-supersampling loop (single
   sample per pixel, consistent with dropping AA everywhere else in this catalogue).
-  `MandelbrotFractalEffect`'s `InvertColors` checkbox was dropped from the dialog entirely (always
-  false) - `AdjustmentDialog` only has sliders, no checkbox control; flag if worth adding.
+  **Follow-up fixed 2026-08-25:** `AdjustmentDialog` now supports checkbox specs and
+  `MandelbrotFractalEffect.InvertColors` is exposed and captured for demo/script replay.
 - The `BlendOps` formulas (Screen/Overlay/Darken/ColorDodge) are the standard documented two-layer
   blend-mode math, not a transcription of pdn's `UserBlendOps.Generated.cs` - that file is
   macro-generated fixed-point code whose complexity is almost entirely about correct alpha
@@ -2375,10 +2410,11 @@ code.
      Jp2Codec.cs`) that picks the largest valid resolution count, always applied rather than only
      for small images. Verified against 16×16, 4×4, 3×7, and 1×1.
 
-  Quality mapping: unlike JPEG's IJG 1-100 scale or JXL's `JxlEncoderDistanceFromQuality`, JP2 has
-  no standard "quality" concept - `EncodeOptions.Quality` maps onto a compression ratio
-  (`tcp_rates[0] = 101 - quality`, `cp_disto_alloc = 1`), a documented judgment call, not a
-  perceptual calibration. Revisit if real images show it's poorly scaled in practice.
+  **Quality mapping calibrated 2026-08-25:** unlike JPEG's IJG 1-100 scale or JXL's
+  `JxlEncoderDistanceFromQuality`, JP2 has no standard "quality" concept. KawaPaint now uses
+  OpenJPEG's documented fixed-quality mode (`cp_fixed_quality`) and maps UI 1-100 to 20-50 dB PSNR
+  through `tcp_distoratio[0]`. The native smoke check confirms the direction and useful separation
+  on a deterministic image: Q20 MSE 182.25 versus Q90 MSE 1.75.
 
   **Windows natives bundled, 2026-08-19 (same day, third session on this Windows box).** Both
   `JxlCodec.IsAvailable` and `Jp2Codec.IsAvailable` are now true out of the box on Windows, no
@@ -2439,10 +2475,8 @@ code.
   and this file's original resume plan were written on a Linux (CachyOS) box; this JP2 work was
   done in the very next session, same day, on a Windows box instead - different filesystem, no
   system package manager for native libs, and initially no C compiler of any kind (see above). The
-  dotnet SDK *is* installed on this Windows box (10.0.400) but is not on `PATH` in a fresh shell -
-  invoke it via its full path, `C:\Program Files\dotnet\dotnet.exe`, or add that directory to
-  `PATH` for the session, or things like `dotnet build` will fail with a plain "not recognized"
-  error that has nothing to do with the project itself.
+  dotnet SDK is installed on this Windows box (10.0.400) - see the Windows note in the working
+  notes at the end for the `PATH` situation, which this entry originally described incorrectly.
 
 ### 4.x - Deferred, gated on other decisions
 Branching/non-linear history and git-as-literal-undo-timeline are gated on revisiting the
@@ -2496,9 +2530,17 @@ prioritized git-compat truncate-only over this.
   (or `dotnet linux/bin/Debug/net10.0/KawaPaint.Linux.dll` after a build, faster for repeat runs).
 - Settings/state live at `~/.config/KawaPaint/` on Linux - delete it to reset to defaults when
   testing first-run behavior (several bugs above only showed up on a truly fresh install).
-- **On Windows** (this box, as of the 2026-08-19 JP2 session): `dotnet` is installed (10.0.400) but
-  not on `PATH` in a fresh shell - use the full path `C:\Program Files\dotnet\dotnet.exe`, or
-  `$env:PATH += ';C:\Program Files\dotnet'` for the session. Desktop project is
+- **On Windows** (this box): `dotnet` is installed (10.0.400) and **`C:\Program Files\dotnet` is on
+  the Windows system PATH** - an ordinary terminal runs `dotnet` fine. **Corrected 2026-08-25:** this
+  note used to claim it "is not on `PATH` in a fresh shell", which is wrong and misdiagnosed the
+  cause. What actually happens is that *agent/tool shells in this environment inherit a PATH that
+  does not include it* - verified by checking all three at once: `[Environment]::GetEnvironmentVariable("Path","Machine")`
+  and `("Path","User")` both contain `C:\Program Files\dotnet`, while the tool shell's own
+  `$env:Path` contains no dotnet entry at all and `Get-Command dotnet` fails. So if `dotnet build`
+  comes back "not recognized", it is the tool shell's environment, not a missing or unregistered
+  install - use the full path `C:\Program Files\dotnet\dotnet.exe`, or
+  `$env:PATH += ';C:\Program Files\dotnet'` for the session, and do not "fix" the machine's PATH,
+  which is already correct. (`.claude/skills/run-desktop` states this accurately.) Desktop project is
   `win/KawaPaint.Win.csproj`, not the Linux one. No C compiler (cl.exe/gcc/clang) and no
   vcpkg/choco/scoop were present - checked directly, don't assume any of them exist without
   checking again. Network access to github.com worked fine for pulling reference native libraries

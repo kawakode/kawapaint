@@ -65,7 +65,7 @@ public sealed record MetadataEditResult(byte[] Bytes, bool Changed, string? Erro
 /// comes back with <see cref="CanStrip"/> false and no blocks.</summary>
 public sealed class MetadataReport
 {
-    /// <summary>Codec id of the container as recognised here ("jpeg", "png", "webp"), or "" when
+    /// <summary>Codec id of the container as recognised here ("jpeg", "png", "webp", "jxl", "jp2"), or "" when
     /// the bytes matched none of them. Deliberately the same vocabulary as <c>IImageCodec.Id</c>.</summary>
     public string Format { get; init; } = "";
 
@@ -112,7 +112,7 @@ public sealed class MetadataReport
     public string Describe(MetadataStripOptions options)
     {
         if (Format.Length == 0)
-            return "Not a JPEG, PNG or WebP file - metadata cannot be inspected without decoding it.";
+            return "This image container does not expose rewritable metadata.";
         if (!CanStrip)
             return $"This {Format.ToUpperInvariant()} file could not be read end to end, so it is not safe to rewrite.";
         if (!HasAny)

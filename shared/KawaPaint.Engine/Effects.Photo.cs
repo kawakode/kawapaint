@@ -36,18 +36,22 @@ public sealed class GlowEffect : IEffect
     }
     public string Name => "Glow";
 
-    public unsafe void Apply(Surface s)
+    public unsafe void Apply(Surface s) => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         using var glow = s.Clone();
-        new BoxBlurEffect(_radius).Apply(glow);
-        new BrightnessContrastEffect(_brightness, 1.0 + _contrastPct / 100.0).Apply(glow);
+        new BoxBlurEffect(_radius).Apply(glow, bounds);
+        new BrightnessContrastEffect(_brightness, 1.0 + _contrastPct / 100.0).Apply(glow, bounds);
 
         int w = s.Width, h = s.Height;
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* dst = (ColorBgra*)s.GetRowPointer(y);
             ColorBgra* glowRow = (ColorBgra*)glow.GetRowPointer(y);
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 ColorBgra o = dst[x], g = glowRow[x];
                 dst[x] = ColorBgra.FromBgra(BlendOps.Screen(g.B, o.B), BlendOps.Screen(g.G, o.G), BlendOps.Screen(g.R, o.R), o.A);
@@ -111,22 +115,26 @@ public sealed class SoftenPortraitEffect : IEffect
     }
     public string Name => "Soften Portrait";
 
-    public unsafe void Apply(Surface s)
+    public unsafe void Apply(Surface s) => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         using var original = s.Clone();
 
-        new BoxBlurEffect(Math.Max(1, _softness * 3)).Apply(s);
-        new BrightnessContrastEffect(_lighting, 1.0 + (-_lighting / 2.0) / 100.0).Apply(s);
+        new BoxBlurEffect(Math.Max(1, _softness * 3)).Apply(s, bounds);
+        new BrightnessContrastEffect(_lighting, 1.0 + (-_lighting / 2.0) / 100.0).Apply(s, bounds);
 
         float redAdjust = 1.0f + _warmth / 100.0f;
         float blueAdjust = 1.0f - _warmth / 100.0f;
         int w = s.Width, h = s.Height;
 
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* origRow = (ColorBgra*)original.GetRowPointer(y);
             ColorBgra* dstRow = (ColorBgra*)s.GetRowPointer(y);
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 ColorBgra o = origRow[x];
                 byte gray = o.GetIntensityByte();

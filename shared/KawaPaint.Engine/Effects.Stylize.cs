@@ -18,13 +18,17 @@ public abstract class LocalHistogramEffect : IEffect
 
     protected abstract ColorBgra Apply(ColorBgra src, int area, int[] hb, int[] hg, int[] hr, int[] ha);
 
-    public unsafe void Apply(Surface s)
+    public unsafe void Apply(Surface s) => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         using var src = s.Clone();
         int w = s.Width, h = s.Height, rad = _radius;
         int cutoff = ((rad * 2 + 1) * (rad * 2 + 1) + 2) / 4;
 
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             var hb = new int[256];
             var hg = new int[256];
@@ -34,7 +38,7 @@ public abstract class LocalHistogramEffect : IEffect
 
             int top = Math.Max(0, y - rad), bottom = Math.Min(h - 1, y + rad);
 
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 Array.Clear(hb); Array.Clear(hg); Array.Clear(hr); Array.Clear(ha);
                 int area = 0;
@@ -129,16 +133,20 @@ public sealed class ReliefEffect : IEffect
     }
     public string Name => "Relief";
 
-    public unsafe void Apply(Surface s)
+    public unsafe void Apply(Surface s) => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         using var src = s.Clone();
         int w = s.Width, h = s.Height;
         var weights = _weights;
 
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* dst = (ColorBgra*)s.GetRowPointer(y);
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 double rSum = 0, gSum = 0, bSum = 0;
                 for (int fy = 0; fy < 3; fy++)
@@ -170,8 +178,12 @@ public sealed class VignetteEffect : IEffect
     }
     public string Name => "Vignette";
 
-    public unsafe void Apply(Surface s)
+    public unsafe void Apply(Surface s) => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         int w = s.Width, h = s.Height;
         double hw = w / 2.0, hh = h / 2.0;
         double radius = Math.Max(w, h) * 0.5 * _radiusScale;
@@ -179,12 +191,12 @@ public sealed class VignetteEffect : IEffect
         double radiusR = Math.PI / (8 * radius);
         double amount1 = 1.0 - _amount;
 
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
             double iy2 = y - hh; iy2 *= iy2;
 
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 double ix = x - hw;
                 double d = (iy2 + ix * ix) * radiusR;

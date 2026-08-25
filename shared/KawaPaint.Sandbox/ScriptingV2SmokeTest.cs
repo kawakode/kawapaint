@@ -1,4 +1,5 @@
 using System.Text;
+using KawaPaint.App.Core.Scripting;
 using KawaPaint.Engine;
 using KawaPaint.Engine.Scripting;
 
@@ -9,8 +10,87 @@ internal static class ScriptingV2SmokeTest
     public static void RunAll()
     {
         V2StringsRoundTripAndExecute();
+        CropAndCurvesExecute();
+        SeededEffectsReplayExactly();
         V1StillLoads();
-        Console.WriteLine("SCRIPTING V2 SMOKE OK - strings, text, rename, Clouds, v1 compatibility");
+        Console.WriteLine("SCRIPTING V2 SMOKE OK - strings, crop, Curves, deterministic seeds, v1 compatibility");
+    }
+
+    private static void CropAndCurvesExecute()
+    {
+        Assert(ScriptRecorder.IsScriptable("image.crop"), "crop is missing from the recorder allow-list");
+        Assert(ScriptRecorder.IsScriptable("effect.curves"), "Curves is missing from the recorder allow-list");
+
+        byte[] inverse = Enumerable.Range(0, 256).Select(i => (byte)(255 - i)).ToArray();
+        var script = new ScriptFile { Title = "crop-curves" };
+        script.Steps.Add(new ScriptStep("effect.curves", inverse.Select(x => (double)x).ToArray()));
+        script.Steps.Add(new ScriptStep("image.crop", new double[] { 2, 1, 5, 4 }));
+
+        var document = new Document(10, 8);
+        try
+        {
+            Layer layer = document.AddLayer("pixels");
+            for (int y = 0; y < document.Height; y++)
+            for (int x = 0; x < document.Width; x++)
+                layer.Surface[x, y] = ColorBgra.FromBgra((byte)(x * 9), (byte)(y * 13),
+                    (byte)(x * 7 + y * 5), (byte)(120 + x + y));
+            ColorBgra original = layer.Surface[2, 1];
+
+            IReadOnlyList<ScriptStepResult> results = ScriptExecutor.Run(ref document, script);
+            Assert(results.All(result => result.Outcome == ScriptStepOutcome.Applied),
+                "crop/Curves script step did not apply");
+            Assert(document.Width == 5 && document.Height == 4, "script crop dimensions are wrong");
+            ColorBgra actual = document.Layers[0].Surface[0, 0];
+            Assert(actual == ColorBgra.FromBgra((byte)(255 - original.B), (byte)(255 - original.G),
+                    (byte)(255 - original.R), original.A),
+                "Curves LUT or crop origin was not replayed exactly");
+        }
+        finally
+        {
+            document.Dispose();
+        }
+    }
+
+    private static void SeededEffectsReplayExactly()
+    {
+        (string tag, double[] args)[] cases =
+        [
+            ("noise", [18, 123456]),
+            ("frostedglass", [0, 4, 3, 234567]),
+            ("dents", [25, 50, 10, 10, 345678])
+        ];
+
+        foreach ((string tag, double[] args) in cases)
+        {
+            IEffect first = ScriptEffects.Build(tag, args)
+                ?? throw new InvalidOperationException($"could not build {tag}");
+            IEffect second = ScriptEffects.Build(tag, args)
+                ?? throw new InvalidOperationException($"could not rebuild {tag}");
+            using Surface a = SeedPattern();
+            using Surface b = SeedPattern();
+            first.Apply(a);
+            second.Apply(b);
+            Assert(SameSurface(a, b), $"{tag} did not replay deterministically with its recorded seed");
+        }
+    }
+
+    private static Surface SeedPattern()
+    {
+        var surface = new Surface(19, 17);
+        for (int y = 0; y < surface.Height; y++)
+        for (int x = 0; x < surface.Width; x++)
+            surface[x, y] = ColorBgra.FromBgra((byte)(x * 11), (byte)(y * 13),
+                (byte)(x * 3 + y * 7), 255);
+        return surface;
+    }
+
+    private static bool SameSurface(Surface a, Surface b)
+    {
+        if (a.Width != b.Width || a.Height != b.Height) return false;
+        for (int y = 0; y < a.Height; y++)
+        for (int x = 0; x < a.Width; x++)
+            if (a[x, y] != b[x, y]) return false;
+        return true;
     }
 
     private static void V2StringsRoundTripAndExecute()

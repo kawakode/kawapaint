@@ -78,10 +78,8 @@ public sealed class ScriptRecorder
     /// and only becomes scriptable once someone deliberately teaches this method about it, instead
     /// of silently becoming scriptable and needing to be remembered as an exclusion.
     ///
-    /// Excluded on purpose: image.crop (needs a live selection, no headless equivalent),
-    /// effect.clouds (its factory reads the live foreground/background color - see ScriptEffects),
-    /// and everything colour/undo-stack/viewport/selection/clipboard/file related, none of which a
-    /// headless target document has.
+    /// Crop records the resolved selection bounds as numeric arguments, and Curves records its
+    /// exact LUT, so neither requires live UI state during batch execution.
     /// </summary>
     public static bool IsScriptable(string id)
     {
@@ -92,6 +90,7 @@ public sealed class ScriptRecorder
             case "image.rotateCW":
             case "image.rotateCCW":
             case "image.flatten":
+            case "image.crop":
             case "layer.add":
             case "layer.delete":
             case "layer.duplicate":

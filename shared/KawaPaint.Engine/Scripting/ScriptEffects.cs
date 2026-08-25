@@ -6,8 +6,8 @@
 // here would mean touching the live, tested preview-dialog code path for no v1 benefit. If either
 // switch's constructor args/casts change, this one needs the matching edit by hand.
 //
-// "clouds" has no case here: its MainView factory reads the live foreground/background color
-// (Canvas.BrushColor/SecondaryColor), which a headless target document has no equivalent for.
+// UI-only state is carried explicitly where necessary: Clouds receives its two colors through v2
+// string arguments, and stochastic effects append the captured seed after their visible controls.
 
 namespace KawaPaint.Engine.Scripting;
 
@@ -24,7 +24,7 @@ public static class ScriptEffects
             or "outline" or "relief" or "vignette" or "reducenoise" or "motionblur" or "radialblur"
             or "zoomblur" or "surfaceblur" or "unfocus" or "fragment" or "julia" or "mandelbrot"
             or "glow" or "redeye" or "softenportrait" or "inksketch" or "pencilsketch"
-            or "oilpainting" or "clouds" => true,
+            or "oilpainting" or "clouds" or "curves" => true,
         _ => false
     };
 
@@ -51,14 +51,15 @@ public static class ScriptEffects
                 "levels" => new LevelsEffect((int)a[0], (int)a[1], a[2]),
                 "blur" => new BoxBlurEffect((int)a[0]),
                 "posterize" => new PosterizeEffect((int)a[0]),
-                "noise" => new NoiseEffect((int)a[0]),
+                "curves" when a.Count == 256 => new CurvesEffect(a.Select(value => (byte)Math.Clamp((int)value, 0, 255)).ToArray()),
+                "noise" => new NoiseEffect((int)a[0], a.Count > 1 ? (int)a[1] : 0),
                 "bulge" => new BulgeEffect(a[0]),
                 "twist" => new TwistEffect(a[0], a[1]),
                 "polarinv" => new PolarInversionEffect(a[0]),
                 "tile" => new TileEffect(a[0], a[1], a[2]),
-                "frostedglass" => new FrostedGlassEffect(a[0], a[1], (int)a[2]),
+                "frostedglass" => new FrostedGlassEffect(a[0], a[1], (int)a[2], a.Count > 3 ? (int)a[3] : 0),
                 "pixelate" => new PixelateEffect((int)a[0]),
-                "dents" => new DentsEffect(a[0], a[1], a[2], a[3], 0),
+                "dents" => new DentsEffect(a[0], a[1], a[2], a[3], a.Count > 4 ? (int)a[4] : 0),
                 "median" => new MedianEffect((int)a[0], (int)a[1]),
                 "outline" => new OutlineEffect((int)a[0], (int)a[1]),
                 "relief" => new ReliefEffect(a[0]),
@@ -74,7 +75,7 @@ public static class ScriptEffects
                     => new CloudsEffect((int)a[0], a[1], 0,
                         ColorBgra.ParseHexString(strings[0]), ColorBgra.ParseHexString(strings[1])),
                 "julia" => new JuliaFractalEffect(a[0], a[1], a[2]),
-                "mandelbrot" => new MandelbrotFractalEffect((int)a[0], a[1], a[2]),
+                "mandelbrot" => new MandelbrotFractalEffect((int)a[0], a[1], a[2], a.Count > 3 && a[3] != 0),
                 "glow" => new GlowEffect((int)a[0], (int)a[1], (int)a[2]),
                 "redeye" => new RedEyeRemoveEffect((int)a[0], (int)a[1]),
                 "softenportrait" => new SoftenPortraitEffect((int)a[0], (int)a[1], (int)a[2]),

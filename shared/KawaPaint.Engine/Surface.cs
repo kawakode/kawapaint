@@ -54,12 +54,14 @@ public sealed unsafe class Surface : IDisposable
     {
         get
         {
+            ThrowIfDisposed();
             if ((uint)x >= (uint)Width || (uint)y >= (uint)Height)
                 throw new ArgumentOutOfRangeException($"({x},{y}) out of bounds of {Width}x{Height}");
             return *GetPointPointer(x, y);
         }
         set
         {
+            ThrowIfDisposed();
             if ((uint)x >= (uint)Width || (uint)y >= (uint)Height)
                 throw new ArgumentOutOfRangeException($"({x},{y}) out of bounds of {Width}x{Height}");
             *GetPointPointer(x, y) = value;

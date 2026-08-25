@@ -1,14 +1,11 @@
-// KawaPaint - locates the metadata regions of a JPEG, PNG or WebP without decoding it.
+// KawaPaint - locates metadata regions without decoding pixels.
 //
 // One walker per container, and both scanning and stripping go through it - MetadataStripper does
 // not have a parser of its own, it just splices out the ranges this file reports. That is the whole
 // reason the walkers return byte ranges rather than parsed contents: a second parser that drifted
 // from this one would mean the dialog telling the user one thing and the rewrite doing another.
 //
-// Formats not listed here are not a gap to be quietly filled by re-encoding: BMP and ICO have
-// nowhere to put metadata, and JPEG XL / JPEG 2000 go through native packs whose containers this
-// code has no business rewriting blind. They report Format "" and CanStrip false, and the UI says
-// so plainly.
+using System.Buffers.Binary;
 
 namespace KawaPaint.Engine.Metadata;
 
@@ -21,6 +18,10 @@ public static class MetadataScanner
         if (StartsWith(bytes, 0xFF, 0xD8, 0xFF)) return ScanJpeg(bytes);
         if (StartsWith(bytes, 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)) return ScanPng(bytes);
         if (bytes.Length >= 12 && Ascii(bytes, 0, "RIFF") && Ascii(bytes, 8, "WEBP")) return ScanWebP(bytes);
+        if (StartsWith(bytes, 0x00, 0x00, 0x00, 0x0C, 0x4A, 0x58, 0x4C, 0x20, 0x0D, 0x0A, 0x87, 0x0A))
+            return ScanIsoBoxes(bytes, "jxl");
+        if (StartsWith(bytes, 0x00, 0x00, 0x00, 0x0C, 0x6A, 0x50, 0x20, 0x20, 0x0D, 0x0A, 0x87, 0x0A))
+            return ScanIsoBoxes(bytes, "jp2");
         return new MetadataReport();
     }
 
@@ -209,6 +210,61 @@ public static class MetadataScanner
         // RIFF chunks tile the file exactly. Anything left over is a chunk header that got cut off,
         // which means the same thing here as a missing EOI does for JPEG.
         return i == b.Length ? Done("webp", blocks, exif) : Failed("webp", blocks);
+    }
+
+    // ---- JPEG XL / JPEG 2000 -----------------------------------------------------------------
+
+    private static readonly byte[] Jp2ExifUuid =
+        { 0x4A, 0x70, 0x67, 0x54, 0x69, 0x66, 0x66, 0x45, 0x78, 0x69, 0x66, 0x2D, 0x3E, 0x4A, 0x50, 0x32 };
+    private static readonly byte[] Jp2XmpUuid =
+        { 0xBE, 0x7A, 0xCF, 0xCB, 0x97, 0xA9, 0x42, 0xE8, 0x9C, 0x71, 0x99, 0x94, 0x91, 0xE3, 0xAF, 0xAC };
+
+    private static MetadataReport ScanIsoBoxes(ReadOnlySpan<byte> bytes, string format)
+    {
+        var blocks = new List<MetadataBlock>();
+        var exif = ExifSummary.None;
+        if (!IsoBmffBoxes.TryWalk(bytes, out List<IsoBmffBoxes.Box> boxes))
+            return Failed(format, blocks);
+
+        bool structural = format == "jxl"
+            ? boxes.Any(box => box.Type is "jxlc" or "jxlp") && boxes.Any(box => box.Type == "ftyp")
+            : boxes.Any(box => box.Type == "jp2h") && boxes.Any(box => box.Type == "jp2c");
+        if (!structural) return Failed(format, blocks);
+
+        foreach (IsoBmffBoxes.Box box in boxes)
+        {
+            ReadOnlySpan<byte> payload = bytes.Slice(box.PayloadOffset, box.PayloadLength);
+            if (format == "jxl" && box.Type == "Exif")
+            {
+                if (payload.Length < 4) return Failed(format, blocks);
+                uint offset = BinaryPrimitives.ReadUInt32BigEndian(payload);
+                if (offset > int.MaxValue || 4L + offset + 8 > payload.Length) return Failed(format, blocks);
+                exif = ExifTiffReader.Read(payload[(4 + (int)offset)..]);
+                blocks.Add(new MetadataBlock(MetadataKind.Exif, "EXIF (Exif box)", box.Offset, box.Length));
+            }
+            else if (format == "jxl" && box.Type == "xml ")
+            {
+                blocks.Add(new MetadataBlock(MetadataKind.Xmp, "XMP (xml box)", box.Offset, box.Length));
+            }
+            else if (format == "jp2" && box.Type == "uuid" && payload.Length >= 16)
+            {
+                ReadOnlySpan<byte> uuid = payload[..16];
+                if (uuid.SequenceEqual(Jp2ExifUuid))
+                {
+                    if (payload.Length < 24) return Failed(format, blocks);
+                    exif = ExifTiffReader.Read(payload[16..]);
+                    blocks.Add(new MetadataBlock(MetadataKind.Exif, "EXIF (UUID box)", box.Offset, box.Length));
+                }
+                else if (uuid.SequenceEqual(Jp2XmpUuid))
+                    blocks.Add(new MetadataBlock(MetadataKind.Xmp, "XMP (UUID box)", box.Offset, box.Length));
+            }
+            else if (format == "jp2" && box.Type == "xml ")
+            {
+                blocks.Add(new MetadataBlock(MetadataKind.Xmp, "XML metadata", box.Offset, box.Length));
+            }
+        }
+
+        return Done(format, blocks, exif);
     }
 
     // ---- shared --------------------------------------------------------------------------------

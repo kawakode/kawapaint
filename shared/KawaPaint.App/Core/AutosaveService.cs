@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using Avalonia.Threading;
 using KawaPaint.Engine;
 
@@ -26,6 +27,7 @@ public sealed class AutosaveService : IDisposable
     // guard is what keeps two encodes from racing on the same recovery folder or WriteToOriginalFile
     // path.
     private bool _saving;
+    private CancellationTokenSource? _saveCancellation;
 
     private bool _disposed;
 
@@ -81,6 +83,8 @@ public sealed class AutosaveService : IDisposable
         if (config.SkipWhenUnchanged && !session.HasUnsnapshottedChanges) return;
 
         _saving = true;
+        var cancellation = new CancellationTokenSource();
+        _saveCancellation = cancellation;
         try
         {
             using var snapshot = session.Document.Clone();
@@ -89,7 +93,7 @@ public sealed class AutosaveService : IDisposable
             {
                 if (config.WriteToOriginalFile && session.FilePath is not null)
                 {
-                    DocumentFile.Save(snapshot, session.FilePath);
+                    DocumentFile.Save(snapshot, session.FilePath, cancellation.Token);
                     return true;
                 }
 
@@ -97,19 +101,25 @@ public sealed class AutosaveService : IDisposable
                 if (dir is null) return false;
 
                 string path = Path.Combine(dir, $"{DateTime.UtcNow:yyyyMMdd-HHmmss}{DocumentFile.Extension}");
-                DocumentFile.Save(snapshot, path);
+                DocumentFile.Save(snapshot, path, cancellation.Token);
+                cancellation.Token.ThrowIfCancellationRequested();
                 Prune(dir, config.KeepVersions);
                 return true;
             });
 
-            if (wrote)
+            if (wrote && !_disposed && !cancellation.IsCancellationRequested)
             {
                 session.MarkAutosaved();
                 Saved?.Invoke(session.DisplayName);
             }
         }
         catch { /* autosave failing must never interrupt the user's actual work */ }
-        finally { _saving = false; }
+        finally
+        {
+            if (ReferenceEquals(_saveCancellation, cancellation)) _saveCancellation = null;
+            cancellation.Dispose();
+            _saving = false;
+        }
     }
 
     private static string? RecoveryDirectoryFor(DocumentSession session, AutosaveSettings config)
@@ -136,9 +146,9 @@ public sealed class AutosaveService : IDisposable
     }
 
     /// <summary>
-    /// Stops the timer and detaches from settings changes. Known accepted gap, unchanged here: an
-    /// already-in-flight background save is not cancelled (see Tick) - it may complete after this
-    /// returns, which is harmless but real.
+    /// Stops the timer, detaches from settings changes, and cancels an in-flight snapshot before
+    /// its atomic temp-file move. A native PNG encode already running may take until that layer
+    /// returns to observe cancellation, but no cancelled autosave is published afterwards.
     /// </summary>
     public void Dispose()
     {
@@ -146,6 +156,7 @@ public sealed class AutosaveService : IDisposable
         _settings.Changed -= OnSettingsChanged;
         _timer?.Stop();
         _timer = null;
+        _saveCancellation?.Cancel();
     }
 }
 

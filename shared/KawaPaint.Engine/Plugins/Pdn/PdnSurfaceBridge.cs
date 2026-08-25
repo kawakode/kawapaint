@@ -89,6 +89,21 @@ internal static class PdnSurfaceBridge
         Buffer.MemoryCopy((void*)src, (void*)kawaSurface.Scan0, bytes, bytes);
     }
 
+    public static unsafe void CopyBack(Surface kawaSurface, object pdnSurface, PdnReflectionSchema schema,
+        EffectBounds requested)
+    {
+        EffectBounds bounds = requested.Clip(kawaSurface);
+        if (bounds.IsEmpty) return;
+        byte* src = (byte*)GetScan0Pointer(pdnSurface, schema);
+        byte* dst = (byte*)kawaSurface.Scan0;
+        long rowBytes = (long)bounds.Width * ColorBgra.SizeOf;
+        for (int y = bounds.Y; y < bounds.Bottom; y++)
+        {
+            long offset = (long)y * kawaSurface.Stride + (long)bounds.X * ColorBgra.SizeOf;
+            Buffer.MemoryCopy(src + offset, dst + offset, rowBytes, rowBytes);
+        }
+    }
+
     private static IntPtr GetScan0Pointer(object pdnSurface, PdnReflectionSchema schema)
     {
         object memoryBlock = schema.SurfaceScan0.GetValue(pdnSurface)!;

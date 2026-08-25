@@ -77,6 +77,8 @@ KawaPaint.Sandbox.DemoFormatSmokeTest.RunAll();
 KawaPaint.Sandbox.CliPresetSmokeTest.RunAll();
 KawaPaint.Sandbox.MailMergeSmokeTest.RunAll();
 KawaPaint.Sandbox.EngineOptimizationSmokeTest.RunAll();
+KawaPaint.Sandbox.EffectBoundsSmokeTest.RunAll();
+KawaPaint.Sandbox.DocumentLifecycleSmokeTest.RunAll();
 KawaPaint.Sandbox.ScriptingV2SmokeTest.RunAll();
 KawaPaint.Sandbox.AnimatedGifSmokeTest.RunAll();
 KawaPaint.Sandbox.HistoryTruncateSmokeTest.RunAll();

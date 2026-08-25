@@ -25,18 +25,23 @@ public abstract class WarpEffect : IEffect
     protected abstract (double X, double Y) InverseTransform(double x, double y, double halfWidth, double halfHeight, double maxRadius);
 
     public unsafe void Apply(Surface s)
+        => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         using var src = s.Clone();
         int w = s.Width, h = s.Height;
         double hw = w / 2.0, hh = h / 2.0;
         double maxRadius = Math.Min(hw, hh);
         WarpEdgeMode edge = EdgeMode;
 
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* dst = (ColorBgra*)s.GetRowPointer(y);
             double ry = y - hh;
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 double rx = x - hw;
                 var (sx, sy) = InverseTransform(rx, ry, hw, hh, maxRadius);
@@ -162,26 +167,33 @@ public sealed class FrostedGlassEffect : IEffect
 {
     private readonly double _minRadius, _maxRadius;
     private readonly int _samples;
+    private readonly int _seed;
 
-    public FrostedGlassEffect(double minRadius, double maxRadius, int samples)
+    public FrostedGlassEffect(double minRadius, double maxRadius, int samples, int? seed = null)
     {
         _minRadius = Math.Max(0, minRadius);
         _maxRadius = Math.Max(_minRadius, maxRadius);
         _samples = Math.Clamp(samples, 1, 8);
+        _seed = seed ?? Random.Shared.Next();
     }
     public string Name => "Frosted Glass";
 
     public unsafe void Apply(Surface s)
+        => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         using var src = s.Clone();
         int w = s.Width, h = s.Height;
         double minRadius = Math.Min(_minRadius, Math.Min(w, h) / 2.0);
         double delta = _maxRadius - minRadius;
 
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* dst = (ColorBgra*)s.GetRowPointer(y);
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 int sumB = 0, sumG = 0, sumR = 0, sumA = 0;
                 for (int i = 0; i < _samples; i++)
@@ -190,8 +202,9 @@ public sealed class FrostedGlassEffect : IEffect
                     int guard = 0;
                     do
                     {
-                        double angle = Random.Shared.NextDouble() * Math.PI * 2.0;
-                        double dist = minRadius + Random.Shared.NextDouble() * delta;
+                        int key = i * 64 + guard * 2;
+                        double angle = PixelRandom.Unit(_seed, x, y, key) * Math.PI * 2.0;
+                        double dist = minRadius + PixelRandom.Unit(_seed, x, y, key + 1) * delta;
                         sx = x + Math.Cos(angle) * dist;
                         sy = y + Math.Sin(angle) * dist;
                     } while ((sx < 0 || sx > w - 1 || sy < 0 || sy > h - 1) && ++guard < 32);
@@ -214,16 +227,23 @@ public sealed class PixelateEffect : IEffect
     public string Name => "Pixelate";
 
     public unsafe void Apply(Surface s)
-    {
-        int w = s.Width, h = s.Height, cell = _cellSize;
-        int rows = (h + cell - 1) / cell;
+        => Apply(s, EffectBounds.Full(s));
 
-        System.Threading.Tasks.Parallel.For(0, rows, cellRow =>
+    public unsafe void Apply(Surface s, EffectBounds requested)
+    {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
+        int w = s.Width, h = s.Height, cell = _cellSize;
+        int firstCellRow = bounds.Y / cell;
+        int lastCellRow = (bounds.Bottom - 1) / cell;
+
+        System.Threading.Tasks.Parallel.For(firstCellRow, lastCellRow + 1, cellRow =>
         {
             int y0 = cellRow * cell;
             int y1 = Math.Min(y0 + cell, h);
 
-            for (int x0 = 0; x0 < w; x0 += cell)
+            int firstX = bounds.X / cell * cell;
+            for (int x0 = firstX; x0 < bounds.Right; x0 += cell)
             {
                 int x1 = Math.Min(x0 + cell, w);
                 long sumB = 0, sumG = 0, sumR = 0, sumA = 0;
@@ -243,10 +263,10 @@ public sealed class PixelateEffect : IEffect
                 var avg = ColorBgra.FromBgra((byte)(sumB / count), (byte)(sumG / count),
                                               (byte)(sumR / count), (byte)(sumA / count));
 
-                for (int y = y0; y < y1; y++)
+                for (int y = Math.Max(y0, bounds.Y); y < Math.Min(y1, bounds.Bottom); y++)
                 {
                     ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
-                    for (int x = x0; x < x1; x++)
+                    for (int x = Math.Max(x0, bounds.X); x < Math.Min(x1, bounds.Right); x++)
                         row[x] = avg;
                 }
             }
@@ -261,13 +281,13 @@ public sealed class DentsEffect : WarpEffect
     private readonly double _scale, _refraction, _roughnessRaw, _theta;
     private readonly byte _seed;
 
-    public DentsEffect(double scale, double refraction, double roughness, double tension, int seed)
+    public DentsEffect(double scale, double refraction, double roughness, double tension, int? seed = null)
     {
         _scale = Math.Max(1, scale);
         _refraction = refraction;
         _roughnessRaw = roughness;
         _theta = Math.PI * 2.0 * tension / 10.0;
-        _seed = unchecked((byte)(DateTime.Now.Ticks ^ seed));
+        _seed = unchecked((byte)(seed ?? Random.Shared.Next()));
     }
     public override string Name => "Dents";
     protected override WarpEdgeMode EdgeMode => WarpEdgeMode.Reflect;

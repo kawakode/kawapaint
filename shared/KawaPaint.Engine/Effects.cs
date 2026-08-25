@@ -8,6 +8,57 @@ public interface IEffect
 {
     string Name { get; }
     void Apply(Surface surface);
+
+    /// <summary>Applies only to destination pixels inside <paramref name="bounds"/>. Effects may
+    /// still read anywhere on the source surface for kernels/warps. The compatibility default is
+    /// full-surface application for third-party effects compiled against the original contract.</summary>
+    void Apply(Surface surface, EffectBounds bounds)
+    {
+        EffectBounds clipped = bounds.Clip(surface);
+        if (clipped.IsEmpty) return;
+        using Surface before = surface.Clone();
+        Apply(surface);
+        clipped.RestoreOutside(surface, before);
+    }
+}
+
+public readonly record struct EffectBounds(int X, int Y, int Width, int Height)
+{
+    public int Right => X + Width;
+    public int Bottom => Y + Height;
+    public bool IsEmpty => Width <= 0 || Height <= 0;
+
+    public static EffectBounds Full(Surface surface) => new(0, 0, surface.Width, surface.Height);
+
+    public EffectBounds Clip(Surface surface)
+    {
+        int left = Math.Clamp(X, 0, surface.Width);
+        int top = Math.Clamp(Y, 0, surface.Height);
+        int right = (int)Math.Clamp((long)X + Width, 0, surface.Width);
+        int bottom = (int)Math.Clamp((long)Y + Height, 0, surface.Height);
+        return new EffectBounds(left, top, Math.Max(0, right - left), Math.Max(0, bottom - top));
+    }
+
+    public EffectBounds Inflate(int amount, Surface surface)
+        => new EffectBounds(X - amount, Y - amount, Width + amount * 2, Height + amount * 2).Clip(surface);
+
+    public EffectBounds Union(EffectBounds other)
+    {
+        if (IsEmpty) return other;
+        if (other.IsEmpty) return this;
+        int left = Math.Min(X, other.X), top = Math.Min(Y, other.Y);
+        int right = Math.Max(Right, other.Right), bottom = Math.Max(Bottom, other.Bottom);
+        return new EffectBounds(left, top, right - left, bottom - top);
+    }
+
+    public void RestoreOutside(Surface target, Surface source)
+    {
+        EffectBounds b = Clip(target);
+        target.CopyRectFrom(source, 0, 0, target.Width, b.Y);
+        target.CopyRectFrom(source, 0, b.Bottom, target.Width, target.Height - b.Bottom);
+        target.CopyRectFrom(source, 0, b.Y, b.X, b.Height);
+        target.CopyRectFrom(source, b.Right, b.Y, target.Width - b.Right, b.Height);
+    }
 }
 
 internal static class Clamp
@@ -23,15 +74,40 @@ public abstract class PerPixelEffect : IEffect
     protected abstract ColorBgra Transform(ColorBgra c);
 
     public unsafe void Apply(Surface s)
+        => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
-        int width = s.Width;
-        System.Threading.Tasks.Parallel.For(0, s.Height, y =>
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
-            for (int x = 0; x < width; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
                 row[x] = Transform(row[x]);
         });
     }
+}
+
+/// <summary>Coordinate-stable pseudo-random values for effects that must render identically when
+/// a preview is split into regions or replayed later from a recorded seed.</summary>
+internal static class PixelRandom
+{
+    public static uint Value(int seed, int x, int y, int sample = 0)
+    {
+        uint value = unchecked((uint)seed) ^ 0x9E3779B9u;
+        value ^= unchecked((uint)x) * 0x85EBCA6Bu;
+        value ^= unchecked((uint)y) * 0xC2B2AE35u;
+        value ^= unchecked((uint)sample) * 0x27D4EB2Fu;
+        value ^= value >> 16;
+        value *= 0x7FEB352Du;
+        value ^= value >> 15;
+        value *= 0x846CA68Bu;
+        return value ^ (value >> 16);
+    }
+
+    public static double Unit(int seed, int x, int y, int sample = 0)
+        => Value(seed, x, y, sample) / 4294967296.0;
 }
 
 /// <summary>Base for independent per-channel transforms. Building the 256 possible results once
@@ -56,12 +132,16 @@ public abstract class LutEffect : IEffect
     public abstract string Name { get; }
 
     public unsafe void Apply(Surface surface)
+        => Apply(surface, EffectBounds.Full(surface));
+
+    public unsafe void Apply(Surface surface, EffectBounds requested)
     {
-        int width = surface.Width;
-        Parallel.For(0, surface.Height, y =>
+        EffectBounds bounds = requested.Clip(surface);
+        if (bounds.IsEmpty) return;
+        Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* row = (ColorBgra*)surface.GetRowPointer(y);
-            for (int x = 0; x < width; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 ColorBgra color = row[x];
                 row[x] = ColorBgra.FromBgra(_blue[color.B], _green[color.G], _red[color.R], color.A);
@@ -152,19 +232,34 @@ public sealed class PosterizeEffect : LutEffect
 }
 
 /// <summary>Adds uniform random noise (+/- amount) to each channel.</summary>
-public sealed class NoiseEffect : PerPixelEffect
+public sealed class NoiseEffect : IEffect
 {
     private readonly int _amount;
-    public NoiseEffect(int amount) => _amount = Math.Max(0, amount);
-    public override string Name => "Add Noise";
-
-    protected override ColorBgra Transform(ColorBgra c)
+    private readonly int _seed;
+    public NoiseEffect(int amount, int? seed = null)
     {
-        // Random.Shared, not a private Random: PerPixelEffect runs Transform on every worker
-        // thread at once, and a plain Random shared across threads corrupts its own state and
-        // starts returning zeros (i.e. bands of un-noised pixels).
-        int n = Random.Shared.Next(-_amount, _amount + 1);
-        return ColorBgra.FromBgra(Clamp.B(c.B + n), Clamp.B(c.G + n), Clamp.B(c.R + n), c.A);
+        _amount = Math.Max(0, amount);
+        _seed = seed ?? Random.Shared.Next();
+    }
+    public string Name => "Add Noise";
+
+    public unsafe void Apply(Surface s)
+        => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
+    {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
+        Parallel.For(bounds.Y, bounds.Bottom, y =>
+        {
+            ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
+            for (int x = bounds.X; x < bounds.Right; x++)
+            {
+                ColorBgra c = row[x];
+                int n = (int)(PixelRandom.Value(_seed, x, y) % (uint)(_amount * 2 + 1)) - _amount;
+                row[x] = ColorBgra.FromBgra(Clamp.B(c.B + n), Clamp.B(c.G + n), Clamp.B(c.R + n), c.A);
+            }
+        });
     }
 }
 
@@ -199,7 +294,12 @@ public sealed class AutoLevelsEffect : IEffect
     public string Name => "Auto Levels";
 
     public unsafe void Apply(Surface s)
+        => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         int minB = 255, minG = 255, minR = 255, maxB = 0, maxG = 0, maxR = 0;
         for (int y = 0; y < s.Height; y++)
         {
@@ -217,10 +317,10 @@ public sealed class AutoLevelsEffect : IEffect
         byte[] lutG = BuildStretch(minG, maxG);
         byte[] lutR = BuildStretch(minR, maxR);
 
-        for (int y = 0; y < s.Height; y++)
+        for (int y = bounds.Y; y < bounds.Bottom; y++)
         {
             ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
-            for (int x = 0; x < s.Width; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
                 row[x] = ColorBgra.FromBgra(lutB[row[x].B], lutG[row[x].G], lutR[row[x].R], row[x].A);
         }
     }
@@ -305,20 +405,28 @@ public sealed class BoxBlurEffect : IEffect
     public string Name => "Blur";
 
     public unsafe void Apply(Surface s)
+        => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         using var tmp = s.Clone();
-        BlurPass(s, tmp, _radius, horizontal: true);   // s -> tmp
-        BlurPass(tmp, s, _radius, horizontal: false);  // tmp -> s
+        BlurPass(s, tmp, _radius, horizontal: true, bounds.Inflate(_radius, s));
+        BlurPass(tmp, s, _radius, horizontal: false, bounds);
     }
 
-    private static unsafe void BlurPass(Surface src, Surface dst, int radius, bool horizontal)
+    private static unsafe void BlurPass(Surface src, Surface dst, int radius, bool horizontal, EffectBounds bounds)
     {
         int w = src.Width, h = src.Height;
         int len = horizontal ? w : h;
-        int lines = horizontal ? h : w;
+        int lineStart = horizontal ? bounds.Y : bounds.X;
+        int lineEnd = horizontal ? bounds.Bottom : bounds.Right;
+        int itemStart = horizontal ? bounds.X : bounds.Y;
+        int itemEnd = horizontal ? bounds.Right : bounds.Bottom;
         int window = radius * 2 + 1;
 
-        for (int line = 0; line < lines; line++)
+        for (int line = lineStart; line < lineEnd; line++)
         {
             int sumB = 0, sumG = 0, sumR = 0, sumA = 0;
 
@@ -331,14 +439,14 @@ public sealed class BoxBlurEffect : IEffect
                 else *(ColorBgra*)dst.GetPointPointer(line, i) = c;
             }
 
-            // Prime the running window at i = 0.
+            // Prime the running window at the first requested destination pixel.
             for (int k = -radius; k <= radius; k++)
             {
-                var c = Get(Math.Clamp(k, 0, len - 1));
+                var c = Get(Math.Clamp(itemStart + k, 0, len - 1));
                 sumB += c.B; sumG += c.G; sumR += c.R; sumA += c.A;
             }
 
-            for (int i = 0; i < len; i++)
+            for (int i = itemStart; i < itemEnd; i++)
             {
                 Set(i, ColorBgra.FromBgra((byte)(sumB / window), (byte)(sumG / window),
                                           (byte)(sumR / window), (byte)(sumA / window)));
@@ -361,13 +469,18 @@ public sealed class EmbossEffect : IEffect
     public string Name => "Emboss";
 
     public unsafe void Apply(Surface s)
+        => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         using var src = s.Clone();
         int w = s.Width, h = s.Height;
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* d = (ColorBgra*)s.GetRowPointer(y);
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 int sb = 0, sg = 0, sr = 0;
                 for (int dy = -1; dy <= 1; dy++)
@@ -393,16 +506,21 @@ public sealed class EdgeDetectEffect : IEffect
     public string Name => "Edge Detect";
 
     public unsafe void Apply(Surface s)
+        => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         using var src = s.Clone();
         int w = s.Width, h = s.Height;
         int[,] gxK = { { -1, 0, 1 }, { -2, 0, 2 }, { -1, 0, 1 } };
         int[,] gyK = { { -1, -2, -1 }, { 0, 0, 0 }, { 1, 2, 1 } };
 
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* d = (ColorBgra*)s.GetRowPointer(y);
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 int gxB = 0, gxG = 0, gxR = 0, gyB = 0, gyG = 0, gyR = 0;
                 for (int dy = -1; dy <= 1; dy++)
@@ -430,14 +548,19 @@ public sealed class SharpenEffect : IEffect
     public string Name => "Sharpen";
 
     public unsafe void Apply(Surface s)
+        => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         using var src = s.Clone();
         int w = s.Width, h = s.Height;
 
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* dRow = (ColorBgra*)s.GetRowPointer(y);
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 int sumB = 0, sumG = 0, sumR = 0;
                 for (int dy = -1; dy <= 1; dy++)

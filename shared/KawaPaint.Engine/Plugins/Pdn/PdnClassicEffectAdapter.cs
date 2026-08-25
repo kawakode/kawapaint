@@ -31,7 +31,12 @@ internal sealed class PdnClassicEffectAdapter : IEffect
     public string Name { get; }
 
     public void Apply(Surface surface)
+        => Apply(surface, EffectBounds.Full(surface));
+
+    public void Apply(Surface surface, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(surface);
+        if (bounds.IsEmpty) return;
         object effectInstance = Activator.CreateInstance(_effectType)!;
         _schema.EnvironmentParameters.SetValue(effectInstance, _schema.DefaultEnvironmentParameters.GetValue(null));
         object propertyCollection = _schema.CreatePropertyCollection.Invoke(effectInstance, null)!;
@@ -52,11 +57,11 @@ internal sealed class PdnClassicEffectAdapter : IEffect
         using var dst = PdnSurfaceBridge.Wrap(surface, _schema);
         using var src = PdnSurfaceBridge.Wrap(srcClone, _schema);
 
-        var rois = new[] { new Rectangle(0, 0, surface.Width, surface.Height) };
+        var rois = new[] { new Rectangle(bounds.X, bounds.Y, bounds.Width, bounds.Height) };
         _schema.SetRenderInfo.Invoke(effectInstance, new[] { token, dst.RenderArgs, src.RenderArgs });
         _schema.Render.Invoke(effectInstance, new object[] { token, dst.RenderArgs, src.RenderArgs, rois });
 
-        PdnSurfaceBridge.CopyBack(surface, dst.PdnSurface, _schema);
+        PdnSurfaceBridge.CopyBack(surface, dst.PdnSurface, _schema, bounds);
     }
 
     /// <summary>Converts a value read back from PluginParameterValues (double/bool/choice-index

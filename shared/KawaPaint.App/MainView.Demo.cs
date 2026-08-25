@@ -156,14 +156,14 @@ public partial class MainView
     /// <summary>Records committed dialog values in both replayable streams.</summary>
     private void RecordParameterizedAction(string id, double[] args, string[]? stringArgs = null)
     {
-        // These effects draw from the clock or Random.Shared while applying, so their numeric
-        // sliders alone cannot reproduce their pixels. Keep surfacing them as skipped until the
-        // effect APIs expose a seed the recorder can carry. Clouds is also color-dependent and is
-        // deliberately absent from ScriptEffects.
-        bool replayable = TrySplit(id, "effect.", out string tag) &&
-            ScriptEffects.IsKnownTag(tag) && tag is not ("noise" or "frostedglass" or "dents" or "clouds");
+        // Clouds needs its live foreground/background colors (carried separately by scripts but
+        // not by DemoEvent.ActionArgs). Seeded Noise/Frosted Glass/Dents append their hidden seed
+        // to args and are fully replayable.
+        bool isEffect = TrySplit(id, "effect.", out string tag);
+        bool replayable = id == "image.crop" ||
+            isEffect && ScriptEffects.IsKnownTag(tag) && tag != "clouds";
         if (replayable) _demoRecorder.NoteAction(id, args);
-        else _demoRecorder.NoteSkipped("adjustment '" + tag + "'");
+        else _demoRecorder.NoteSkipped(isEffect ? "adjustment '" + tag + "'" : id);
         _scriptRecorder.NoteAction(id, args, stringArgs);
     }
 
@@ -572,6 +572,15 @@ public partial class MainView
 
     private void RunDemoAction(string id, IReadOnlyList<double> args)
     {
+        if (id == "image.crop" && args.Count >= 4 && Canvas.Document is not null)
+        {
+            int x = (int)args[0], y = (int)args[1], width = (int)args[2], height = (int)args[3];
+            if (width > 0 && height > 0 && x >= 0 && y >= 0 &&
+                x + (long)width <= Canvas.Document.Width && y + (long)height <= Canvas.Document.Height)
+                ApplyDocumentOp("Crop", document => DocumentOps.Crop(document, x, y, width, height));
+            return;
+        }
+
         if (!TrySplit(id, "effect.", out string tag) || ScriptEffects.Build(tag, args) is not { } effect ||
             Canvas.ActiveLayer is not { } layer)
         {

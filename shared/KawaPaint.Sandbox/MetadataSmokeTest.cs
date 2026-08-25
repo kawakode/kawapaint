@@ -14,6 +14,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using KawaPaint.Engine;
+using KawaPaint.Engine.Codecs;
 using KawaPaint.Engine.Metadata;
 using SkiaSharp;
 
@@ -27,12 +29,75 @@ public static class MetadataSmokeTest
         ColorProfilePolicy();
         PngRoundTrip();
         WebPExtendedContainer();
+        IsoBoxRoundTrips();
+        Jp2QualityMappingIfAvailable();
         TargetedExifEditingPreservesPixelsAndOtherMetadata();
         ExportExifPreservation();
         MalformedInputRefuses();
         RealPhotoIfAvailable();
 
-        Console.WriteLine("METADATA SMOKE OK - jpeg/png/webp strip round trips, ICC policy, malformed input");
+        Console.WriteLine("METADATA SMOKE OK - jpeg/png/webp/JXL/JP2 round trips, ICC policy, malformed input");
+    }
+
+    private static void IsoBoxRoundTrips()
+    {
+        using Surface pixels = NativePattern(64, 48);
+        foreach ((string id, string extension, bool lossless) in new[]
+                 { ("jxl", ".jxl", true), ("jp2", ".jp2", false) })
+        {
+            IImageCodec? codec = CodecRegistry.FindById(id);
+            if (codec is not { IsAvailable: true })
+            {
+                Console.WriteLine($"  (skipping {id} metadata round trip - native codec unavailable)");
+                continue;
+            }
+
+            byte[] clean = NativeEncode(codec, pixels, new EncodeOptions { Quality = 100, Lossless = lossless });
+            MetadataReport cleanReport = MetadataScanner.Scan(clean);
+            Expect(cleanReport.Format == id && cleanReport.CanStrip, $"{id} output is not a valid walkable container");
+
+            byte[] tiff = Tiff(gps: true);
+            byte[] tagged = ExifPreserver.Inject(clean, tiff, pixels.Width, pixels.Height);
+            MetadataReport taggedReport = MetadataScanner.Scan(tagged);
+            Expect(taggedReport.HasLocation && taggedReport.Camera == "KawaCam ZX1", $"{id} EXIF was not recognized");
+            Expect(ExifPreserver.ExtractTiff(tagged)?.SequenceEqual(tiff) == true,
+                $"{id} TIFF payload did not extract intact");
+            Expect(taggedReport.Blocks.Count(block => block.Kind == MetadataKind.Exif) == 1,
+                $"{id} should contain exactly one EXIF box");
+            SameNativePixels(codec, clean, tagged, $"{id} EXIF injection");
+
+            MetadataEditResult edited = MetadataEditor.Edit(tagged, new MetadataEditOptions
+            {
+                RemoveGps = true,
+                CameraModel = "KawaCam ISO-EDITED"
+            });
+            MetadataReport editedReport = MetadataScanner.Scan(edited.Bytes);
+            Expect(edited.Changed && edited.Error is null, $"{id} targeted metadata edit failed: {edited.Error}");
+            Expect(!editedReport.HasLocation && editedReport.Camera == "KawaCam ISO-EDITED",
+                $"{id} targeted metadata edit did not survive");
+            SameNativePixels(codec, clean, edited.Bytes, $"{id} EXIF edit");
+
+            MetadataStripResult stripped = MetadataStripper.Strip(edited.Bytes);
+            Expect(stripped.Changed && !MetadataScanner.Scan(stripped.Bytes).HasAny,
+                $"{id} metadata strip left a block behind");
+            SameNativePixels(codec, clean, stripped.Bytes, $"{id} metadata strip");
+        }
+    }
+
+    private static void Jp2QualityMappingIfAvailable()
+    {
+        IImageCodec? codec = CodecRegistry.FindById("jp2");
+        if (codec is not { IsAvailable: true }) return;
+        using Surface source = NativePattern(96, 64);
+        byte[] low = NativeEncode(codec, source, new EncodeOptions { Quality = 20 });
+        byte[] high = NativeEncode(codec, source, new EncodeOptions { Quality = 90 });
+        using Surface lowDecoded = codec.Decode(new MemoryStream(low));
+        using Surface highDecoded = codec.Decode(new MemoryStream(high));
+        double lowError = MeanSquaredRgbError(source, lowDecoded);
+        double highError = MeanSquaredRgbError(source, highDecoded);
+        Expect(highError < lowError,
+            $"JP2 quality mapping is reversed or ineffective (Q20 MSE={lowError:F2}, Q90 MSE={highError:F2})");
+        Console.WriteLine($"  JP2 fixed-quality calibration: Q20 MSE={lowError:F2}, Q90 MSE={highError:F2}");
     }
 
     private static void JpegRoundTrip()
@@ -247,6 +312,49 @@ public static class MetadataSmokeTest
     }
 
     // ---- helpers -------------------------------------------------------------------------------
+
+    private static Surface NativePattern(int width, int height)
+    {
+        var surface = new Surface(width, height);
+        for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++)
+            surface[x, y] = ColorBgra.FromBgra(
+                (byte)((x * 17 + y * 3) & 255), (byte)((x * 5 + y * 19) & 255),
+                (byte)((x * 11 + y * 7) & 255), 255);
+        return surface;
+    }
+
+    private static byte[] NativeEncode(IImageCodec codec, Surface surface, EncodeOptions options)
+    {
+        using var stream = new MemoryStream();
+        codec.Encode(surface, stream, options);
+        return stream.ToArray();
+    }
+
+    private static void SameNativePixels(IImageCodec codec, byte[] before, byte[] after, string what)
+    {
+        using Surface a = codec.Decode(new MemoryStream(before));
+        using Surface b = codec.Decode(new MemoryStream(after));
+        Expect(a.Width == b.Width && a.Height == b.Height, $"{what}: decoded dimensions changed");
+        for (int y = 0; y < a.Height; y++)
+        for (int x = 0; x < a.Width; x++)
+            Expect(a[x, y] == b[x, y], $"{what}: decoded pixel changed at ({x},{y})");
+    }
+
+    private static double MeanSquaredRgbError(Surface expected, Surface actual)
+    {
+        Expect(expected.Width == actual.Width && expected.Height == actual.Height,
+            "JP2 quality comparison dimensions changed");
+        double sum = 0;
+        for (int y = 0; y < expected.Height; y++)
+        for (int x = 0; x < expected.Width; x++)
+        {
+            ColorBgra a = expected[x, y], b = actual[x, y];
+            int db = a.B - b.B, dg = a.G - b.G, dr = a.R - b.R;
+            sum += db * db + dg * dg + dr * dr;
+        }
+        return sum / (expected.Width * expected.Height * 3.0);
+    }
 
     private static void SamePixels(byte[] before, byte[] after, string what)
     {

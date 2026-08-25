@@ -27,6 +27,7 @@ public sealed class PluginEffectDialog : Window
     private Surface? _snapshot;
     private bool _committed;
     private DispatcherTimer? _previewTimer;
+    private EffectBounds _previewBounds;
 
     public PluginEffectDialog(SurfaceView canvas, PluginEffectDescriptor descriptor)
     {
@@ -95,7 +96,7 @@ public sealed class PluginEffectDialog : Window
 
         string fmt = spec.Format;
         // The numeric readout updates immediately (cheap); the pixel preview is debounced (see
-        // SchedulePreview) so dragging doesn't queue a full-surface Apply per intermediate value.
+        // SchedulePreview) so dragging doesn't queue a viewport Apply per intermediate value.
         slider.ValueChanged += (_, e) => { value.Text = e.NewValue.ToString(fmt); SchedulePreview(); };
 
         _readers[spec.Key] = () => slider.Value;
@@ -165,7 +166,7 @@ public sealed class PluginEffectDialog : Window
     /// <summary>
     /// Coalesces a burst of parameter changes (a slider drag, or dragging within the color picker's
     /// wheel) into one Preview() call ~60ms after the last change, capping a fast drag to at most
-    /// ~16 full-surface recomputations/sec instead of one per intermediate value.
+    /// ~16 viewport recomputations/sec instead of one per intermediate value.
     /// </summary>
     private void SchedulePreview()
     {
@@ -181,10 +182,14 @@ public sealed class PluginEffectDialog : Window
     private void Preview()
     {
         if (_snapshot is null || _layer is null) return;
-        _layer.Surface.CopyFrom(_snapshot);
-        _descriptor.Build(Values()).Apply(_layer.Surface);
-        if (_canvas.Selection is { IsActive: true }) _canvas.Selection.Clip(_layer.Surface, _snapshot);
-        _canvas.RenderComposite();
+        EffectBounds bounds = _canvas.VisibleImageBounds;
+        EffectBounds dirty = _previewBounds.Union(bounds).Clip(_layer.Surface);
+        _layer.Surface.CopyRectFrom(_snapshot, dirty.X, dirty.Y, dirty.Width, dirty.Height);
+        _descriptor.Build(Values()).Apply(_layer.Surface, bounds);
+        if (_canvas.Selection is { IsActive: true })
+            _canvas.Selection.Clip(_layer.Surface, _snapshot, bounds.X, bounds.Y, bounds.Width, bounds.Height);
+        _canvas.RenderComposite(dirty.X, dirty.Y, dirty.Width, dirty.Height);
+        _previewBounds = bounds;
         _canvas.InvalidateVisual();
     }
 
@@ -192,11 +197,13 @@ public sealed class PluginEffectDialog : Window
     {
         if (_snapshot is not null && _layer is not null)
         {
-            // The debounce above means the layer's current pixels can lag the controls' final
-            // values by up to ~60ms - flush synchronously so OK always commits what's actually
-            // shown, not a stale in-flight preview.
+            // The debounce above means the visible preview can lag the controls by up to ~60ms.
+            // Rebuild the complete result synchronously so OK commits every pixel at final values.
             _previewTimer?.Stop();
-            Preview();
+            _layer.Surface.CopyFrom(_snapshot);
+            _descriptor.Build(Values()).Apply(_layer.Surface);
+            if (_canvas.Selection is { IsActive: true }) _canvas.Selection.Clip(_layer.Surface, _snapshot);
+            _canvas.RenderComposite();
 
             _canvas.History.Push(TileDeltaMemento.Consume(_layer, _snapshot, _descriptor.DisplayName));
             _snapshot = null;

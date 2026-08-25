@@ -103,6 +103,21 @@ public static class ScriptExecutor
                 currentLayer--;
                 return Ok();
 
+            case "image.crop":
+            {
+                if (step.Args.Count < 4) return Skip("missing crop bounds");
+                int x = (int)step.Args[0], y = (int)step.Args[1];
+                int width = (int)step.Args[2], height = (int)step.Args[3];
+                if (width <= 0 || height <= 0 || x < 0 || y < 0 ||
+                    x + (long)width > doc.Width || y + (long)height > doc.Height)
+                    return Skip("crop bounds are outside this document");
+                var cropped = DocumentOps.Crop(doc, x, y, width, height);
+                doc.Dispose();
+                doc = cropped;
+                currentLayer = Math.Clamp(currentLayer, 0, doc.LayerCount - 1);
+                return Ok();
+            }
+
             case "layer.rename":
                 if (!InRange(currentLayer, doc)) return Skip("no current layer");
                 if (step.StringArgs.Count < 1 || string.IsNullOrWhiteSpace(step.StringArgs[0]))

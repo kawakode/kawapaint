@@ -222,12 +222,14 @@ public sealed partial class Jp2Codec : IImageCodec
             if (!options.Lossless)
             {
                 cparams.irreversible = 1;
-                cparams.cp_disto_alloc = 1;
+                cparams.cp_fixed_quality = 1;
                 cparams.tcp_numlayers = 1;
-                // No standard JP2 "quality" scale exists (unlike JPEG's IJG scale or JXL's
-                // butteraugli distance) -- this maps EncodeOptions.Quality onto a compression
-                // ratio, a documented judgment call rather than a perceptual calibration.
-                cparams.tcp_rates[0] = Math.Clamp(101f - options.Quality, 1f, 100f);
+                // OpenJPEG defines fixed-quality layers in PSNR dB. Map the UI's 1..100 scale to
+                // 20..50 dB: 50 -> 35 dB (ordinary photographic quality), 75 -> 42.5 dB, and
+                // 100 -> 50 dB (visually near-lossless while still distinct from Lossless).
+                // This is monotonic in perceptual error, unlike the old linear compression-ratio
+                // guess, whose meaning varied dramatically with image complexity.
+                cparams.tcp_distoratio[0] = 20f + Math.Clamp(options.Quality, 1, 100) * 0.30f;
             }
 
             if (Native.opj_setup_encoder(enc, &cparams, image) == 0)

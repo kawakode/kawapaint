@@ -27,18 +27,22 @@ public sealed class InkSketchEffect : IEffect
     }
     public string Name => "Ink Sketch";
 
-    public unsafe void Apply(Surface s)
+    public unsafe void Apply(Surface s) => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         using var src = s.Clone();
-        new GlowEffect(6, -(_coloring - 50) * 2, -(_coloring - 50) * 2).Apply(s);
+        new GlowEffect(6, -(_coloring - 50) * 2, -(_coloring - 50) * 2).Apply(s, bounds);
 
         int w = s.Width, h = s.Height;
         int threshold = _inkOutline * 255 / 100;
 
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* dst = (ColorBgra*)s.GetRowPointer(y);
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 int rr = 0, gg = 0, bb = 0;
                 for (int j = -2; j <= 2; j++)
@@ -76,21 +80,25 @@ public sealed class PencilSketchEffect : IEffect
     }
     public string Name => "Pencil Sketch";
 
-    public unsafe void Apply(Surface s)
+    public unsafe void Apply(Surface s) => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         using var src = s.Clone();
 
-        new BoxBlurEffect(_pencilTipSize).Apply(s);
-        new BrightnessContrastEffect(_colorRange, 1.0 + (-_colorRange) / 100.0).Apply(s);
-        new InvertEffect().Apply(s);
-        new GrayscaleEffect().Apply(s);
+        new BoxBlurEffect(_pencilTipSize).Apply(s, bounds);
+        new BrightnessContrastEffect(_colorRange, 1.0 + (-_colorRange) / 100.0).Apply(s, bounds);
+        new InvertEffect().Apply(s, bounds);
+        new GrayscaleEffect().Apply(s, bounds);
 
         int w = s.Width, h = s.Height;
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             ColorBgra* srcRow = (ColorBgra*)src.GetRowPointer(y);
             ColorBgra* dstRow = (ColorBgra*)s.GetRowPointer(y);
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 byte gray = srcRow[x].GetIntensityByte();
                 ColorBgra srcGrey = ColorBgra.FromBgra(gray, gray, gray, srcRow[x].A);
@@ -117,14 +125,18 @@ public sealed class OilPaintingEffect : IEffect
     }
     public string Name => "Oil Painting";
 
-    public unsafe void Apply(Surface s)
+    public unsafe void Apply(Surface s) => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
         using var src = s.Clone();
         int w = s.Width, h = s.Height;
         int maxIntensity = _coarseness;
         int bins = maxIntensity + 1;
 
-        System.Threading.Tasks.Parallel.For(0, h, y =>
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
             var intensityCount = new int[bins];
             var avgR = new long[bins];
@@ -135,7 +147,7 @@ public sealed class OilPaintingEffect : IEffect
 
             int top = Math.Max(0, y - _brushSize), bottom = Math.Min(h, y + _brushSize + 1);
 
-            for (int x = 0; x < w; x++)
+            for (int x = bounds.X; x < bounds.Right; x++)
             {
                 Array.Clear(intensityCount); Array.Clear(avgR); Array.Clear(avgG); Array.Clear(avgB); Array.Clear(avgA);
                 int left = Math.Max(0, x - _brushSize), right = Math.Min(w, x + _brushSize + 1);

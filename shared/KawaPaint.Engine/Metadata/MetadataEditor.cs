@@ -51,6 +51,20 @@ public static class MetadataEditor
                 webpPrefix = length >= 6 && Ascii(bytes, start, "Exif\0\0");
                 if (webpPrefix) { start += 6; length -= 6; }
                 break;
+            case "jxl":
+                if (!IsoBmffBoxes.TryRead(bytes, block.Offset, out var jxl) || jxl.PayloadLength < 4)
+                    return false;
+                uint tiffOffset = ReadBe32(bytes, jxl.PayloadOffset);
+                if (tiffOffset > int.MaxValue) return false;
+                start = checked(jxl.PayloadOffset + 4 + (int)tiffOffset);
+                length = jxl.End - start;
+                break;
+            case "jp2":
+                if (!IsoBmffBoxes.TryRead(bytes, block.Offset, out var jp2) || jp2.PayloadLength < 24)
+                    return false;
+                start = jp2.PayloadOffset + 16;
+                length = jp2.PayloadLength - 16;
+                break;
             default:
                 return false;
         }
@@ -170,9 +184,32 @@ public static class MetadataEditor
             "jpeg" => ReplaceJpeg(source, block, tiff),
             "png" => ReplacePng(source, block, tiff),
             "webp" => ReplaceWebP(source, block, tiff, webpPrefix),
+            "jxl" => ReplaceIsoBox(source, block, "Exif", PrefixJxlExif(tiff)),
+            "jp2" => ReplaceIsoBox(source, block, "uuid", PrefixJp2Exif(tiff)),
             _ => source
         };
     }
+
+    private static byte[] PrefixJxlExif(byte[] tiff)
+    {
+        byte[] payload = new byte[checked(4 + tiff.Length)];
+        tiff.CopyTo(payload, 4);
+        return payload;
+    }
+
+    private static readonly byte[] Jp2ExifUuid =
+        { 0x4A, 0x70, 0x67, 0x54, 0x69, 0x66, 0x66, 0x45, 0x78, 0x69, 0x66, 0x2D, 0x3E, 0x4A, 0x50, 0x32 };
+
+    private static byte[] PrefixJp2Exif(byte[] tiff)
+    {
+        byte[] payload = new byte[checked(16 + tiff.Length)];
+        Jp2ExifUuid.CopyTo(payload, 0);
+        tiff.CopyTo(payload, 16);
+        return payload;
+    }
+
+    private static byte[] ReplaceIsoBox(byte[] source, MetadataBlock block, string type, byte[] payload)
+        => ReplaceRange(source, block.Offset, block.Length, IsoBmffBoxes.BoxBytes(type, payload));
 
     private static byte[] ReplaceJpeg(byte[] source, MetadataBlock block, byte[] tiff)
     {
@@ -226,6 +263,8 @@ public static class MetadataEditor
         : (uint)(b[at] << 24 | b[at + 1] << 16 | b[at + 2] << 8 | b[at + 3]);
     private static uint ReadLe32(byte[] b, int at) =>
         (uint)(b[at] | b[at + 1] << 8 | b[at + 2] << 16 | b[at + 3] << 24);
+    private static uint ReadBe32(byte[] b, int at) =>
+        (uint)(b[at] << 24 | b[at + 1] << 16 | b[at + 2] << 8 | b[at + 3]);
     private static void WriteU16(byte[] b, int at, ushort value, bool little)
     { if (little) { b[at] = (byte)value; b[at + 1] = (byte)(value >> 8); } else { b[at] = (byte)(value >> 8); b[at + 1] = (byte)value; } }
     private static void WriteU32(byte[] b, int at, uint value, bool little)

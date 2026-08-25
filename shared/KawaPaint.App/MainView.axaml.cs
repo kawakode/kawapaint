@@ -178,6 +178,8 @@ public partial class MainView : UserControl
             KawaPaint.Engine.Plugins.EffectRegistry.Changed -= OnPluginRegistryChanged;
             KawaPaint.Engine.Plugins.ToolRegistry.Changed -= OnPluginRegistryChanged;
             DisposeTimelineResources();
+            _autosave?.Dispose();
+            _autosave = null;
         };
         SetupRulers();
         BuildCommands();
@@ -745,7 +747,7 @@ public partial class MainView : UserControl
 
         var (x, y, w, h) = sel.GetBounds();
         if (w <= 0 || h <= 0) return;
-        RecordAction("image.crop");
+        RecordParameterizedAction("image.crop", new double[] { x, y, w, h });
         ApplyDocumentOp("Crop to Selection", d => DocumentOps.Crop(d, x, y, w, h));
         StatusText.Text = $"Cropped to {w}×{h}";
     }
@@ -848,10 +850,7 @@ public partial class MainView : UserControl
                 new AdjustmentDialog.SliderSpec("Levels", 2, 16, 4, "0")
             }, v => new PosterizeEffect((int)v[0])),
 
-            "noise" => new AdjustmentDialog(Canvas, "Add Noise", new[]
-            {
-                new AdjustmentDialog.SliderSpec("Amount", 0, 100, 25, "0")
-            }, v => new NoiseEffect((int)v[0])),
+            "noise" => CreateNoiseDialog(),
 
             "bulge" => new AdjustmentDialog(Canvas, "Bulge", new[]
             {
@@ -876,12 +875,7 @@ public partial class MainView : UserControl
                 new AdjustmentDialog.SliderSpec("Curvature", -100, 100, 8, "0")
             }, v => new TileEffect(v[0], v[1], v[2])),
 
-            "frostedglass" => new AdjustmentDialog(Canvas, "Frosted Glass", new[]
-            {
-                new AdjustmentDialog.SliderSpec("Min Radius", 0, 50, 0, "0.0"),
-                new AdjustmentDialog.SliderSpec("Max Radius", 0, 50, 3, "0.0"),
-                new AdjustmentDialog.SliderSpec("Samples", 1, 8, 2, "0")
-            }, v => new FrostedGlassEffect(v[0], v[1], (int)v[2])),
+            "frostedglass" => CreateFrostedGlassDialog(),
 
             "pixelate" => new AdjustmentDialog(Canvas, "Pixelate", new[]
             {
@@ -911,13 +905,7 @@ public partial class MainView : UserControl
                 new AdjustmentDialog.SliderSpec("Radius", 0.1, 4.0, 0.5, "0.00")
             }, v => new VignetteEffect(v[0], v[1])),
 
-            "dents" => new AdjustmentDialog(Canvas, "Dents", new[]
-            {
-                new AdjustmentDialog.SliderSpec("Scale", 1, 200, 25, "0"),
-                new AdjustmentDialog.SliderSpec("Refraction", 0, 200, 50, "0"),
-                new AdjustmentDialog.SliderSpec("Roughness", 0, 100, 10, "0"),
-                new AdjustmentDialog.SliderSpec("Tension", 0, 100, 10, "0")
-            }, v => new DentsEffect(v[0], v[1], v[2], v[3], 0)),
+            "dents" => CreateDentsDialog(),
 
             "reducenoise" => new AdjustmentDialog(Canvas, "Reduce Noise", new[]
             {
@@ -977,7 +965,8 @@ public partial class MainView : UserControl
                 new AdjustmentDialog.SliderSpec("Factor", 1, 10, 1, "0"),
                 new AdjustmentDialog.SliderSpec("Zoom", 0, 100, 10, "0"),
                 new AdjustmentDialog.SliderSpec("Angle", -180, 180, 0, "0")
-            }, v => new MandelbrotFractalEffect((int)v[0], v[1], v[2])),
+            }, v => new MandelbrotFractalEffect((int)v[0], v[1], v[2], v[3] != 0),
+                new[] { new AdjustmentDialog.CheckboxSpec("Invert colors") }),
 
             "glow" => new AdjustmentDialog(Canvas, "Glow", new[]
             {
@@ -1035,16 +1024,49 @@ public partial class MainView : UserControl
         StatusText.Text = dlg.Title ?? "Adjustment";
     }
 
+    private AdjustmentDialog CreateNoiseDialog()
+    {
+        int seed = Random.Shared.Next();
+        return new AdjustmentDialog(Canvas, "Add Noise", new[]
+        {
+            new AdjustmentDialog.SliderSpec("Amount", 0, 100, 25, "0")
+        }, v => new NoiseEffect((int)v[0], seed), replayArgs: new double[] { seed });
+    }
+
+    private AdjustmentDialog CreateFrostedGlassDialog()
+    {
+        int seed = Random.Shared.Next();
+        return new AdjustmentDialog(Canvas, "Frosted Glass", new[]
+        {
+            new AdjustmentDialog.SliderSpec("Min Radius", 0, 50, 0, "0.0"),
+            new AdjustmentDialog.SliderSpec("Max Radius", 0, 50, 3, "0.0"),
+            new AdjustmentDialog.SliderSpec("Samples", 1, 8, 2, "0")
+        }, v => new FrostedGlassEffect(v[0], v[1], (int)v[2], seed), replayArgs: new double[] { seed });
+    }
+
+    private AdjustmentDialog CreateDentsDialog()
+    {
+        int seed = Random.Shared.Next();
+        return new AdjustmentDialog(Canvas, "Dents", new[]
+        {
+            new AdjustmentDialog.SliderSpec("Scale", 1, 200, 25, "0"),
+            new AdjustmentDialog.SliderSpec("Refraction", 0, 200, 50, "0"),
+            new AdjustmentDialog.SliderSpec("Roughness", 0, 100, 10, "0"),
+            new AdjustmentDialog.SliderSpec("Tension", 0, 100, 10, "0")
+        }, v => new DentsEffect(v[0], v[1], v[2], v[3], seed), replayArgs: new double[] { seed });
+    }
+
     private async void OnCurves(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (Canvas.ActiveLayer is null) return;
-        RecordSkipped("Curves");
         var dialog = new CurvesDialog(Canvas);
         if (OwnerWindow is { } owner)
             await dialog.ShowDialog(owner);
         else
             await ShowCanvasWindowContentAsync(dialog, dialog.UseCanvasHost,
                 dialog.CancelCanvasHost, dialog.BeginCanvasHost);
+        if (dialog.CommittedLut is { } lut)
+            RecordParameterizedAction("effect.curves", lut.Select(value => (double)value).ToArray());
         StatusText.Text = "Curves";
     }
 

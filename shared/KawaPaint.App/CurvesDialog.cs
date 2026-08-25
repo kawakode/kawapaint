@@ -169,6 +169,10 @@ public sealed class CurvesDialog : Window
     private bool _committed;
     private DispatcherTimer? _previewTimer;
     private Action<bool>? _canvasClose;
+    private EffectBounds _previewBounds;
+
+    /// <summary>The exact 256-entry curve committed by OK, for deterministic demo/script replay.</summary>
+    public byte[]? CommittedLut { get; private set; }
 
     public CurvesDialog(SurfaceView canvas)
     {
@@ -230,7 +234,7 @@ public sealed class CurvesDialog : Window
 
     /// <summary>
     /// Coalesces a burst of Changed events into one Preview() ~60ms after the last one. Dragging a
-    /// control point raises Changed on every pointer move, and each Preview is a full-surface
+    /// control point raises Changed on every pointer move, and each Preview is a viewport-bounded
     /// CurvesEffect.Apply plus a recomposite - on a large image that is far more work than the
     /// frame budget allows, and the drag visibly stutters. Same treatment, and the same interval,
     /// as AdjustmentDialog's slider debounce.
@@ -249,10 +253,14 @@ public sealed class CurvesDialog : Window
     private void Preview()
     {
         if (_snapshot is null || _layer is null) return;
-        _layer.Surface.CopyFrom(_snapshot);
-        new CurvesEffect(_curve.BuildLut()).Apply(_layer.Surface);
-        if (_canvas.Selection is { IsActive: true }) _canvas.Selection.Clip(_layer.Surface, _snapshot);
-        _canvas.RenderComposite();
+        EffectBounds bounds = _canvas.VisibleImageBounds;
+        EffectBounds dirty = _previewBounds.Union(bounds).Clip(_layer.Surface);
+        _layer.Surface.CopyRectFrom(_snapshot, dirty.X, dirty.Y, dirty.Width, dirty.Height);
+        new CurvesEffect(_curve.BuildLut()).Apply(_layer.Surface, bounds);
+        if (_canvas.Selection is { IsActive: true })
+            _canvas.Selection.Clip(_layer.Surface, _snapshot, bounds.X, bounds.Y, bounds.Width, bounds.Height);
+        _canvas.RenderComposite(dirty.X, dirty.Y, dirty.Width, dirty.Height);
+        _previewBounds = bounds;
         _canvas.InvalidateVisual();
     }
 
@@ -260,10 +268,14 @@ public sealed class CurvesDialog : Window
     {
         if (_snapshot is not null && _layer is not null)
         {
-            // The debounce means the layer's pixels can lag the curve by up to ~60ms; flush so OK
-            // commits the curve that is actually drawn, not a stale in-flight preview.
+            // The debounce means the visible preview can lag the curve by up to ~60ms. Rebuild the
+            // complete result so OK commits every pixel at the final control-point position.
             _previewTimer?.Stop();
-            Preview();
+            _layer.Surface.CopyFrom(_snapshot);
+            new CurvesEffect(_curve.BuildLut()).Apply(_layer.Surface);
+            if (_canvas.Selection is { IsActive: true }) _canvas.Selection.Clip(_layer.Surface, _snapshot);
+            _canvas.RenderComposite();
+            CommittedLut = _curve.BuildLut();
 
             _canvas.History.Push(TileDeltaMemento.Consume(_layer, _snapshot, "Curves"));
             _snapshot = null;

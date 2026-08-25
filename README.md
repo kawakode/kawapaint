@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="kawapaint-main.png" alt="KawaPaint" width="320" />
+  <a href="https://paint.kawa.zip/"><img src="kawapaint-main.png" alt="KawaPaint" width="320" /></a>
 </p>
 
 <p align="center">

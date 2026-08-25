@@ -103,6 +103,21 @@ public static class ScriptExecutor
                 currentLayer--;
                 return Ok();
 
+            case "layer.rename":
+                if (!InRange(currentLayer, doc)) return Skip("no current layer");
+                if (step.StringArgs.Count < 1 || string.IsNullOrWhiteSpace(step.StringArgs[0]))
+                    return Skip("missing layer name");
+                doc.Layers[currentLayer].Name = step.StringArgs[0].Trim();
+                return Ok();
+
+            case "text.draw":
+                if (!InRange(currentLayer, doc)) return Skip("no current layer");
+                if (step.Args.Count < 4 || step.StringArgs.Count < 1) return Skip("missing text arguments");
+                TextOps.DrawText(doc.Layers[currentLayer].Surface, step.StringArgs[0],
+                    (float)step.Args[0], (float)step.Args[1], (float)step.Args[2],
+                    ColorBgra.FromUInt32(checked((uint)step.Args[3])));
+                return Ok();
+
             case "layer.up":
             case "layer.down":
             {
@@ -165,7 +180,7 @@ public static class ScriptExecutor
                 if (TrySplit(id, "effect.", out string tag))
                 {
                     if (!InRange(currentLayer, doc)) return Skip("no current layer");
-                    var effect = ScriptEffects.Build(tag, step.Args);
+                    var effect = ScriptEffects.Build(tag, step.Args, step.StringArgs);
                     if (effect is null) return Unknown();
                     effect.Apply(doc.Layers[currentLayer].Surface);
                     return Ok();

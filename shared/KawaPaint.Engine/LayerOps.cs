@@ -16,9 +16,7 @@ public static class LayerOps
         {
             ColorBgra* d = (ColorBgra*)dst.GetRowPointer(y);
             ColorBgra* s = (ColorBgra*)src.GetRowPointer(y);
-            for (int x = 0; x < dst.Width; x++)
-                if (s[x].A != 0)
-                    d[x] = Blending.Composite(mode, d[x], s[x], op);
+            Blending.CompositeSpan(mode, d, s, dst.Width, op);
         }
     }
 }

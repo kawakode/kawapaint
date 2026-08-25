@@ -1,16 +1,8 @@
 // KawaPaint - image metadata: what a file carries besides its pixels, and getting rid of it.
 //
-// Worth knowing before reading further: KawaPaint has *never* preserved metadata. Every decode and
-// encode goes through the codecs in Codecs/, which hand back a Surface and nothing else, so any
-// file this app re-saves already comes out stripped. What was missing was (a) telling the user that,
-// and (b) a way to strip a file *without* re-encoding its pixels - re-saving a JPEG to drop a GPS
-// tag costs a generation of quality loss for no reason, which is a bad trade for what is usually a
-// privacy fix. Everything here is byte-level container surgery: no decode, no re-encode, pixels
-// untouched.
-//
-// Read-only on the metadata itself, deliberately. Parsing EXIF far enough to *report* what is there
-// is cheap and safe; writing EXIF back is a much larger job (IFD offset rewriting, MakerNote blobs
-// that must be copied verbatim or dropped) and is tracked separately in TODO.md's 2.8.
+// The scanner/stripper/editor paths are byte-level container surgery: removing GPS or changing an
+// existing EXIF field never decodes or re-encodes pixels. Image open also retains the raw TIFF EXIF
+// payload on Document, allowing project persistence and JPEG/PNG/WebP export re-injection.
 
 namespace KawaPaint.Engine.Metadata;
 
@@ -57,6 +49,17 @@ public sealed class MetadataStripOptions
 
     public static MetadataStripOptions Default => new();
 }
+
+/// <summary>Targeted EXIF changes. Null leaves a field untouched; an empty string clears it.</summary>
+public sealed class MetadataEditOptions
+{
+    public bool RemoveGps { get; set; }
+    public string? CameraMake { get; set; }
+    public string? CameraModel { get; set; }
+    public string? Captured { get; set; }
+}
+
+public sealed record MetadataEditResult(byte[] Bytes, bool Changed, string? Error = null);
 
 /// <summary>What a scan found. Never throws on a malformed file - an unparseable container simply
 /// comes back with <see cref="CanStrip"/> false and no blocks.</summary>

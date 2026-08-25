@@ -10,10 +10,13 @@ public static class ShapeOps
         double left = Math.Min(x0, x1), right = Math.Max(x0, x1);
         double top = Math.Min(y0, y1), bottom = Math.Max(y0, y1);
 
-        BrushOps.DrawLine(s, left, top, right, top, radius, color, StampMode.Blend, antialias);
-        BrushOps.DrawLine(s, right, top, right, bottom, radius, color, StampMode.Blend, antialias);
-        BrushOps.DrawLine(s, right, bottom, left, bottom, radius, color, StampMode.Blend, antialias);
-        BrushOps.DrawLine(s, left, bottom, left, top, radius, color, StampMode.Blend, antialias);
+        StrokePath(s, radius, color, antialias, stroke =>
+        {
+            stroke.DabLine(left, top, right, top, Math.Max(0.5, radius), 1, antialias);
+            stroke.DabLine(right, top, right, bottom, Math.Max(0.5, radius), 1, antialias);
+            stroke.DabLine(right, bottom, left, bottom, Math.Max(0.5, radius), 1, antialias);
+            stroke.DabLine(left, bottom, left, top, Math.Max(0.5, radius), 1, antialias);
+        });
     }
 
     public static unsafe void FillRectangle(Surface s, double x0, double y0, double x1, double y1, ColorBgra color)
@@ -65,15 +68,18 @@ public static class ShapeOps
         double perimeter = Math.PI * (3 * (rx + ry) - Math.Sqrt((3 * rx + ry) * (rx + 3 * ry)));
         int steps = Math.Max(24, (int)(perimeter / Math.Max(1, radius * 0.6)));
 
-        double px = cx + rx, py = cy;
-        for (int i = 1; i <= steps; i++)
+        StrokePath(s, radius, color, antialias, stroke =>
         {
-            double t = i / (double)steps * 2 * Math.PI;
-            double nx = cx + rx * Math.Cos(t);
-            double ny = cy + ry * Math.Sin(t);
-            BrushOps.DrawLine(s, px, py, nx, ny, radius, color, StampMode.Blend, antialias);
-            px = nx; py = ny;
-        }
+            double px = cx + rx, py = cy;
+            for (int i = 1; i <= steps; i++)
+            {
+                double t = i / (double)steps * 2 * Math.PI;
+                double nx = cx + rx * Math.Cos(t);
+                double ny = cy + ry * Math.Sin(t);
+                stroke.DabLine(px, py, nx, ny, Math.Max(0.5, radius), 1, antialias);
+                px = nx; py = ny;
+            }
+        });
     }
 
     /// <summary>Corner radius clamped to at most half the shorter side - beyond that the shape is
@@ -184,9 +190,9 @@ public static class ShapeOps
             ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
             for (int k = 0; k + 1 < xs.Count; k += 2)
             {
-                int left = Math.Max(0, (int)Math.Round(xs[k]));
-                int right = Math.Min(s.Width - 1, (int)Math.Round(xs[k + 1]));
-                for (int x = left; x <= right; x++)
+                int left = Math.Max(0, (int)Math.Ceiling(xs[k] - 0.5));
+                int right = Math.Min(s.Width, (int)Math.Ceiling(xs[k + 1] - 0.5));
+                for (int x = left; x < right; x++)
                     row[x] = ColorBgra.BlendOver(row[x], color);
             }
         }
@@ -196,11 +202,24 @@ public static class ShapeOps
     public static void DrawPolygon(Surface s, IReadOnlyList<(double X, double Y)> points, int radius, ColorBgra color, bool antialias = false)
     {
         if (points.Count < 2) return;
-        for (int i = 0; i < points.Count; i++)
+        StrokePath(s, radius, color, antialias, stroke =>
         {
-            var a = points[i];
-            var b = points[(i + 1) % points.Count];
-            BrushOps.DrawLine(s, a.X, a.Y, b.X, b.Y, radius, color, StampMode.Blend, antialias);
-        }
+            for (int i = 0; i < points.Count; i++)
+            {
+                var a = points[i];
+                var b = points[(i + 1) % points.Count];
+                stroke.DabLine(a.X, a.Y, b.X, b.Y, Math.Max(0.5, radius), 1, antialias);
+            }
+        });
+    }
+
+    private static void StrokePath(Surface surface, int radius, ColorBgra color, bool antialias,
+        Action<SoftBrushStroke> rasterize)
+    {
+        var stroke = new SoftBrushStroke(surface.Width, surface.Height);
+        rasterize(stroke);
+        // Each pixel is written exactly once from its pre-path value, so overlapping dabs and
+        // polygon vertices cannot accumulate semi-transparent alpha.
+        stroke.Flush(surface, surface, color);
     }
 }

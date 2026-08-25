@@ -152,17 +152,17 @@ public partial class MainView
     private void RecordSkipped(string label) => _demoRecorder.NoteSkipped(label);
 
     /// <summary>Records committed dialog values in both replayable streams.</summary>
-    private void RecordParameterizedAction(string id, double[] args)
+    private void RecordParameterizedAction(string id, double[] args, string[]? stringArgs = null)
     {
         // These effects draw from the clock or Random.Shared while applying, so their numeric
         // sliders alone cannot reproduce their pixels. Keep surfacing them as skipped until the
         // effect APIs expose a seed the recorder can carry. Clouds is also color-dependent and is
         // deliberately absent from ScriptEffects.
         bool replayable = TrySplit(id, "effect.", out string tag) &&
-            ScriptEffects.IsKnownTag(tag) && tag is not ("noise" or "frostedglass" or "dents");
+            ScriptEffects.IsKnownTag(tag) && tag is not ("noise" or "frostedglass" or "dents" or "clouds");
         if (replayable) _demoRecorder.NoteAction(id, args);
         else _demoRecorder.NoteSkipped("adjustment '" + tag + "'");
-        _scriptRecorder.NoteAction(id, args);
+        _scriptRecorder.NoteAction(id, args, stringArgs);
     }
 
     private void RecordTool(string tag) => _demoRecorder.NoteTool(tag);

@@ -11,7 +11,7 @@ namespace KawaPaint.Engine;
 public static class DocumentFile
 {
     public const string Extension = ".kwp";
-    private const int FormatVersion = 2;
+    private const int FormatVersion = 3;
 
     private sealed class Manifest
     {
@@ -19,8 +19,19 @@ public static class DocumentFile
         public int Width { get; set; }
         public int Height { get; set; }
         public double Dpi { get; set; } = 96;
+        public int ActiveFrame { get; set; }
+        public byte[]? ExifTiff { get; set; }
+        // Versions 1-2 stored a single layer stack here. Keep it for backwards loading.
         public List<LayerInfo> Layers { get; set; } = new();
+        public List<FrameInfo> Frames { get; set; } = new();
         public List<DynamicTextZone> DynamicTextZones { get; set; } = new();
+    }
+
+    private sealed class FrameInfo
+    {
+        public string Name { get; set; } = "Frame";
+        public int DurationMs { get; set; } = 100;
+        public List<LayerInfo> Layers { get; set; } = new();
     }
 
     private sealed class LayerInfo
@@ -56,6 +67,19 @@ public static class DocumentFile
     public static void Save(Document doc, Stream stream)
     {
         var manifest = CreateManifest(doc);
+        var encodedLayers = doc.Frames.Select(frame => new byte[frame.Layers.Count][]).ToArray();
+
+        // PNG encoding is CPU-heavy and independent per layer. Finish every encode before writing
+        // the ZIP so a failing worker cannot leave a half-populated archive on the caller's stream.
+        var coordinates = doc.Frames
+            .SelectMany((frame, frameIndex) => frame.Layers.Select((_, layerIndex) => (frameIndex, layerIndex)))
+            .ToArray();
+        Parallel.ForEach(coordinates, coordinate =>
+        {
+            using var buffer = new MemoryStream();
+            doc.Frames[coordinate.frameIndex].Layers[coordinate.layerIndex].Surface.Encode(buffer);
+            encodedLayers[coordinate.frameIndex][coordinate.layerIndex] = buffer.ToArray();
+        });
 
         using var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true);
 
@@ -63,11 +87,14 @@ public static class DocumentFile
         using (var ms = manifestEntry.Open())
             JsonSerializer.Serialize(ms, manifest, new JsonSerializerOptions { WriteIndented = true });
 
-        for (int i = 0; i < doc.LayerCount; i++)
+        for (int frameIndex = 0; frameIndex < doc.FrameCount; frameIndex++)
         {
-            var entry = zip.CreateEntry($"layers/{i}.png", CompressionLevel.Fastest); // PNG is already compressed
-            using var es = entry.Open();
-            doc.Layers[i].Surface.Encode(es);
+            for (int layerIndex = 0; layerIndex < doc.Frames[frameIndex].Layers.Count; layerIndex++)
+            {
+                var entry = zip.CreateEntry($"frames/{frameIndex}/layers/{layerIndex}.png", CompressionLevel.Fastest);
+                using var es = entry.Open();
+                es.Write(encodedLayers[frameIndex][layerIndex]);
+            }
         }
     }
 
@@ -94,29 +121,39 @@ public static class DocumentFile
     public static void SaveExploded(Document doc, string directoryPath)
     {
         Directory.CreateDirectory(directoryPath);
-        string layersDir = Path.Combine(directoryPath, "layers");
-        Directory.CreateDirectory(layersDir);
-
-        var tempPaths = new string?[doc.LayerCount];
+        string framesDir = Path.Combine(directoryPath, "frames");
+        Directory.CreateDirectory(framesDir);
+        var tempPaths = new List<(string Temp, string Destination)>();
         try
         {
-            for (int i = 0; i < doc.LayerCount; i++)
+            for (int frameIndex = 0; frameIndex < doc.FrameCount; frameIndex++)
             {
-                tempPaths[i] = Path.Combine(layersDir, $"{i}.png.{Guid.NewGuid():N}.tmp");
-                using var fs = File.Create(tempPaths[i]!);
-                doc.Layers[i].Surface.Encode(fs);
+                string layersDir = Path.Combine(framesDir, frameIndex.ToString(), "layers");
+                Directory.CreateDirectory(layersDir);
+                for (int layerIndex = 0; layerIndex < doc.Frames[frameIndex].Layers.Count; layerIndex++)
+                {
+                    string destination = Path.Combine(layersDir, $"{layerIndex}.png");
+                    string temp = destination + $".{Guid.NewGuid():N}.tmp";
+                    tempPaths.Add((temp, destination));
+                    using var fs = File.Create(temp);
+                    doc.Frames[frameIndex].Layers[layerIndex].Surface.Encode(fs);
+                }
             }
 
-            for (int i = 0; i < doc.LayerCount; i++)
-                File.Move(tempPaths[i]!, Path.Combine(layersDir, $"{i}.png"), overwrite: true);
+            foreach (var path in tempPaths)
+                File.Move(path.Temp, path.Destination, overwrite: true);
 
-            // Layer count can shrink between saves; stale files from a since-deleted layer must not
-            // linger (LoadExploded would never see them, but they'd sit there confusing a git diff).
-            // Safe to do only now, after the surviving layers' new content is committed to disk.
-            foreach (string existing in Directory.EnumerateFiles(layersDir, "*.png"))
+            // Remove only numeric PNGs that no longer belong to the declared frame/layer set.
+            foreach (string existing in Directory.EnumerateFiles(framesDir, "*.png", SearchOption.AllDirectories))
             {
-                string name = Path.GetFileNameWithoutExtension(existing);
-                if (int.TryParse(name, out int idx) && idx >= doc.LayerCount)
+                string? layerDirectory = Path.GetDirectoryName(existing);
+                string? frameDirectory = layerDirectory is null ? null : Path.GetDirectoryName(layerDirectory);
+                int frameIndex = -1, layerIndex = -1;
+                bool numeric = int.TryParse(Path.GetFileName(frameDirectory), out frameIndex)
+                    && int.TryParse(Path.GetFileNameWithoutExtension(existing), out layerIndex);
+                bool retained = numeric && frameIndex < doc.FrameCount
+                    && layerIndex < doc.Frames[frameIndex].Layers.Count;
+                if (numeric && !retained)
                     File.Delete(existing);
             }
 
@@ -129,10 +166,9 @@ public static class DocumentFile
         }
         finally
         {
-            foreach (string? temp in tempPaths)
+            foreach (var path in tempPaths)
             {
-                if (temp is null) break;   // nothing was assigned past the first unencoded slot
-                try { if (File.Exists(temp)) File.Delete(temp); } catch { /* best-effort cleanup */ }
+                try { if (File.Exists(path.Temp)) File.Delete(path.Temp); } catch { /* best-effort cleanup */ }
             }
         }
     }
@@ -147,26 +183,22 @@ public static class DocumentFile
             ?? throw new InvalidDataException("corrupt manifest.json");
         ValidateVersion(manifest.Version);
 
-        var doc = new Document(manifest.Width, manifest.Height) { Dpi = manifest.Dpi };
-        string layersDir = Path.Combine(directoryPath, "layers");
-        for (int i = 0; i < manifest.Layers.Count; i++)
+        var doc = new Document(manifest.Width, manifest.Height) { Dpi = manifest.Dpi, ExifTiff = manifest.ExifTiff };
+        if (manifest.Version < 3)
         {
-            var info = manifest.Layers[i];
-            string layerPath = Path.Combine(layersDir, $"{i}.png");
-            if (!File.Exists(layerPath))
-                throw new InvalidDataException($"missing layer image layers/{i}.png");
-
-            Surface surface;
-            using (var fs = File.OpenRead(layerPath))
-                surface = Surface.Decode(fs);
-
-            var layer = new Layer(surface, info.Name)
+            for (int i = 0; i < manifest.Layers.Count; i++)
             {
-                Opacity = info.Opacity,
-                Visible = info.Visible,
-                BlendMode = Enum.TryParse<BlendMode>(info.BlendMode, out var bm) ? bm : BlendMode.Normal
-            };
-            doc.AddLayer(layer);
+                string relative = Path.Combine("layers", $"{i}.png");
+                doc.AddLayer(LoadLayer(Path.Combine(directoryPath, relative), relative, manifest.Layers[i]));
+            }
+        }
+        else
+        {
+            LoadFrames(doc, manifest, (frameIndex, layerIndex, info) =>
+            {
+                string relative = Path.Combine("frames", frameIndex.ToString(), "layers", $"{layerIndex}.png");
+                return LoadLayer(Path.Combine(directoryPath, relative), relative, info);
+            });
         }
         foreach (var zone in manifest.DynamicTextZones) doc.DynamicTextZones.Add(zone);
 
@@ -186,29 +218,22 @@ public static class DocumentFile
                 ?? throw new InvalidDataException("corrupt manifest.json");
         ValidateVersion(manifest.Version);
 
-        var doc = new Document(manifest.Width, manifest.Height) { Dpi = manifest.Dpi };
-        for (int i = 0; i < manifest.Layers.Count; i++)
+        var doc = new Document(manifest.Width, manifest.Height) { Dpi = manifest.Dpi, ExifTiff = manifest.ExifTiff };
+        if (manifest.Version < 3)
         {
-            var info = manifest.Layers[i];
-            var entry = zip.GetEntry($"layers/{i}.png")
-                ?? throw new InvalidDataException($"missing layer image layers/{i}.png");
-
-            Surface surface;
-            using (var es = entry.Open())
-            using (var buffer = new MemoryStream())
+            for (int i = 0; i < manifest.Layers.Count; i++)
             {
-                es.CopyTo(buffer);          // decode needs a seekable stream
-                buffer.Position = 0;
-                surface = Surface.Decode(buffer);
+                string relative = $"layers/{i}.png";
+                doc.AddLayer(LoadLayer(zip, relative, manifest.Layers[i]));
             }
-
-            var layer = new Layer(surface, info.Name)
+        }
+        else
+        {
+            LoadFrames(doc, manifest, (frameIndex, layerIndex, info) =>
             {
-                Opacity = info.Opacity,
-                Visible = info.Visible,
-                BlendMode = Enum.TryParse<BlendMode>(info.BlendMode, out var bm) ? bm : BlendMode.Normal
-            };
-            doc.AddLayer(layer);
+                string relative = $"frames/{frameIndex}/layers/{layerIndex}.png";
+                return LoadLayer(zip, relative, info);
+            });
         }
         foreach (var zone in manifest.DynamicTextZones) doc.DynamicTextZones.Add(zone);
 
@@ -217,20 +242,81 @@ public static class DocumentFile
 
     private static Manifest CreateManifest(Document doc)
     {
-        var manifest = new Manifest { Width = doc.Width, Height = doc.Height, Dpi = doc.Dpi };
-        foreach (var layer in doc.Layers)
+        var manifest = new Manifest
         {
-            manifest.Layers.Add(new LayerInfo
+            Width = doc.Width,
+            Height = doc.Height,
+            Dpi = doc.Dpi,
+            ExifTiff = doc.ExifTiff,
+            ActiveFrame = doc.ActiveFrameIndex
+        };
+        foreach (DocumentFrame frame in doc.Frames)
+        {
+            var frameInfo = new FrameInfo { Name = frame.Name, DurationMs = frame.DurationMs };
+            foreach (Layer layer in frame.Layers)
             {
-                Name = layer.Name,
-                Opacity = layer.Opacity,
-                Visible = layer.Visible,
-                BlendMode = layer.BlendMode.ToString()
-            });
+                frameInfo.Layers.Add(new LayerInfo
+                {
+                    Name = layer.Name,
+                    Opacity = layer.Opacity,
+                    Visible = layer.Visible,
+                    BlendMode = layer.BlendMode.ToString()
+                });
+            }
+            manifest.Frames.Add(frameInfo);
         }
         foreach (var zone in doc.DynamicTextZones) manifest.DynamicTextZones.Add(zone.Clone());
         return manifest;
     }
+
+    private static void LoadFrames(Document doc, Manifest manifest,
+        Func<int, int, LayerInfo, Layer> loadLayer)
+    {
+        if (manifest.Frames.Count == 0)
+            throw new InvalidDataException("KawaPaint project contains no animation frames.");
+
+        for (int frameIndex = 0; frameIndex < manifest.Frames.Count; frameIndex++)
+        {
+            FrameInfo info = manifest.Frames[frameIndex];
+            var layers = info.Layers.Select((layer, layerIndex) => loadLayer(frameIndex, layerIndex, layer)).ToList();
+            if (frameIndex == 0)
+            {
+                foreach (Layer layer in layers) doc.AddLayer(layer);
+                doc.ActiveFrame.Name = info.Name;
+                doc.ActiveFrame.DurationMs = info.DurationMs;
+            }
+            else
+            {
+                doc.AddFrame(new DocumentFrame(layers, info.Name, info.DurationMs), makeActive: false);
+            }
+        }
+        doc.SetActiveFrame(Math.Clamp(manifest.ActiveFrame, 0, doc.FrameCount - 1));
+    }
+
+    private static Layer LoadLayer(string path, string displayPath, LayerInfo info)
+    {
+        if (!File.Exists(path)) throw new InvalidDataException($"missing layer image {displayPath}");
+        using var stream = File.OpenRead(path);
+        return CreateLayer(Surface.Decode(stream), info);
+    }
+
+    private static Layer LoadLayer(ZipArchive zip, string path, LayerInfo info)
+    {
+        ZipArchiveEntry entry = zip.GetEntry(path)
+            ?? throw new InvalidDataException($"missing layer image {path}");
+        using var source = entry.Open();
+        using var buffer = new MemoryStream();
+        source.CopyTo(buffer);
+        buffer.Position = 0;
+        return CreateLayer(Surface.Decode(buffer), info);
+    }
+
+    private static Layer CreateLayer(Surface surface, LayerInfo info) => new(surface, info.Name)
+    {
+        Opacity = info.Opacity,
+        Visible = info.Visible,
+        BlendMode = Enum.TryParse<BlendMode>(info.BlendMode, out BlendMode mode) ? mode : BlendMode.Normal
+    };
 
     private static void ValidateVersion(int version)
     {

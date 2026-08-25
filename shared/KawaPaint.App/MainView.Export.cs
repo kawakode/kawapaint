@@ -1,6 +1,7 @@
 // KawaPaint - File > Export presets and local art-platform packages.
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -8,16 +9,89 @@ using Avalonia.Controls;
 using Avalonia.Input.Platform;
 using Avalonia.Platform.Storage;
 using KawaPaint.App.Core;
+using KawaPaint.Engine;
+using KawaPaint.Engine.Codecs;
 using KawaPaint.Engine.Exporting;
 
 namespace KawaPaint.App;
 
 public partial class MainView
 {
+    private static readonly FilePickerFileType AnimatedGifFileType = new("Animated GIF")
+    {
+        Patterns = new[] { "*.gif" }
+    };
+    private static readonly FilePickerFileType AnimatedPngFileType = new("Animated PNG (APNG)")
+    {
+        Patterns = new[] { "*.png" }
+    };
+    private static readonly FilePickerFileType AnimatedWebPFileType = new("Animated WebP")
+    {
+        Patterns = new[] { "*.webp" }
+    };
+
+    private async void OnExportAnimatedGif(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (Canvas.Document is not { } document) return;
+        int frameCount = document.FrameCount;
+        RecordSkipped("Export Animation");
+
+        bool loop;
+        if (OwnerWindow is { } owner)
+        {
+            var dialog = new AnimationExportDialog(frameCount);
+            if (!await dialog.ShowDialog<bool>(owner)) return;
+            loop = dialog.Loop;
+        }
+        else
+        {
+            var values = await ShowCanvasAnimationSettingsAsync(frameCount);
+            if (values is null) return;
+            loop = values.Loop;
+        }
+
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Export Animation",
+            SuggestedFileName = "animation.gif",
+            DefaultExtension = "gif",
+            FileTypeChoices = new[] { AnimatedGifFileType, AnimatedPngFileType, AnimatedWebPFileType }
+        });
+        if (file is null) return;
+
+        List<Surface> frames = AnimatedGifEncoder.RenderDocumentFrames(document);
+        int[] durations = document.Frames.Select(frame => frame.DurationMs).ToArray();
+        try
+        {
+            await using var stream = await file.OpenWriteAsync();
+            switch (Path.GetExtension(file.Name).ToLowerInvariant())
+            {
+                case ".png":
+                    AnimatedImageEncoder.EncodeApng(frames, durations, stream, loop);
+                    break;
+                case ".webp":
+                    AnimatedImageEncoder.EncodeWebP(frames, durations, stream, loop);
+                    break;
+                default:
+                    AnimatedGifEncoder.Encode(frames, stream, durations, loop: loop, dither: true);
+                    break;
+            }
+            StatusText.Text = $"Exported {frames.Count}-frame animation: {file.Name}";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Animation export failed: " + ex.Message;
+        }
+        finally
+        {
+            foreach (Surface frame in frames) frame.Dispose();
+        }
+    }
+
     private void RebuildExportPresetsMenu()
     {
-        // The final four entries are the fixed flattened export, separator, merge and manager items.
-        while (ExportPresetsMenu.Items.Count > 4) ExportPresetsMenu.Items.RemoveAt(0);
+        // The final five entries are the two fixed exports, separator, merge and manager items.
+        while (ExportPresetsMenu.Items.Count > 5) ExportPresetsMenu.Items.RemoveAt(0);
 
         foreach (var (name, preset) in _settings.Settings.ExportPresets
                      .OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase).Reverse())

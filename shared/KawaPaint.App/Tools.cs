@@ -38,6 +38,7 @@ public sealed class ToolContext
 
     public required Action PushHistory { get; init; }
     public required Action Composite { get; init; }
+    public required Action<int, int, int, int> CompositeRect { get; init; }
     public required Func<int, int, ColorBgra> SampleComposite { get; init; }
     public required Action<ColorBgra> SetPrimaryColor { get; init; }
 
@@ -46,6 +47,16 @@ public sealed class ToolContext
     public required Action<int, int> RequestText { get; init; }
     public required Action<int, int> RequestDynamicText { get; init; }
     public required SelectionCombineMode CombineMode { get; init; }
+
+    public void CompositeStroke(double x0, double y0, double x1, double y1, int extra = 0)
+    {
+        int margin = Math.Max(2, BrushWidth / 2 + 2 + extra);
+        int left = (int)Math.Floor(Math.Min(x0, x1)) - margin;
+        int top = (int)Math.Floor(Math.Min(y0, y1)) - margin;
+        int right = (int)Math.Ceiling(Math.Max(x0, x1)) + margin + 1;
+        int bottom = (int)Math.Ceiling(Math.Max(y0, y1)) + margin + 1;
+        CompositeRect(left, top, right - left, bottom - top);
+    }
 }
 
 public interface ITool
@@ -59,25 +70,31 @@ public interface ITool
 /// <summary>Freehand pencil: alpha-blended round stroke on the active layer.</summary>
 public sealed class PencilTool : ITool
 {
+    private SoftBrushStroke? _stroke;
     private double _lx, _ly;
     public string Name => "Pencil";
 
     public void PointerDown(ToolContext c)
     {
         c.PushHistory();
+        _stroke = new SoftBrushStroke(c.Layer.Surface.Width, c.Layer.Surface.Height);
         _lx = c.X; _ly = c.Y;
-        BrushOps.FillDisc(c.Layer.Surface, c.IX, c.IY, c.BrushWidth / 2, c.PrimaryColor, StampMode.Blend, c.Antialias);
-        c.Composite();
+        _stroke.Dab(c.X, c.Y, c.BrushWidth / 2.0, 1, c.Antialias);
+        _stroke.Flush(c.Layer.Surface, c.PreStroke, c.PrimaryColor);
+        c.CompositeStroke(c.X, c.Y, c.X, c.Y);
     }
 
     public void PointerMove(ToolContext c)
     {
-        BrushOps.DrawLine(c.Layer.Surface, _lx, _ly, c.X, c.Y, c.BrushWidth / 2, c.PrimaryColor, StampMode.Blend, c.Antialias);
+        if (_stroke is null) return;
+        double oldX = _lx, oldY = _ly;
+        _stroke.DabLine(oldX, oldY, c.X, c.Y, c.BrushWidth / 2.0, 1, c.Antialias);
         _lx = c.X; _ly = c.Y;
-        c.Composite();
+        _stroke.Flush(c.Layer.Surface, c.PreStroke, c.PrimaryColor);
+        c.CompositeStroke(oldX, oldY, c.X, c.Y);
     }
 
-    public void PointerUp(ToolContext c) { }
+    public void PointerUp(ToolContext c) => _stroke = null;
 }
 
 /// <summary>
@@ -99,17 +116,18 @@ public sealed class PaintbrushTool : ITool
         _lx = c.X; _ly = c.Y;
         _stroke.Dab(c.X, c.Y, c.BrushWidth / 2.0, c.BrushHardness);
         _stroke.Flush(c.Layer.Surface, c.PreStroke, c.PrimaryColor);
-        c.Composite();
+        c.CompositeStroke(c.X, c.Y, c.X, c.Y);
     }
 
     public void PointerMove(ToolContext c)
     {
         if (_stroke is null) return;   // move without a preceding down (tool switched mid-drag)
 
-        _stroke.DabLine(_lx, _ly, c.X, c.Y, c.BrushWidth / 2.0, c.BrushHardness);
+        double oldX = _lx, oldY = _ly;
+        _stroke.DabLine(oldX, oldY, c.X, c.Y, c.BrushWidth / 2.0, c.BrushHardness);
         _lx = c.X; _ly = c.Y;
         _stroke.Flush(c.Layer.Surface, c.PreStroke, c.PrimaryColor);
-        c.Composite();
+        c.CompositeStroke(oldX, oldY, c.X, c.Y);
     }
 
     // The mask is a canvas-sized allocation; dropping it here keeps it off the heap between
@@ -128,14 +146,15 @@ public sealed class EraserTool : ITool
         c.PushHistory();
         _lx = c.X; _ly = c.Y;
         BrushOps.FillDisc(c.Layer.Surface, c.IX, c.IY, c.BrushWidth / 2, ColorBgra.Transparent, StampMode.Set);
-        c.Composite();
+        c.CompositeStroke(c.X, c.Y, c.X, c.Y);
     }
 
     public void PointerMove(ToolContext c)
     {
-        BrushOps.DrawLine(c.Layer.Surface, _lx, _ly, c.X, c.Y, c.BrushWidth / 2, ColorBgra.Transparent, StampMode.Set);
+        double oldX = _lx, oldY = _ly;
+        BrushOps.DrawLine(c.Layer.Surface, oldX, oldY, c.X, c.Y, c.BrushWidth / 2, ColorBgra.Transparent, StampMode.Set);
         _lx = c.X; _ly = c.Y;
-        c.Composite();
+        c.CompositeStroke(oldX, oldY, c.X, c.Y);
     }
 
     public void PointerUp(ToolContext c) { }
@@ -197,12 +216,15 @@ public abstract class ShapeToolBase : ITool
 {
     private double _sx, _sy;
     private bool _pushed;
+    private (int X, int Y, int Width, int Height)? _previousBounds;
     public abstract string Name { get; }
+    protected virtual bool PreviewCoversWholeSurface => false;
 
     public void PointerDown(ToolContext c)
     {
         _sx = c.X; _sy = c.Y;
         _pushed = false;
+        _previousBounds = null;
     }
 
     public void PointerMove(ToolContext c)
@@ -212,14 +234,52 @@ public abstract class ShapeToolBase : ITool
         // is still untouched at this point, so the snapshot is the true pre-shape state.
         if (!_pushed) { c.PushHistory(); _pushed = true; }
 
-        c.Layer.Surface.CopyFrom(c.PreStroke);   // discard previous preview
+        if (PreviewCoversWholeSurface)
+        {
+            c.Layer.Surface.CopyFrom(c.PreStroke);
+        }
+        else if (_previousBounds is { } previous)
+        {
+            c.Layer.Surface.CopyRectFrom(c.PreStroke,
+                previous.X, previous.Y, previous.Width, previous.Height);
+        }
+
         Draw(c, _sx, _sy, c.X, c.Y);
-        c.Composite();
+        (int X, int Y, int Width, int Height)? currentBounds = PreviewCoversWholeSurface
+            ? null : BoundsFor(c, _sx, _sy, c.X, c.Y);
+        if (PreviewCoversWholeSurface)
+        {
+            c.Composite();
+        }
+        else if (currentBounds is { } current)
+        {
+            int left = _previousBounds is { } previous ? Math.Min(previous.X, current.X) : current.X;
+            int top = _previousBounds is { } previousTop ? Math.Min(previousTop.Y, current.Y) : current.Y;
+            int right = _previousBounds is { } previousRight
+                ? Math.Max(previousRight.X + previousRight.Width, current.X + current.Width)
+                : current.X + current.Width;
+            int bottom = _previousBounds is { } previousBottom
+                ? Math.Max(previousBottom.Y + previousBottom.Height, current.Y + current.Height)
+                : current.Y + current.Height;
+            c.CompositeRect(left, top, right - left, bottom - top);
+        }
+        _previousBounds = currentBounds;
     }
 
     public void PointerUp(ToolContext c) { }
 
     protected abstract void Draw(ToolContext c, double x0, double y0, double x1, double y1);
+
+    private static (int X, int Y, int Width, int Height) BoundsFor(
+        ToolContext c, double x0, double y0, double x1, double y1)
+    {
+        int margin = Math.Max(2, (int)Math.Ceiling(c.BrushWidth / 2.0) + 2);
+        int left = Math.Max(0, (int)Math.Floor(Math.Min(x0, x1)) - margin);
+        int top = Math.Max(0, (int)Math.Floor(Math.Min(y0, y1)) - margin);
+        int right = Math.Min(c.Layer.Surface.Width, (int)Math.Ceiling(Math.Max(x0, x1)) + margin + 1);
+        int bottom = Math.Min(c.Layer.Surface.Height, (int)Math.Ceiling(Math.Max(y0, y1)) + margin + 1);
+        return (left, top, right - left, bottom - top);
+    }
 }
 
 public sealed class LineTool : ShapeToolBase
@@ -242,6 +302,7 @@ public sealed class RectangleTool : ShapeToolBase
 public sealed class GradientTool : ShapeToolBase
 {
     public override string Name => "Gradient";
+    protected override bool PreviewCoversWholeSurface => true;
     protected override void Draw(ToolContext c, double x0, double y0, double x1, double y1)
         => GradientOps.LinearGradient(c.Layer.Surface, x0, y0, x1, y1, c.PrimaryColor, c.SecondaryColor);
 }
@@ -390,16 +451,20 @@ public sealed class LassoSelectTool : ITool
 
     public void PointerMove(ToolContext c)
     {
+        var previous = _points[^1];
         _points.Add((c.X, c.Y));
-        if (_points.Count >= 3) Apply(c);
+        if (_points.Count >= 3 && _shape is not null)
+        {
+            _shape.TogglePolygon(new[] { _points[0], previous, _points[^1] });
+            Apply(c);
+        }
     }
 
     public void PointerUp(ToolContext c)
     {
         if (_points.Count < 3 && c.CombineMode == SelectionCombineMode.Replace)
             c.Selection.SelectNone();
-        else if (_points.Count >= 3)
-            Apply(c);
+        // Every vertex was incorporated incrementally by PointerMove.
 
         c.SelectionChanged();
         _base = null;
@@ -409,9 +474,6 @@ public sealed class LassoSelectTool : ITool
     private void Apply(ToolContext c)
     {
         if (_base is null || _shape is null) return;
-
-        _shape.SelectNone();
-        _shape.ReplaceWithPolygon(_points);
 
         c.Selection.CopyFrom(_base);
         c.Selection.Combine(c.CombineMode, _shape);
@@ -461,15 +523,16 @@ public sealed class CloneStampTool : ITool
 
         c.PushHistory();
         BrushOps.CloneDisc(c.Layer.Surface, c.PreStroke, c.IX, c.IY, _offsetX, _offsetY, c.BrushWidth / 2, c.Antialias);
-        c.Composite();
+        c.CompositeStroke(c.X, c.Y, c.X, c.Y);
     }
 
     public void PointerMove(ToolContext c)
     {
         if (!_painting) return;
-        BrushOps.CloneLine(c.Layer.Surface, c.PreStroke, _lx, _ly, c.X, c.Y, _offsetX, _offsetY, c.BrushWidth / 2, c.Antialias);
+        double oldX = _lx, oldY = _ly;
+        BrushOps.CloneLine(c.Layer.Surface, c.PreStroke, oldX, oldY, c.X, c.Y, _offsetX, _offsetY, c.BrushWidth / 2, c.Antialias);
         _lx = c.X; _ly = c.Y;
-        c.Composite();
+        c.CompositeStroke(oldX, oldY, c.X, c.Y);
     }
 
     public void PointerUp(ToolContext c) => _painting = false;
@@ -492,14 +555,15 @@ public sealed class RecolorTool : ITool
         c.PushHistory();
         _lx = c.X; _ly = c.Y;
         BrushOps.RecolorDisc(c.Layer.Surface, c.IX, c.IY, c.BrushWidth / 2, c.SecondaryColor, c.PrimaryColor, EffectiveTolerance(c), c.Antialias);
-        c.Composite();
+        c.CompositeStroke(c.X, c.Y, c.X, c.Y);
     }
 
     public void PointerMove(ToolContext c)
     {
-        BrushOps.RecolorLine(c.Layer.Surface, _lx, _ly, c.X, c.Y, c.BrushWidth / 2, c.SecondaryColor, c.PrimaryColor, EffectiveTolerance(c), c.Antialias);
+        double oldX = _lx, oldY = _ly;
+        BrushOps.RecolorLine(c.Layer.Surface, oldX, oldY, c.X, c.Y, c.BrushWidth / 2, c.SecondaryColor, c.PrimaryColor, EffectiveTolerance(c), c.Antialias);
         _lx = c.X; _ly = c.Y;
-        c.Composite();
+        c.CompositeStroke(oldX, oldY, c.X, c.Y);
     }
 
     public void PointerUp(ToolContext c) { }
@@ -528,6 +592,8 @@ public sealed class RoundedRectangleTool : ShapeToolBase
 public sealed class FreeformShapeTool : ITool
 {
     private readonly List<(double X, double Y)> _points = new();
+    private Selection? _fillMask;
+    private SoftBrushStroke? _outline;
     private bool _pushed;
     public string Name => "Freeform Shape";
 
@@ -536,21 +602,48 @@ public sealed class FreeformShapeTool : ITool
         _points.Clear();
         _points.Add((c.X, c.Y));
         _pushed = false;
+        _fillMask = c.FillShapes ? new Selection(c.Layer.Surface.Width, c.Layer.Surface.Height) : null;
+        _outline = c.FillShapes ? null : new SoftBrushStroke(c.Layer.Surface.Width, c.Layer.Surface.Height);
     }
 
     public void PointerMove(ToolContext c)
     {
-        _points.Add((c.X, c.Y));
-        if (_points.Count < 2) return;
+        var previous = _points[^1];
+        var current = (X: c.X, Y: c.Y);
+        _points.Add(current);
 
         if (!_pushed) { c.PushHistory(); _pushed = true; }
-        c.Layer.Surface.CopyFrom(c.PreStroke);
-        if (c.FillShapes) ShapeOps.FillPolygon(c.Layer.Surface, _points, c.PrimaryColor);
-        else ShapeOps.DrawPolygon(c.Layer.Surface, _points, c.BrushWidth / 2, c.PrimaryColor, c.Antialias);
-        c.Composite();
+        if (_fillMask is not null && _points.Count >= 3)
+        {
+            var dirty = _fillMask.TogglePolygon(new[] { _points[0], previous, current });
+            _fillMask.PaintMask(c.Layer.Surface, c.PreStroke, c.PrimaryColor,
+                dirty.X, dirty.Y, dirty.W, dirty.H);
+            c.CompositeRect(dirty.X, dirty.Y, dirty.W, dirty.H);
+        }
+        else if (_outline is not null)
+        {
+            _outline.DabLine(previous.X, previous.Y, current.X, current.Y,
+                Math.Max(0.5, c.BrushWidth / 2.0), 1, c.Antialias);
+            _outline.Flush(c.Layer.Surface, c.PreStroke, c.PrimaryColor);
+            c.CompositeStroke(previous.X, previous.Y, current.X, current.Y);
+        }
     }
 
-    public void PointerUp(ToolContext c) => _points.Clear();
+    public void PointerUp(ToolContext c)
+    {
+        if (_outline is not null && _points.Count >= 3)
+        {
+            var last = _points[^1];
+            var first = _points[0];
+            _outline.DabLine(last.X, last.Y, first.X, first.Y,
+                Math.Max(0.5, c.BrushWidth / 2.0), 1, c.Antialias);
+            _outline.Flush(c.Layer.Surface, c.PreStroke, c.PrimaryColor);
+            c.CompositeStroke(last.X, last.Y, first.X, first.Y);
+        }
+        _points.Clear();
+        _fillMask = null;
+        _outline = null;
+    }
 }
 
 public sealed class StarTool : ShapeToolBase

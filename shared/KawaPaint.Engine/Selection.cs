@@ -2,6 +2,8 @@
 // image is editable. Rectangle / ellipse / polygon (lasso) shapes rasterize into the mask, and
 // Clip() restores pixels outside the selection so edits and effects stay inside it.
 
+using System.Runtime.InteropServices;
+
 namespace KawaPaint.Engine;
 
 /// <summary>How a newly drawn shape combines with whatever is already selected.</summary>
@@ -16,6 +18,8 @@ public enum SelectionCombineMode
 public sealed class Selection
 {
     private readonly byte[] _mask;
+    private bool _boundsValid;
+    private (int X, int Y, int W, int H) _bounds;
 
     public int Width { get; }
     public int Height { get; }
@@ -34,12 +38,16 @@ public sealed class Selection
     {
         if (IsActive) Array.Clear(_mask);
         IsActive = false;
+        _boundsValid = true;
+        _bounds = (0, 0, Width, Height);
     }
 
     public void SelectAll()
     {
         Array.Fill(_mask, (byte)255);
         IsActive = true;
+        _boundsValid = true;
+        _bounds = (0, 0, Width, Height);
     }
 
     /// <summary>Inverts the current selection. If nothing is selected, selects everything.</summary>
@@ -48,6 +56,7 @@ public sealed class Selection
         if (!IsActive) { SelectAll(); return; }
         for (int i = 0; i < _mask.Length; i++)
             _mask[i] = _mask[i] == 0 ? (byte)255 : (byte)0;
+        _boundsValid = false;
     }
 
     public bool IsSelected(int x, int y)
@@ -60,6 +69,7 @@ public sealed class Selection
         if ((uint)x >= (uint)Width || (uint)y >= (uint)Height) return;
         _mask[y * Width + x] = 255;
         IsActive = true;
+        _boundsValid = false;
     }
 
     /// <summary>Read-only view of the raw mask (255 = selected). Length = Width*Height.</summary>
@@ -67,7 +77,12 @@ public sealed class Selection
 
     public Selection Clone()
     {
-        var copy = new Selection(Width, Height) { IsActive = IsActive };
+        var copy = new Selection(Width, Height)
+        {
+            IsActive = IsActive,
+            _boundsValid = _boundsValid,
+            _bounds = _bounds
+        };
         _mask.CopyTo(copy._mask, 0);
         return copy;
     }
@@ -78,6 +93,8 @@ public sealed class Selection
             throw new ArgumentException("Source selection must match this selection's dimensions.", nameof(other));
         other._mask.CopyTo(_mask, 0);
         IsActive = other.IsActive;
+        _boundsValid = other._boundsValid;
+        _bounds = other._bounds;
     }
 
     /// <summary>
@@ -89,6 +106,8 @@ public sealed class Selection
     {
         if (shape.Width != Width || shape.Height != Height)
             throw new ArgumentException("Shape selection must match this selection's dimensions.", nameof(shape));
+
+        bool baseWasActive = IsActive;
 
         switch (mode)
         {
@@ -118,8 +137,16 @@ public sealed class Selection
                 break;
         }
 
-        IsActive = false;
-        foreach (byte b in _mask) { if (b != 0) { IsActive = true; break; } }
+        bool any = false;
+        foreach (byte b in _mask) { if (b != 0) { any = true; break; } }
+
+        // An explicit subtraction/intersection is still an active selection when it produces an
+        // empty mask: no pixels should be editable. SelectNone() is the distinct user action that
+        // returns to the inactive "whole image editable" state. Add preserves an already-active
+        // empty base for the same reason.
+        IsActive = any || mode is SelectionCombineMode.Subtract or SelectionCombineMode.Intersect ||
+            (mode == SelectionCombineMode.Add && baseWasActive);
+        _boundsValid = false;
     }
 
     public void ReplaceWithRectangle(double x0, double y0, double x1, double y1)
@@ -136,6 +163,8 @@ public sealed class Selection
             for (int x = left; x < right; x++)
                 _mask[y * Width + x] = 255;
         IsActive = right > left && bottom > top;
+        _boundsValid = true;
+        _bounds = IsActive ? (left, top, right - left, bottom - top) : (0, 0, Width, Height);
     }
 
     public void ReplaceWithEllipse(double x0, double y0, double x1, double y1)
@@ -143,7 +172,13 @@ public sealed class Selection
         double cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
         double rx = Math.Abs(x1 - x0) / 2, ry = Math.Abs(y1 - y0) / 2;
         Array.Clear(_mask);
-        if (rx < 0.5 || ry < 0.5) { IsActive = false; return; }
+        if (rx < 0.5 || ry < 0.5)
+        {
+            IsActive = false;
+            _boundsValid = true;
+            _bounds = (0, 0, Width, Height);
+            return;
+        }
 
         bool any = false;
         int top = Math.Max(0, (int)(cy - ry)), bottom = Math.Min(Height - 1, (int)(cy + ry));
@@ -163,12 +198,19 @@ public sealed class Selection
         // See ReplaceWithPolygon for why this tracks what was actually written rather than assuming
         // a non-degenerate shape rasterizes to at least one pixel.
         IsActive = any;
+        _boundsValid = false;
     }
 
     public void ReplaceWithPolygon(IReadOnlyList<(double X, double Y)> points)
     {
         Array.Clear(_mask);
-        if (points.Count < 3) { IsActive = false; return; }
+        if (points.Count < 3)
+        {
+            IsActive = false;
+            _boundsValid = true;
+            _bounds = (0, 0, Width, Height);
+            return;
+        }
 
         double minYd = double.MaxValue, maxYd = double.MinValue;
         foreach (var p in points) { minYd = Math.Min(minYd, p.Y); maxYd = Math.Max(maxYd, p.Y); }
@@ -193,9 +235,9 @@ public sealed class Selection
             xs.Sort();
             for (int k = 0; k + 1 < xs.Count; k += 2)
             {
-                int left = Math.Max(0, (int)Math.Round(xs[k]));
-                int right = Math.Min(Width - 1, (int)Math.Round(xs[k + 1]));
-                for (int x = left; x <= right; x++)
+                int left = Math.Max(0, (int)Math.Ceiling(xs[k] - 0.5));
+                int right = Math.Min(Width, (int)Math.Ceiling(xs[k + 1] - 0.5));
+                for (int x = left; x < right; x++)
                 {
                     _mask[y * Width + x] = 255;
                     any = true;
@@ -212,12 +254,85 @@ public sealed class Selection
         // user nothing to explain it. Reachable from a quick sub-pixel lasso flick in Replace mode,
         // which Combine's own emptiness recompute never sees - Replace returns early via CopyFrom.
         IsActive = any;
+        _boundsValid = false;
+    }
+
+    /// <summary>XOR-rasterizes a polygon into the current mask and returns its clipped bounds.
+    /// Adding a freehand polygon vertex can therefore update only the fan triangle formed by the
+    /// first, previous and new points instead of rasterizing the entire growing point list.</summary>
+    public (int X, int Y, int W, int H) TogglePolygon(IReadOnlyList<(double X, double Y)> points)
+    {
+        if (points.Count < 3) return (0, 0, 0, 0);
+        double minXd = double.MaxValue, minYd = double.MaxValue;
+        double maxXd = double.MinValue, maxYd = double.MinValue;
+        foreach (var point in points)
+        {
+            minXd = Math.Min(minXd, point.X); minYd = Math.Min(minYd, point.Y);
+            maxXd = Math.Max(maxXd, point.X); maxYd = Math.Max(maxYd, point.Y);
+        }
+        int minY = Math.Max(0, (int)Math.Floor(minYd));
+        int maxY = Math.Min(Height - 1, (int)Math.Ceiling(maxYd));
+        var intersections = new List<double>();
+        bool changed = false;
+
+        for (int y = minY; y <= maxY; y++)
+        {
+            intersections.Clear();
+            double sampleY = y + 0.5;
+            for (int i = 0, j = points.Count - 1; i < points.Count; j = i++)
+            {
+                double yi = points[i].Y, yj = points[j].Y;
+                if ((yi <= sampleY && yj > sampleY) || (yj <= sampleY && yi > sampleY))
+                {
+                    double amount = (sampleY - yi) / (yj - yi);
+                    intersections.Add(points[i].X + amount * (points[j].X - points[i].X));
+                }
+            }
+            intersections.Sort();
+            for (int pair = 0; pair + 1 < intersections.Count; pair += 2)
+            {
+                int left = Math.Max(0, (int)Math.Ceiling(intersections[pair] - 0.5));
+                int right = Math.Min(Width, (int)Math.Ceiling(intersections[pair + 1] - 0.5));
+                int row = y * Width;
+                for (int x = left; x < right; x++) _mask[row + x] ^= 255;
+                changed |= right > left;
+            }
+        }
+
+        if (changed) IsActive = true;
+        _boundsValid = false;
+        int minX = Math.Max(0, (int)Math.Floor(minXd));
+        int maxX = Math.Min(Width - 1, (int)Math.Ceiling(maxXd));
+        return maxX < minX || maxY < minY ? (0, 0, 0, 0)
+            : (minX, minY, maxX - minX + 1, maxY - minY + 1);
+    }
+
+    /// <summary>Repaints a mask rectangle from a baseline using one source-over per selected pixel.</summary>
+    public unsafe void PaintMask(Surface target, Surface baseline, ColorBgra color,
+        int x, int y, int width, int height)
+    {
+        if (target.Width != Width || target.Height != Height ||
+            baseline.Width != Width || baseline.Height != Height)
+            throw new ArgumentException("Surfaces must match this selection's dimensions.");
+        int left = Math.Clamp(x, 0, Width), top = Math.Clamp(y, 0, Height);
+        int right = (int)Math.Clamp((long)x + width, 0, Width);
+        int bottom = (int)Math.Clamp((long)y + height, 0, Height);
+        for (int row = top; row < bottom; row++)
+        {
+            ColorBgra* destination = (ColorBgra*)target.GetRowPointer(row);
+            ColorBgra* source = (ColorBgra*)baseline.GetRowPointer(row);
+            int offset = row * Width;
+            for (int column = left; column < right; column++)
+                destination[column] = _mask[offset + column] == 0
+                    ? source[column] : ColorBgra.BlendOver(source[column], color);
+        }
     }
 
     /// <summary>Bounding box of the selection (whole image if inactive).</summary>
     public (int X, int Y, int W, int H) GetBounds()
     {
         if (!IsActive) return (0, 0, Width, Height);
+        if (_boundsValid) return _bounds;
 
         int minX = Width, minY = Height, maxX = -1, maxY = -1;
         for (int y = 0; y < Height; y++)
@@ -230,8 +345,11 @@ public sealed class Selection
                     if (y > maxY) maxY = y;
                 }
 
-        if (maxX < 0) return (0, 0, Width, Height);   // empty mask
-        return (minX, minY, maxX - minX + 1, maxY - minY + 1);
+        _bounds = maxX < 0
+            ? (0, 0, 0, 0)           // explicitly empty active selection
+            : (minX, minY, maxX - minX + 1, maxY - minY + 1);
+        _boundsValid = true;
+        return _bounds;
     }
 
     /// <summary>Restores pixels outside the selection in <paramref name="edited"/> from <paramref name="original"/>.</summary>
@@ -243,14 +361,54 @@ public sealed class Selection
         if (original.Width != Width || original.Height != Height)
             throw new ArgumentException("Original surface must match this selection's dimensions.", nameof(original));
 
+        var (boundsX, boundsY, boundsWidth, boundsHeight) = GetBounds();
+        int boundsBottom = boundsY + boundsHeight;
+
         for (int y = 0; y < Height; y++)
         {
             ColorBgra* e = (ColorBgra*)edited.GetRowPointer(y);
             ColorBgra* o = (ColorBgra*)original.GetRowPointer(y);
+
+            if (y < boundsY || y >= boundsBottom)
+            {
+                NativeMemory.Copy(o, e, checked((nuint)Width * ColorBgra.SizeOf));
+                continue;
+            }
+
+            if (boundsX > 0)
+                NativeMemory.Copy(o, e, checked((nuint)boundsX * ColorBgra.SizeOf));
+
+            int suffixX = boundsX + boundsWidth;
+            if (suffixX < Width)
+                NativeMemory.Copy(o + suffixX, e + suffixX,
+                    checked((nuint)(Width - suffixX) * ColorBgra.SizeOf));
+
             int rowBase = y * Width;
-            for (int x = 0; x < Width; x++)
+            for (int x = boundsX; x < suffixX; x++)
                 if (_mask[rowBase + x] == 0)
                     e[x] = o[x];
+        }
+    }
+
+    /// <summary>Restores unselected pixels only inside a clipped dirty rectangle.</summary>
+    public unsafe void Clip(Surface edited, Surface original, int x, int y, int width, int height)
+    {
+        if (!IsActive) return;
+        if (edited.Width != Width || edited.Height != Height ||
+            original.Width != Width || original.Height != Height)
+            throw new ArgumentException("Surfaces must match this selection's dimensions.");
+
+        int left = Math.Clamp(x, 0, Width);
+        int top = Math.Clamp(y, 0, Height);
+        int right = (int)Math.Clamp((long)x + width, 0, Width);
+        int bottom = (int)Math.Clamp((long)y + height, 0, Height);
+        for (int row = top; row < bottom; row++)
+        {
+            ColorBgra* destination = (ColorBgra*)edited.GetRowPointer(row);
+            ColorBgra* source = (ColorBgra*)original.GetRowPointer(row);
+            int maskOffset = row * Width;
+            for (int column = left; column < right; column++)
+                if (_mask[maskOffset + column] == 0) destination[column] = source[column];
         }
     }
 }

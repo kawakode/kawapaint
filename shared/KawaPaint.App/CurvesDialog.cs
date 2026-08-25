@@ -168,6 +168,7 @@ public sealed class CurvesDialog : Window
     private Surface? _snapshot;
     private bool _committed;
     private DispatcherTimer? _previewTimer;
+    private Action<bool>? _canvasClose;
 
     public CurvesDialog(SurfaceView canvas)
     {
@@ -199,9 +200,17 @@ public sealed class CurvesDialog : Window
         var reset = new Button { Content = "Reset" };
         reset.Click += (_, _) => _curve.Reset();
         var cancel = new Button { Content = "Cancel", IsCancel = true };
-        cancel.Click += (_, _) => Close();
+        cancel.Click += (_, _) =>
+        {
+            if (_canvasClose is null) Close();
+            else { CancelCanvasHost(); _canvasClose(false); }
+        };
         var ok = new Button { Content = "OK", IsDefault = true };
-        ok.Click += (_, _) => { Commit(); Close(); };
+        ok.Click += (_, _) =>
+        {
+            Commit();
+            if (_canvasClose is null) Close(); else _canvasClose(true);
+        };
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8, Margin = new Thickness(0, 12, 0, 0) };
         buttons.Children.Add(reset);
         buttons.Children.Add(cancel);
@@ -209,6 +218,14 @@ public sealed class CurvesDialog : Window
 
         Content = new StackPanel { Margin = new Thickness(16), Children = { _curve, hint, buttons } };
         Closed += (_, _) => { _previewTimer?.Stop(); if (!_committed) Revert(); };
+    }
+
+    public void UseCanvasHost(Action<bool> close) => _canvasClose = close;
+    public void BeginCanvasHost() { }
+    public void CancelCanvasHost()
+    {
+        _previewTimer?.Stop();
+        if (!_committed) Revert();
     }
 
     /// <summary>

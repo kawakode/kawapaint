@@ -24,13 +24,13 @@ public static class ScriptEffects
             or "outline" or "relief" or "vignette" or "reducenoise" or "motionblur" or "radialblur"
             or "zoomblur" or "surfaceblur" or "unfocus" or "fragment" or "julia" or "mandelbrot"
             or "glow" or "redeye" or "softenportrait" or "inksketch" or "pencilsketch"
-            or "oilpainting" => true,
+            or "oilpainting" or "clouds" => true,
         _ => false
     };
 
     /// <summary>Builds the effect for a tag + committed args, or null if the tag is unknown or the
     /// args don't match what that tag expects (wrong count - e.g. a hand-edited .kpscript).</summary>
-    public static IEffect? Build(string tag, IReadOnlyList<double> a)
+    public static IEffect? Build(string tag, IReadOnlyList<double> a, IReadOnlyList<string>? strings = null)
     {
         try
         {
@@ -70,6 +70,9 @@ public static class ScriptEffects
                 "surfaceblur" => new SurfaceBlurEffect((int)a[0], (int)a[1]),
                 "unfocus" => new UnfocusEffect((int)a[0]),
                 "fragment" => new FragmentEffect((int)a[0], a[1], (int)a[2]),
+                "clouds" when strings is { Count: >= 2 }
+                    => new CloudsEffect((int)a[0], a[1], 0,
+                        ColorBgra.ParseHexString(strings[0]), ColorBgra.ParseHexString(strings[1])),
                 "julia" => new JuliaFractalEffect(a[0], a[1], a[2]),
                 "mandelbrot" => new MandelbrotFractalEffect((int)a[0], a[1], a[2]),
                 "glow" => new GlowEffect((int)a[0], (int)a[1], (int)a[2]),
@@ -84,5 +87,6 @@ public static class ScriptEffects
         }
         catch (IndexOutOfRangeException) { return null; }
         catch (ArgumentOutOfRangeException) { return null; }
+        catch (FormatException) { return null; }
     }
 }

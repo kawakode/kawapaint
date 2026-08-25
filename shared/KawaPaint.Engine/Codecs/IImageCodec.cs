@@ -52,6 +52,18 @@ public interface IImageCodec
     void Encode(Surface surface, Stream stream, EncodeOptions options);
 }
 
+/// <summary>One fully composited frame decoded from an animated image.</summary>
+public sealed record DecodedImageFrame(Surface Surface, int DurationMs);
+
+/// <summary>
+/// Optional extension for container formats that can expose more than their first frame. Keeping
+/// this separate leaves the ordinary single-surface codec contract and third-party codecs intact.
+/// </summary>
+public interface IFrameImageCodec : IImageCodec
+{
+    IReadOnlyList<DecodedImageFrame> DecodeFrames(Stream stream);
+}
+
 /// <summary>Thrown when a codec is registered but its implementation is unavailable here.</summary>
 public sealed class CodecUnavailableException : Exception
 {

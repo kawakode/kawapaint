@@ -3,6 +3,7 @@
 using System.Globalization;
 using System.Text;
 using KawaPaint.Engine.Codecs;
+using KawaPaint.Engine.Metadata;
 using KawaPaint.Engine.Scripting;
 
 namespace KawaPaint.Engine.Exporting;
@@ -154,7 +155,8 @@ public static class PresetExporter
                 Document scaled = w == doc.Width && h == doc.Height ? doc.Clone() : DocumentOps.Resize(doc, w, h);
                 try
                 {
-                    var padded = new Document(preset.Width, preset.Height) { Dpi = doc.Dpi };
+                    var padded = new Document(preset.Width, preset.Height)
+                        { Dpi = doc.Dpi, ExifTiff = doc.ExifTiff?.ToArray() };
                     var background = padded.AddLayer("Export background");
                     ColorBgra.TryParseHexString(preset.PaddingColor, out var color);
                     background.Surface.Clear(color);
@@ -184,7 +186,8 @@ public static class PresetExporter
                     // Honouring AllowUpscale=false can leave one or both axes short. Keep the
                     // pixels at their real size and pad the uncovered part instead of quietly
                     // enlarging them just to satisfy the "fill" shape.
-                    var padded = new Document(preset.Width, preset.Height) { Dpi = doc.Dpi };
+                    var padded = new Document(preset.Width, preset.Height)
+                        { Dpi = doc.Dpi, ExifTiff = doc.ExifTiff?.ToArray() };
                     var background = padded.AddLayer("Export background");
                     ColorBgra.TryParseHexString(preset.PaddingColor, out var color);
                     background.Surface.Clear(color);
@@ -211,11 +214,13 @@ public static class PresetExporter
         string temp = Path.Combine(dir, $".{Path.GetFileName(outputPath)}.{Guid.NewGuid():N}.tmp");
         try
         {
-            using (var output = File.Create(temp))
             using (var flat = doc.Flatten())
             {
                 var codec = RequireCodec(preset.CodecId);
-                codec.Encode(flat, output, preset.EncodeOptions);
+                using var encoded = new MemoryStream();
+                codec.Encode(flat, encoded, preset.EncodeOptions);
+                byte[] bytes = ExifPreserver.Inject(encoded.ToArray(), doc.ExifTiff, flat.Width, flat.Height);
+                File.WriteAllBytes(temp, bytes);
             }
             File.Move(temp, outputPath, overwrite: true);
         }
@@ -231,9 +236,10 @@ public static class PresetExporter
         if (inputPath.EndsWith(DocumentFile.Extension, StringComparison.OrdinalIgnoreCase))
             return DocumentFile.Load(inputPath);
 
-        using var input = File.OpenRead(inputPath);
+        byte[] source = File.ReadAllBytes(inputPath);
+        using var input = new MemoryStream(source);
         using Surface surface = CodecRegistry.Decode(input, inputPath);
-        var doc = new Document(surface.Width, surface.Height);
+        var doc = new Document(surface.Width, surface.Height) { ExifTiff = ExifPreserver.ExtractTiff(source) };
         var layer = doc.AddLayer(Path.GetFileNameWithoutExtension(inputPath));
         layer.Surface.CopyFrom(surface);
         return doc;

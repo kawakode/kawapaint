@@ -407,6 +407,7 @@ public sealed class HistoryStack
 {
     private readonly List<HistoryMemento> _steps = new();
     private int _position;
+    private long _residentBytes;
 
     /// <summary>
     /// Running total of steps ever removed from the front by <see cref="DropOldest"/>. Every such
@@ -442,16 +443,7 @@ public sealed class HistoryStack
     public string? NextUndoName => CanUndo ? _steps[_position - 1].Name : null;
     public string? NextRedoName => CanRedo ? _steps[_position].Name : null;
 
-    public long ResidentBytes
-    {
-        get
-        {
-            long total = 0;
-            foreach (var step in _steps)
-                total += step is ISpillableMemento spillable ? spillable.ResidentBytes : step.ApproximateBytes;
-            return total;
-        }
-    }
+    public long ResidentBytes => _residentBytes;
 
     /// <summary>Snapshot of the timeline for the History panel, oldest first.</summary>
     public IReadOnlyList<HistoryStep> Steps()
@@ -472,6 +464,7 @@ public sealed class HistoryStack
 
         DiscardFrom(_position);   // a new edit invalidates the redo branch
         _steps.Add(memento);
+        _residentBytes += GetResidentBytes(memento);
         _position = _steps.Count;
 
         Trim();
@@ -562,16 +555,22 @@ public sealed class HistoryStack
     private void StepBackward()
     {
         var memento = _steps[_position - 1];
+        long before = GetResidentBytes(memento);
         (memento as ISpillableMemento)?.Restore();
-        _steps[_position - 1] = memento.Undo();
+        var replacement = memento.Undo();
+        _steps[_position - 1] = replacement;
+        _residentBytes += GetResidentBytes(replacement) - before;
         _position--;
     }
 
     private void StepForward()
     {
         var memento = _steps[_position];
+        long before = GetResidentBytes(memento);
         (memento as ISpillableMemento)?.Restore();
-        _steps[_position] = memento.Undo();
+        var replacement = memento.Undo();
+        _steps[_position] = replacement;
+        _residentBytes += GetResidentBytes(replacement) - before;
         _position++;
     }
 
@@ -579,6 +578,7 @@ public sealed class HistoryStack
     {
         for (int i = _steps.Count - 1; i >= index; i--)
         {
+            _residentBytes -= GetResidentBytes(_steps[i]);
             _steps[i].Dispose();
             _steps.RemoveAt(i);
         }
@@ -603,9 +603,7 @@ public sealed class HistoryStack
 
         if (MemoryBudgetBytes <= 0) return;
 
-        // Tracked as a running total: re-reading ResidentBytes inside the loops below would make
-        // trimming quadratic in the number of steps.
-        long resident = ResidentBytes;
+        long resident = _residentBytes;
         if (resident <= MemoryBudgetBytes) return;
 
         if (SpillDirectory is not null)
@@ -620,6 +618,7 @@ public sealed class HistoryStack
                 {
                     spillable.SpillTo(SpillDirectory);
                     resident -= before;
+                    _residentBytes -= before - spillable.ResidentBytes;
                 }
                 catch
                 {
@@ -658,6 +657,7 @@ public sealed class HistoryStack
     /// </summary>
     private void DropOldest()
     {
+        _residentBytes -= GetResidentBytes(_steps[0]);
         _steps[0].Dispose();
         _steps.RemoveAt(0);
         _dropCount++;   // lets TruncateFrom rebase a caller-supplied index across this renumbering
@@ -667,4 +667,7 @@ public sealed class HistoryStack
         // the caret's meaning unchanged - decrementing it here would send it negative.
         if (_position > 0) _position--;
     }
+
+    private static long GetResidentBytes(HistoryMemento step) =>
+        step is ISpillableMemento spillable ? spillable.ResidentBytes : step.ApproximateBytes;
 }

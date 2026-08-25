@@ -65,6 +65,7 @@
                 <MenuItem Header="Save _Project…" Click="OnSaveProject" InputGesture="Ctrl+S" Icon="{app:Icon Save}" />
                 <MenuItem x:Name="ExportPresetsMenu" Header="_Export" Icon="{app:Icon Export}">
                     <MenuItem Header="Export Flattened…" Click="OnSaveAs" InputGesture="Ctrl+Shift+S" />
+                    <MenuItem Header="Export Animation (GIF/APNG/WebP)…" Click="OnExportAnimatedGif" />
                     <Separator />
                     <MenuItem Header="_Mail Merge from CSV…" Click="OnMailMerge" />
                     <MenuItem Header="Manage Presets…" Click="OnManageExportPresets" />
@@ -170,6 +171,14 @@
                         <MenuItem Header="Bottom" Tag="History:Bottom" Click="OnPanelPlace" />
                         <MenuItem Header="Floating" Tag="History:Floating" Click="OnPanelPlace" />
                         <MenuItem Header="Hidden" Tag="History:Hidden" Click="OnPanelPlace" />
+                    </MenuItem>
+                    <MenuItem Header="Timeline">
+                        <MenuItem Header="Left" Tag="Timeline:Left" Click="OnPanelPlace" />
+                        <MenuItem Header="Right" Tag="Timeline:Right" Click="OnPanelPlace" />
+                        <MenuItem Header="Top" Tag="Timeline:Top" Click="OnPanelPlace" />
+                        <MenuItem Header="Bottom" Tag="Timeline:Bottom" Click="OnPanelPlace" />
+                        <MenuItem Header="Floating" Tag="Timeline:Floating" Click="OnPanelPlace" />
+                        <MenuItem Header="Hidden" Tag="Timeline:Hidden" Click="OnPanelPlace" />
                     </MenuItem>
                     <MenuItem Header="Dock">
                         <MenuItem Header="Left" Tag="Dock:Left" Click="OnPanelPlace" />
@@ -304,6 +313,8 @@
                           ToolTip.Tip="Show/hide the Layers panel" />
             <ToggleButton x:Name="ToggleHistory" Classes="paneltoggle" Tag="History" Click="OnPanelToggle"
                           ToolTip.Tip="Show/hide the History panel" />
+            <ToggleButton x:Name="ToggleTimeline" Classes="paneltoggle" Tag="Timeline" Click="OnPanelToggle"
+                          ToolTip.Tip="Show/hide the Timeline panel" />
             <ToggleButton x:Name="ToggleDock" Classes="paneltoggle" Tag="Dock" Click="OnPanelToggle"
                           ToolTip.Tip="Show/hide the custom dock" />
         </StackPanel>
@@ -573,6 +584,38 @@
                 <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                     <StackPanel x:Name="ToolPalette" Orientation="Vertical" Margin="4" />
                 </ScrollViewer>
+            </DockPanel>
+        </Border>
+
+        <Border x:Name="TimelineBorder" Background="#242424" BorderBrush="#404040" BorderThickness="1" Padding="6">
+            <DockPanel>
+                <Grid x:Name="TimelineHeader" DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="2,0,2,5">
+                    <TextBlock Text="Timeline" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
+                    <ToggleButton x:Name="FloatTimelineBtn" Grid.Column="1" Padding="4,0" Tag="Timeline"
+                                  Click="OnPanelFloatToggle" />
+                    <Button Grid.Column="2" Content="{app:Icon Close}" Padding="4,0" Tag="Timeline:Hidden"
+                            Click="OnPanelPlace" ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                </Grid>
+                <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,5" VerticalAlignment="Center">
+                    <Button Content="◀" Click="OnPreviousFrame" ToolTip.Tip="Previous frame" />
+                    <Button Content="▶" Click="OnNextFrame" ToolTip.Tip="Next frame" />
+                    <Button x:Name="PlayAnimationButton" Content="Play" Click="OnPlayAnimation" ToolTip.Tip="Play/stop animation" />
+                    <Button Content="+" Click="OnAddFrame" ToolTip.Tip="Add blank frame" />
+                    <Button Content="Dup" Click="OnDuplicateFrame" ToolTip.Tip="Duplicate frame" />
+                    <Button Content="Del" Click="OnDeleteFrame" ToolTip.Tip="Delete frame" />
+                    <CheckBox x:Name="ShowFramePreviewsCheck" Content="Previews" Margin="8,0"
+                              VerticalAlignment="Center" IsCheckedChanged="OnFramePreviewsChanged"
+                              ToolTip.Tip="Show or hide composited frame previews" />
+                    <TextBlock Text="Duration (ms)" Foreground="#A0A0A0" VerticalAlignment="Center" Margin="10,0,4,0" />
+                    <NumericUpDown x:Name="FrameDurationBox" Width="105" Minimum="10" Maximum="600000" Increment="10"
+                                   ValueChanged="OnFrameDurationChanged" />
+                </WrapPanel>
+                <ListBox x:Name="FrameList" Background="#1E1E1E" SelectionChanged="OnFrameSelected"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                </ListBox>
             </DockPanel>
         </Border>
 

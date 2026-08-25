@@ -23,6 +23,12 @@ public sealed class MetadataDialog : Window
     private readonly RadioButton _toFolder;
     private readonly RadioButton _inPlace;
     private readonly CheckBox _keepIcc;
+    private readonly RadioButton _removeAll;
+    private readonly RadioButton _targeted;
+    private readonly CheckBox _removeGps;
+    private readonly TextBox _make = new() { PlaceholderText = "leave unchanged" };
+    private readonly TextBox _model = new() { PlaceholderText = "leave unchanged" };
+    private readonly TextBox _captured = new() { PlaceholderText = "YYYY:MM:DD HH:MM:SS or leave unchanged" };
     private readonly TextBox _findings;
     private readonly TextBlock _summary;
     private readonly IStorageProvider _storage;
@@ -30,6 +36,13 @@ public sealed class MetadataDialog : Window
     private IStorageFolder? _outputFolder;
 
     public MetadataStripOptions Options => new() { KeepColorProfile = _keepIcc.IsChecked == true };
+    public MetadataEditOptions? EditOptions => _targeted.IsChecked == true ? new MetadataEditOptions
+    {
+        RemoveGps = _removeGps.IsChecked == true,
+        CameraMake = string.IsNullOrWhiteSpace(_make.Text) ? null : _make.Text,
+        CameraModel = string.IsNullOrWhiteSpace(_model.Text) ? null : _model.Text,
+        Captured = string.IsNullOrWhiteSpace(_captured.Text) ? null : _captured.Text
+    } : null;
     public IStorageFolder? OutputFolder => _toFolder.IsChecked == true ? _outputFolder : null;
     public bool InPlace => _inPlace.IsChecked == true;
 
@@ -66,6 +79,35 @@ public sealed class MetadataDialog : Window
 
         _keepIcc = new CheckBox { Content = "Keep ICC colour profiles", IsChecked = true, Margin = new Thickness(0, 4, 0, 0) };
         _keepIcc.IsCheckedChanged += (_, _) => Render();
+
+        _removeAll = new RadioButton { Content = "Remove all metadata", GroupName = "metaAction", IsChecked = true };
+        _targeted = new RadioButton { Content = "Edit EXIF / remove GPS only", GroupName = "metaAction" };
+        _removeGps = new CheckBox { Content = "Remove GPS location", IsChecked = true };
+        var editGrid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("110,*"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto"),
+            RowSpacing = 4,
+            Margin = new Thickness(24, 2, 0, 6)
+        };
+        Control[] editControls = { _removeGps, _make, _model, _captured };
+        string[] editLabels = { "", "Camera make", "Camera model", "Captured" };
+        for (int row = 0; row < editControls.Length; row++)
+        {
+            var label = new TextBlock { Text = editLabels[row], VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetRow(label, row); Grid.SetRow(editControls[row], row); Grid.SetColumn(editControls[row], 1);
+            editGrid.Children.Add(label); editGrid.Children.Add(editControls[row]);
+        }
+        void UpdateActionState()
+        {
+            bool targeted = _targeted.IsChecked == true;
+            editGrid.IsEnabled = targeted;
+            _keepIcc.IsEnabled = !targeted;
+            Render();
+        }
+        _removeAll.IsCheckedChanged += (_, _) => UpdateActionState();
+        _targeted.IsCheckedChanged += (_, _) => UpdateActionState();
+        editGrid.IsEnabled = false;
 
         var hint = new TextBlock
         {
@@ -126,7 +168,8 @@ public sealed class MetadataDialog : Window
         {
             Spacing = 4,
             Margin = new Thickness(0, 8, 0, 0),
-            Children = { lossless, _keepIcc, _toFolder, folderRow, _inPlace, hint, buttons }
+            Children = { lossless, _removeAll, _keepIcc, _targeted, editGrid,
+                _toFolder, folderRow, _inPlace, hint, buttons }
         };
 
         var root = new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto"), Margin = new Thickness(16) };
@@ -157,7 +200,9 @@ public sealed class MetadataDialog : Window
 
         foreach (var (name, report) in _scans)
         {
-            var removable = report.Removable(options).ToList();
+            var removable = _targeted.IsChecked == true
+                ? report.Blocks.Where(block => block.Kind == MetadataKind.Exif).ToList()
+                : report.Removable(options).ToList();
             if (removable.Count > 0) withMetadata++;
             if (report.HasLocation) located++;
             bytes += removable.Sum(b => b.Length);

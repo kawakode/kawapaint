@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
@@ -15,6 +16,7 @@ using Avalonia.Threading;
 using KawaPaint.App.Core;
 using KawaPaint.Engine;
 using KawaPaint.Engine.Codecs;
+using KawaPaint.Engine.Metadata;
 
 namespace KawaPaint.App;
 
@@ -91,7 +93,11 @@ public partial class MainView : UserControl
         // DocumentChanged), and RebuildLayerPanel's Items.Clear() reentering that same dispatch
         // crashes Avalonia's SelectionModel (ArgumentOutOfRangeException deep in its internals).
         // Posting lets the click's own dispatch finish first.
-        Canvas.DocumentChanged += (_, _) => Dispatcher.UIThread.Post(RebuildLayerPanel);
+        Canvas.DocumentChanged += (_, _) => Dispatcher.UIThread.Post(() =>
+        {
+            RebuildLayerPanel();
+            RebuildTimeline();
+        });
         Canvas.PrimaryColorPicked += OnColorPicked;
         Canvas.TextRequested += OnTextRequested;
         Canvas.DynamicTextRequested += OnDynamicTextRequested;
@@ -129,6 +135,7 @@ public partial class MainView : UserControl
         ToggleColorWheel.Content = Icons.Create("PanelColorWheel", 15);
         ToggleLayers.Content = Icons.Create("PanelLayers", 15);
         ToggleHistory.Content = Icons.Create("PanelHistory", 15);
+        ToggleTimeline.Content = Icons.Create("PanelTimeline", 15);
         ToggleDock.Content = Icons.Create("PanelDock", 15);
 
         FloatToolsBtn.Content = Icons.Create("Float", 13);
@@ -136,7 +143,12 @@ public partial class MainView : UserControl
         FloatColorWheelBtn.Content = Icons.Create("Float", 13);
         FloatLayersBtn.Content = Icons.Create("Float", 13);
         FloatHistoryBtn.Content = Icons.Create("Float", 13);
+        FloatTimelineBtn.Content = Icons.Create("Float", 13);
         FloatDockBtn.Content = Icons.Create("Float", 13);
+
+        _suppressFrames = true;
+        ShowFramePreviewsCheck.IsChecked = _settings.Settings.Workspace.ShowFramePreviews;
+        _suppressFrames = false;
 
         // handledEventsToo: ComboBox has its own built-in wheel behavior; this guarantees our step
         // logic always runs and has the final say over the box's value.
@@ -165,6 +177,7 @@ public partial class MainView : UserControl
         {
             KawaPaint.Engine.Plugins.EffectRegistry.Changed -= OnPluginRegistryChanged;
             KawaPaint.Engine.Plugins.ToolRegistry.Changed -= OnPluginRegistryChanged;
+            DisposeTimelineResources();
         };
         SetupRulers();
         BuildCommands();
@@ -301,9 +314,21 @@ public partial class MainView : UserControl
         if (!IsDirty) return true;
         if (OwnerWindow is not { } owner)
         {
-            // TODO(web): no in-canvas confirm-discard overlay yet, so the browser build proceeds
-            // without prompting - unsaved changes are silently discarded on New/Open.
-            return true;
+            var body = new TextBlock
+            {
+                Text = "Save changes to the current image before continuing?",
+                TextWrapping = TextWrapping.Wrap
+            };
+            var browserChoice = await ShowCanvasChoiceAsync("Unsaved Changes", body, SaveChoice.Cancel,
+                new CanvasChoice<SaveChoice>("Cancel", SaveChoice.Cancel),
+                new CanvasChoice<SaveChoice>("Discard", SaveChoice.Discard),
+                new CanvasChoice<SaveChoice>("Save", SaveChoice.Save, true));
+            return browserChoice switch
+            {
+                SaveChoice.Save => await SaveProjectAsync(),
+                SaveChoice.Discard => true,
+                _ => false
+            };
         }
         var choice = await new ConfirmSaveDialog("Save changes to the current image before continuing?")
             .ShowDialog<SaveChoice>(owner);
@@ -358,8 +383,9 @@ public partial class MainView : UserControl
         }
         else
         {
-            // TODO(web): no New-Image size dialog yet - always creates a fixed 800x600 opaque canvas.
-            (w, h, dpi, transparent) = (800, 600, 96, false);
+            var values = await ShowCanvasNewImageAsync();
+            if (values is null) return;
+            (w, h, dpi, transparent) = (values.Width, values.Height, values.Dpi, values.Transparent);
         }
 
         var doc = new Document(w, h) { Dpi = dpi };
@@ -387,13 +413,37 @@ public partial class MainView : UserControl
         try
         {
             await using var stream = await file.OpenReadAsync();
-            using var loaded = CodecRegistry.Decode(stream, file.Name);
-            var doc = new Document(loaded.Width, loaded.Height);
-            var layer = doc.AddLayer(System.IO.Path.GetFileNameWithoutExtension(file.Name));
-            layer.Surface.CopyFrom(loaded);
+            using var sourceBuffer = new MemoryStream();
+            await stream.CopyToAsync(sourceBuffer);
+            byte[] sourceBytes = sourceBuffer.ToArray();
+            using var decodeStream = new MemoryStream(sourceBytes);
+            var frames = CodecRegistry.DecodeFrames(decodeStream, file.Name);
+            var doc = new Document(frames[0].Surface.Width, frames[0].Surface.Height);
+            doc.ExifTiff = ExifPreserver.ExtractTiff(sourceBytes);
+            string baseName = System.IO.Path.GetFileNameWithoutExtension(file.Name);
+            for (int index = 0; index < frames.Count; index++)
+            {
+                DecodedImageFrame frame = frames[index];
+                string name = frames.Count == 1 ? baseName : $"Frame {index + 1}";
+                int duration = Math.Max(10, frame.DurationMs);
+                if (index == 0)
+                {
+                    doc.AddLayer(new Layer(frame.Surface, baseName));
+                    doc.ActiveFrame.Name = name;
+                    doc.ActiveFrame.DurationMs = duration;
+                }
+                else
+                {
+                    doc.AddFrame(new DocumentFrame(new[] { new Layer(frame.Surface, baseName) }, name, duration),
+                        makeActive: false);
+                }
+            }
+            doc.SetActiveFrame(0);
             Canvas.SetDocument(doc);
             SetClean(null);   // imported image has no project file yet
-            StatusText.Text = $"{file.Name} - {loaded.Width}×{loaded.Height}";
+            StatusText.Text = frames.Count == 1
+                ? $"{file.Name} - {doc.Width}×{doc.Height}"
+                : $"{file.Name} - {doc.Width}×{doc.Height}, {frames.Count} timeline frames";
         }
         catch (Exception ex)
         {
@@ -455,7 +505,7 @@ public partial class MainView : UserControl
                 doc = DocumentFile.Load(stream);
             Canvas.SetDocument(doc);
             SetClean(file);
-            StatusText.Text = $"{file.Name} - {doc.LayerCount} layer(s)";
+            StatusText.Text = $"{file.Name} - {doc.FrameCount} frame(s), {doc.LayerCount} active layer(s)";
         }
         catch (Exception ex)
         {
@@ -574,8 +624,13 @@ public partial class MainView : UserControl
         try
         {
             using var flat = Canvas.Document.Flatten();
+            using var encoded = new MemoryStream();
+            CodecRegistry.Encode(flat, encoded, file.Name, options);
+            byte[] bytes = ExifPreserver.Inject(encoded.ToArray(), Canvas.Document.ExifTiff,
+                flat.Width, flat.Height);
             await using var stream = await file.OpenWriteAsync();
-            CodecRegistry.Encode(flat, stream, file.Name, options);
+            stream.SetLength(0);
+            await stream.WriteAsync(bytes);
             StatusText.Text = "Exported " + file.Name;
         }
         catch (Exception ex)
@@ -639,8 +694,12 @@ public partial class MainView : UserControl
         RecordSkipped("Resize Image");
         if (OwnerWindow is not { } owner)
         {
-            // TODO(web): Resize needs a dialog for the target size; not available in the browser build yet.
-            StatusText.Text = "Resize isn't available in the browser build yet";
+            var values = await ShowCanvasSizeFormAsync("Resize Image", doc.Width, doc.Height);
+            if (values is null) return;
+            int browserWidth = values.Width, browserHeight = values.Height;
+            if (browserWidth == doc.Width && browserHeight == doc.Height) return;
+            ApplyDocumentOp("Resize Image", d => DocumentOps.Resize(d, browserWidth, browserHeight));
+            StatusText.Text = $"Resized to {browserWidth}×{browserHeight}";
             return;
         }
         var dlg = new ResizeDialog(doc.Width, doc.Height);
@@ -660,9 +719,12 @@ public partial class MainView : UserControl
         RecordSkipped("Canvas Size");
         if (OwnerWindow is not { } owner)
         {
-            // TODO(web): Canvas Size needs a dialog for the target size/anchor; not available in
-            // the browser build yet.
-            StatusText.Text = "Canvas Size isn't available in the browser build yet";
+            var values = await ShowCanvasCanvasSizeAsync(doc.Width, doc.Height);
+            if (values is null) return;
+            if (values.Width == doc.Width && values.Height == doc.Height) return;
+            ApplyDocumentOp("Canvas Size", d => DocumentOps.ResizeCanvas(
+                d, values.Width, values.Height, values.Anchor));
+            StatusText.Text = $"Canvas resized to {values.Width}×{values.Height}";
             return;
         }
         var dlg = new CanvasSizeDialog(doc.Width, doc.Height);
@@ -758,14 +820,6 @@ public partial class MainView : UserControl
     private async void OnAdjust(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (sender is not MenuItem mi || mi.Tag is not string tag || Canvas.ActiveLayer is null) return;
-        if (OwnerWindow is not { } owner)
-        {
-            // TODO(web): live-preview Adjustment dialogs (Brightness/Contrast, Hue/Saturation,
-            // Levels, Posterize, Add Noise, Gaussian Blur) need an in-canvas host; not available
-            // in the browser build yet.
-            StatusText.Text = "Adjustments aren't available in the browser build yet";
-            return;
-        }
 
         AdjustmentDialog dlg = tag switch
         {
@@ -969,8 +1023,15 @@ public partial class MainView : UserControl
             }, v => new BoxBlurEffect((int)v[0]))
         };
 
-        await dlg.ShowDialog(owner);
-        if (dlg.CommittedValues is { } vals) RecordParameterizedAction("effect." + tag, vals);
+        if (OwnerWindow is { } owner)
+            await dlg.ShowDialog(owner);
+        else
+            await ShowCanvasWindowContentAsync(dlg, dlg.UseCanvasHost,
+                dlg.CancelCanvasHost, dlg.BeginCanvasHost);
+        if (dlg.CommittedValues is { } vals)
+            RecordParameterizedAction("effect." + tag, vals, tag == "clouds"
+                ? new[] { Canvas.BrushColor.ToHexString(), Canvas.SecondaryColor.ToHexString() }
+                : null);
         StatusText.Text = dlg.Title ?? "Adjustment";
     }
 
@@ -978,13 +1039,12 @@ public partial class MainView : UserControl
     {
         if (Canvas.ActiveLayer is null) return;
         RecordSkipped("Curves");
-        if (OwnerWindow is not { } owner)
-        {
-            // TODO(web): Curves needs an in-canvas dialog host; not available in the browser build yet.
-            StatusText.Text = "Curves isn't available in the browser build yet";
-            return;
-        }
-        await new CurvesDialog(Canvas).ShowDialog(owner);
+        var dialog = new CurvesDialog(Canvas);
+        if (OwnerWindow is { } owner)
+            await dialog.ShowDialog(owner);
+        else
+            await ShowCanvasWindowContentAsync(dialog, dialog.UseCanvasHost,
+                dialog.CancelCanvasHost, dialog.BeginCanvasHost);
         StatusText.Text = "Curves";
     }
 
@@ -1176,6 +1236,19 @@ public partial class MainView : UserControl
             MinWidth = 180,
             MinHeight = 200
         });
+        _panels.Register(new PanelDescriptor("Timeline", "Timeline", TimelineBorder)
+        {
+            IconName = "PanelTimeline",
+            DockedChrome = new Control[] { TimelineHeader },
+            DefaultPlace = PanelPlace.Bottom,
+            DefaultDockSize = 150,
+            DefaultFloatX = 260,
+            DefaultFloatY = 380,
+            DefaultFloatWidth = 660,
+            DefaultFloatHeight = 230,
+            MinWidth = 300,
+            MinHeight = 150
+        });
         _panels.Register(new PanelDescriptor("Dock", "Dock", DockBorder)
         {
             IconName = "PanelDock",
@@ -1243,6 +1316,7 @@ public partial class MainView : UserControl
         ToggleColorWheel.IsChecked = _panels.IsVisible("ColorWheel");
         ToggleLayers.IsChecked = _panels.IsVisible("Layers");
         ToggleHistory.IsChecked = _panels.IsVisible("History");
+        ToggleTimeline.IsChecked = _panels.IsVisible("Timeline");
         ToggleDock.IsChecked = _panels.IsVisible("Dock");
 
         RefreshFloatButton(FloatToolsBtn, "Tools");
@@ -1250,6 +1324,7 @@ public partial class MainView : UserControl
         RefreshFloatButton(FloatColorWheelBtn, "ColorWheel");
         RefreshFloatButton(FloatLayersBtn, "Layers");
         RefreshFloatButton(FloatHistoryBtn, "History");
+        RefreshFloatButton(FloatTimelineBtn, "Timeline");
         RefreshFloatButton(FloatDockBtn, "Dock");
     }
 
@@ -1898,15 +1973,14 @@ public partial class MainView : UserControl
             var rename = new MenuItem { Header = "Rename…" };
             rename.Click += async (_, _) =>
             {
-                if (OwnerWindow is not { } owner)
+                string? name;
+                if (OwnerWindow is { } owner)
                 {
-                    // TODO(web): palette color rename needs an in-canvas prompt; not available
-                    // in the browser build yet.
-                    StatusText.Text = "Rename isn't available in the browser build yet";
-                    return;
+                    var dlg = new PromptDialog("Name color", e.Name ?? "");
+                    name = await dlg.ShowDialog<bool>(owner) ? dlg.ResultText : null;
                 }
-                var dlg = new PromptDialog("Name color", e.Name ?? "");
-                if (await dlg.ShowDialog<bool>(owner)) { e.Name = dlg.ResultText.Trim(); PersistPalette(); BuildPaletteStrip(); }
+                else name = await ShowCanvasPromptAsync("Name color", e.Name ?? "");
+                if (name is not null) { e.Name = name.Trim(); PersistPalette(); BuildPaletteStrip(); }
             };
             var remove = new MenuItem { Header = "Remove" };
             remove.Click += (_, _) => { _palette.Colors.Remove(e); PersistPalette(); BuildPaletteStrip(); };
@@ -2239,25 +2313,32 @@ public partial class MainView : UserControl
         }
         RecordSkipped("Text");
 
-        if (OwnerWindow is not { } owner)
+        string text;
+        int size;
+        if (OwnerWindow is { } owner)
         {
-            // TODO(web): Text tool needs an in-canvas prompt for the string/size; not available
-            // in the browser build yet.
-            StatusText.Text = "Text tool isn't available in the browser build yet";
-            return;
+            var dlg = new TextDialog();
+            bool ok = await dlg.ShowDialog<bool>(owner);
+            if (!ok) return;
+            (text, size) = (dlg.ResultText, dlg.ResultSize);
         }
-
-        var dlg = new TextDialog();
-        bool ok = await dlg.ShowDialog<bool>(owner);
-        if (!ok || string.IsNullOrEmpty(dlg.ResultText)) return;
+        else
+        {
+            var values = await ShowCanvasTextAsync();
+            if (values is null) return;
+            (text, size) = (values.Text, values.Size);
+        }
+        if (string.IsNullOrEmpty(text)) return;
 
         var snapshot = layer.Surface.Clone();
-        TextOps.DrawText(layer.Surface, dlg.ResultText, x, y, dlg.ResultSize, Canvas.BrushColor);
+        TextOps.DrawText(layer.Surface, text, x, y, size, Canvas.BrushColor);
         if (Canvas.Selection is { IsActive: true }) Canvas.Selection.Clip(layer.Surface, snapshot);
         Canvas.History.Push(TileDeltaMemento.Consume(layer, snapshot, "Text"));
         Canvas.RenderComposite();
         Canvas.InvalidateVisual();
         Canvas.NotifyLayersChanged();
+        _scriptRecorder.NoteAction("text.draw", new double[] { x, y, size, Canvas.BrushColor.Bgra },
+            new[] { text });
         StatusText.Text = "Added text";
     }
 
@@ -2493,17 +2574,18 @@ public partial class MainView : UserControl
             var item = new ListBoxItem { Content = panel, Tag = layer };
             item.DoubleTapped += async (_, _) =>
             {
-                if (OwnerWindow is not { } owner)
+                string? name;
+                if (OwnerWindow is { } owner)
                 {
-                    // TODO(web): layer rename needs an in-canvas prompt; not available in the
-                    // browser build yet.
-                    StatusText.Text = "Layer rename isn't available in the browser build yet";
-                    return;
+                    var dlg = new PromptDialog("Rename layer", capturedLayer.Name);
+                    name = await dlg.ShowDialog<bool>(owner) ? dlg.ResultText : null;
                 }
-                var dlg = new PromptDialog("Rename layer", capturedLayer.Name);
-                if (await dlg.ShowDialog<bool>(owner) && !string.IsNullOrWhiteSpace(dlg.ResultText))
+                else name = await ShowCanvasPromptAsync("Rename layer", capturedLayer.Name);
+                if (!string.IsNullOrWhiteSpace(name))
                 {
-                    capturedLayer.Name = dlg.ResultText.Trim();
+                    capturedLayer.Name = name.Trim();
+                    _demoRecorder.NoteSkipped("Layer rename");
+                    _scriptRecorder.NoteAction("layer.rename", Array.Empty<double>(), new[] { capturedLayer.Name });
                     MarkDirty();
                     RebuildLayerPanel();
                 }
@@ -2624,17 +2706,33 @@ public partial class MainView : UserControl
         var history = Canvas.History;
         _suppressHistory = true;
 
-        HistoryList.Items.Clear();
+        var steps = history.Steps();
+        if (HistoryList.Items.Count == 0)
+            HistoryList.Items.Add(new ListBoxItem { Content = "Start", Tag = 0 });
 
-        var start = new ListBoxItem { Content = "Start", Tag = 0 };
-        HistoryList.Items.Add(start);
-
-        foreach (var step in history.Steps())
+        // Keep the unchanged prefix of controls. Undo/redo now updates opacity/selection in place;
+        // a push appends one row; truncating a redo branch removes only that tail.
+        int matching = 0;
+        while (matching < steps.Count && matching + 1 < HistoryList.Items.Count)
         {
-            var item = new ListBoxItem { Content = $"{step.Index + 1}. {step.Name}", Tag = step.Index + 1 };
-            if (!step.IsApplied) item.Opacity = 0.45;   // redoable but not currently applied
-            HistoryList.Items.Add(item);
+            if (HistoryList.Items[matching + 1] is not ListBoxItem item ||
+                !Equals(item.Content, $"{matching + 1}. {steps[matching].Name}")) break;
+            matching++;
         }
+
+        while (HistoryList.Items.Count > matching + 1)
+            HistoryList.Items.RemoveAt(HistoryList.Items.Count - 1);
+
+        for (int i = matching; i < steps.Count; i++)
+            HistoryList.Items.Add(new ListBoxItem
+            {
+                Content = $"{i + 1}. {steps[i].Name}",
+                Tag = i + 1
+            });
+
+        for (int i = 0; i < steps.Count; i++)
+            if (HistoryList.Items[i + 1] is ListBoxItem item)
+                item.Opacity = steps[i].IsApplied ? 1 : 0.45;
 
         HistoryList.SelectedIndex = history.Position;
         if (HistoryList.SelectedItem is { } selected) HistoryList.ScrollIntoView(selected);
@@ -2783,20 +2881,35 @@ public partial class MainView : UserControl
 
     private static Avalonia.Media.Imaging.Bitmap ToClipboardBitmap(Surface s)
     {
-        using var stream = new System.IO.MemoryStream();
-        s.Encode(stream, SkiaSharp.SKEncodedImageFormat.Png);
-        stream.Position = 0;
-        return new Avalonia.Media.Imaging.Bitmap(stream);
+        return new Avalonia.Media.Imaging.Bitmap(PixelFormat.Bgra8888, AlphaFormat.Unpremul,
+            s.Scan0, new PixelSize(s.Width, s.Height), new Vector(96, 96), s.Stride);
     }
 
-    /// <summary>Decoded through CodecRegistry (header-sniffed) rather than assuming PNG, since the
-    /// clipboard image may have come from another application in any format Skia can read.</summary>
+    /// <summary>Copies the platform clipboard bitmap straight into KawaPaint's BGRA buffer. The
+    /// clipboard API has already decoded its original external format by this point.</summary>
     private static Surface FromClipboardBitmap(Avalonia.Media.Imaging.Bitmap bitmap)
     {
-        using var stream = new System.IO.MemoryStream();
-        bitmap.Save(stream, new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
-        stream.Position = 0;
-        return CodecRegistry.Decode(stream);
+        var surface = new Surface(bitmap.PixelSize.Width, bitmap.PixelSize.Height);
+        try
+        {
+            using var target = new WriteableBitmap(bitmap.PixelSize, new Vector(96, 96),
+                PixelFormat.Bgra8888, AlphaFormat.Unpremul);
+            using (var framebuffer = target.Lock()) bitmap.CopyPixels(framebuffer);
+            using var source = target.Lock();
+            unsafe
+            {
+                int rowBytes = surface.Stride;
+                for (int y = 0; y < surface.Height; y++)
+                    Buffer.MemoryCopy((byte*)source.Address + (long)y * source.RowBytes,
+                        surface.GetRowPointer(y), rowBytes, rowBytes);
+            }
+            return surface;
+        }
+        catch
+        {
+            surface.Dispose();
+            throw;
+        }
     }
 
     private async void OnCopy(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -2876,9 +2989,17 @@ public partial class MainView : UserControl
         if (imageWidth <= canvasWidth && imageHeight <= canvasHeight) return PastePlacement.PasteAsIs;
         if (OwnerWindow is not { } owner)
         {
-            // TODO(web): Paste placement needs a dialog; not available in the browser build yet.
-            StatusText.Text = "Pasted image is larger than the canvas and will be clipped";
-            return PastePlacement.PasteAsIs;
+            var body = new TextBlock
+            {
+                Text = $"The pasted image ({imageWidth}×{imageHeight}) doesn't fit the canvas " +
+                       $"({canvasWidth}×{canvasHeight}). What would you like to do?",
+                TextWrapping = TextWrapping.Wrap
+            };
+            return await ShowCanvasChoiceAsync("Paste", body, PastePlacement.Cancel,
+                new CanvasChoice<PastePlacement>("Cancel", PastePlacement.Cancel),
+                new CanvasChoice<PastePlacement>("Paste As Is", PastePlacement.PasteAsIs),
+                new CanvasChoice<PastePlacement>("Scale to Fit", PastePlacement.ScaleToFit),
+                new CanvasChoice<PastePlacement>("Grow Canvas", PastePlacement.GrowCanvas, true));
         }
         return await new PastePlacementDialog(canvasWidth, canvasHeight, imageWidth, imageHeight).ShowDialog<PastePlacement>(owner);
     }

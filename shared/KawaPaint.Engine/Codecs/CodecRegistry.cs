@@ -19,8 +19,7 @@ public static class CodecRegistry
 
     private static void RegisterBuiltIns()
     {
-        Register(new SkiaCodec("png", "PNG", SKEncodedImageFormat.Png, new[] { ".png" }, canEncode: true,
-            new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }));
+        Register(new PngCodec());
 
         Register(new SkiaCodec("jpeg", "JPEG", SKEncodedImageFormat.Jpeg, new[] { ".jpg", ".jpeg" }, canEncode: true,
             new byte[] { 0xFF, 0xD8, 0xFF }));
@@ -30,8 +29,7 @@ public static class CodecRegistry
         Register(new SkiaCodec("bmp", "Bitmap", SKEncodedImageFormat.Bmp, new[] { ".bmp" }, canEncode: false,
             new byte[] { 0x42, 0x4D }));
 
-        Register(new SkiaCodec("gif", "GIF", SKEncodedImageFormat.Gif, new[] { ".gif" }, canEncode: false,
-            new byte[] { 0x47, 0x49, 0x46, 0x38 }));
+        Register(new GifCodec());
 
         Register(new IcoCodec());
 
@@ -106,6 +104,33 @@ public static class CodecRegistry
         }
 
         return Surface.Decode(stream);
+    }
+
+    /// <summary>
+    /// Decodes every frame when the identified codec supports animation, otherwise returns the
+    /// ordinary decoded image as a one-frame list. The caller owns every returned surface.
+    /// </summary>
+    public static IReadOnlyList<DecodedImageFrame> DecodeFrames(Stream stream, string? fileName = null)
+    {
+        if (!stream.CanSeek)
+        {
+            var buffered = new MemoryStream();
+            stream.CopyTo(buffered);
+            buffered.Position = 0;
+            stream = buffered;
+        }
+
+        long origin = stream.Position;
+        Span<byte> header = stackalloc byte[32];
+        int read = stream.Read(header);
+        stream.Position = origin;
+
+        IImageCodec? codec = FindByHeader(header[..read]);
+        if (codec is null && fileName is not null) codec = FindByExtension(fileName);
+        if (codec is IFrameImageCodec { CanDecode: true, IsAvailable: true } frameCodec)
+            return frameCodec.DecodeFrames(stream);
+
+        return new[] { new DecodedImageFrame(Decode(stream, fileName), 0) };
     }
 
     public static void Encode(Surface surface, Stream stream, string fileName, EncodeOptions? options = null)

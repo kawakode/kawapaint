@@ -78,6 +78,12 @@ public sealed class RadialBlurEffect : IEffect
         double cx = w / 2.0, cy = h / 2.0;
         int n = _quality * _quality * 8 + 8;
         double totalRad = _angleDeg * Math.PI / 180.0;
+        var rotations = new (double Cos, double Sin)[n + 1];
+        for (int i = 0; i <= n; i++)
+        {
+            double offset = ((double)i / n - 0.5) * totalRad;
+            rotations[i] = (Math.Cos(offset), Math.Sin(offset));
+        }
 
         System.Threading.Tasks.Parallel.For(0, h, y =>
         {
@@ -85,17 +91,19 @@ public sealed class RadialBlurEffect : IEffect
             for (int x = 0; x < w; x++)
             {
                 double dx = x - cx, dy = y - cy;
-                double radius = Math.Sqrt(dx * dx + dy * dy);
-                double baseAngle = Math.Atan2(dy, dx);
 
                 double sr = 0, sg = 0, sb = 0, sa = 0;
                 int sc = 0;
                 for (int i = 0; i <= n; i++)
                 {
-                    double t = (double)i / n - 0.5;
-                    double ang = baseAngle + t * totalRad;
-                    double sx = cx + radius * Math.Cos(ang), sy = cy + radius * Math.Sin(ang);
-                    if (sx < 0 || sy < 0 || sx > w - 1 || sy > h - 1) continue;
+                    var (cos, sin) = rotations[i];
+                    double sx = cx + dx * cos - dy * sin;
+                    double sy = cy + dx * sin + dy * cos;
+                    const double edgeEpsilon = 1e-9;
+                    if (sx < -edgeEpsilon || sy < -edgeEpsilon ||
+                        sx > w - 1 + edgeEpsilon || sy > h - 1 + edgeEpsilon) continue;
+                    sx = Math.Clamp(sx, 0, w - 1);
+                    sy = Math.Clamp(sy, 0, h - 1);
                     ColorBgra c = src.GetBilinearSampleClamped((float)sx, (float)sy);
                     sr += c.R * c.A; sg += c.G * c.A; sb += c.B * c.A; sa += c.A;
                     sc++;

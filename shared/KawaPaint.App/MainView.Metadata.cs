@@ -64,6 +64,7 @@ public partial class MainView
         }
 
         var options = dialog.Options;
+        var editOptions = dialog.EditOptions;
         var log = new StringBuilder();
         int cleaned = 0, skipped = 0, failed = 0, bytesRemoved = 0;
 
@@ -72,6 +73,24 @@ public partial class MainView
             try
             {
                 byte[] bytes = await ReadAllBytesAsync(file);
+                if (editOptions is not null)
+                {
+                    MetadataEditResult edit = MetadataEditor.Edit(bytes, editOptions);
+                    if (edit.Error is not null) throw new InvalidDataException(edit.Error);
+                    if (!edit.Changed)
+                    {
+                        log.AppendLine($"--  {file.Name}: no requested EXIF changes were applicable");
+                        skipped++;
+                        continue;
+                    }
+                    if (dialog.InPlace) await WriteInPlaceAsync(file, edit.Bytes);
+                    else await WriteCopyAsync(dialog.OutputFolder!, file.Name, edit.Bytes);
+                    cleaned++;
+                    log.AppendLine($"OK  {file.Name}: EXIF updated" +
+                        (editOptions.RemoveGps ? ", GPS removed" : ""));
+                    continue;
+                }
+
                 var result = MetadataStripper.Strip(bytes, options);
 
                 if (!result.Changed)

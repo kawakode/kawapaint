@@ -13,6 +13,64 @@ Full roadmap/rationale lives in Claude memory
 (`feature-roadmap-tiers`) and the published plan:
 https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
 
+## Smallest-first implementation pass - done 2026-08-25
+
+Worked through the feasible backlog in ascending implementation risk, stopping short of items that
+need unavailable hardware/platforms, external accounts, an unresolved product decision, or a
+known-impossible API. The tree and the complete Sandbox suite pass after the following work:
+
+- **Browser parity:** a reusable in-canvas modal host now covers confirm-discard, New Image,
+  Resize, Canvas Size/anchor, palette and layer rename, Text, oversized-paste placement, every
+  live-preview Adjustment dialog, and Curves. The ten `TODO(web)` markers are gone; desktop keeps
+  using native owned windows and both hosts share the same adjustment/Curves transaction logic.
+- **Animated GIF import/export (5.1a):** the original layers-as-frames GIF milestone landed here;
+  the later 2026-08-25 pass below supersedes it with adaptive quantization, dithering, a real frame
+  timeline, APNG and animated WebP.
+- **Script format v2:** string arguments are backward-compatible with v1 JSON and have real
+  consumers: recorded text drawing, layer rename, and Clouds with its exact foreground/background
+  colors. Headless execution and v1 loading are covered by `ScriptingV2SmokeTest`.
+- **Clipboard:** removed the redundant Surface -> PNG -> Avalonia Bitmap and reverse PNG round
+  trips. Both directions now copy/transcode decoded BGRA pixels directly through Avalonia's bitmap
+  buffer API.
+- **Small engine hot paths:** transparent `Surface.Clear` is one native clear; other fills use
+  `Span<uint>.Fill`; `ShiftInto` clips once then copies rows; flood fill/Magic Wand use a bitset and
+  hoisted row pointers; Rotate90 is a 32x32 tiled pointer transpose; selection bounds are cached and
+  `Clip` restores outside row runs in bulk; shape previews restore only their prior footprint
+  (Gradient remains full-canvas); LUT effects avoid a virtual transform per pixel; first-layer
+  compositing is a copy and Normal has its own bit-exact path; History resident bytes are O(1), and
+  its panel retains unchanged rows instead of clearing/recreating all controls. Project layer PNGs
+  encode in parallel before their ZIP entries are written sequentially, and the transparency
+  checkerboard is one tiled brush draw instead of thousands of rectangles.
+- **Selection correctness:** an explicitly empty result from Subtract/Intersect is now distinct from
+  Select None, so subtracting the entire selection correctly leaves no editable pixels instead of
+  silently making the whole canvas editable.
+- **Regression net:** `EngineOptimizationSmokeTest`, `ScriptingV2SmokeTest`, and
+  `AnimatedGifSmokeTest` were added to the existing Sandbox run. The blend optimization is checked
+  against 100,000 randomized pixels; an attempted radial-blur trig recurrence was rejected and
+  reverted when the old-vs-new reference test found changed edge sampling.
+
+Deliberately skipped in this pass: tablet pressure (no tablet), Android (no device/emulator), macOS
+native-codec packaging (no macOS validation box), forge/art-platform OAuth, Paint.NET v5 CPU effects
+(already proven impossible) and GPU effects, and 3D (scope unresolved).
+
+## Performance/metadata/animation/text/drawing pass - done 2026-08-25
+
+- Dirty-rectangle compositing and bitmap upload, cached marching-ants geometry, per-mode span blend
+  loops, incremental lasso/freeform triangle rasterization, fixed-point bilinear sampling, and
+  precomputed radial-blur rotations are implemented and regression-tested.
+- Semi-transparent pencil/paintbrush and shape outlines accumulate one coverage mask per gesture,
+  preventing overlapping dabs, corners and polygon vertices from becoming darker blotches.
+- Metadata now supports targeted, lossless EXIF Make/Model/date edits and GPS-only removal in JPEG,
+  PNG and WebP while preserving compressed pixels and every unedited metadata block.
+- `Document` now owns real independent frames with names and durations; every canvas transform and
+  `.kwp` v3 persistence handles all frames, while v1/v2 projects remain loadable. The UI has a
+  timeline with playback, navigation, add/duplicate/delete and per-frame duration editing. The
+  timeline is a first-class modular panel (dock any edge, float, resize, hide, persist in layouts)
+  with cached composited frame previews that can be switched off.
+- Animated imports populate the timeline. Export supports adaptive/dithered GIF, APNG and animated
+  WebP with individual frame timing; APNG decoding handles frame offsets, blending and disposal.
+- Mail-merge text zones expose wrapping, horizontal/vertical alignment and shrink-to-fit text boxes.
+
 ## 2.6 export presets + 2.9 local art packages - done 2026-08-24
 
 File > Export now contains named presets and a full preset manager. A preset carries codec id,
@@ -147,12 +205,9 @@ A durable headless version lives in `KawaPaint.Sandbox/MetadataSmokeTest.cs` (wi
 is gated on `KAWAPAINT_TEST_PHOTO` pointing at a tagged image, matching how the PDN plugin test gates
 on a real install.
 
-**Still open, and tracked in the fused backlog's 2.8 entry:** editing/preserving metadata rather than
-only removing it (IFD rewriting plus per-format re-injection - JPEG and PNG are straightforward,
-WebP needs the VP8X container rewritten, JXL/JP2 need their own answer), and "strip location only",
-which needs the writer half before it can be built. `MetadataScanner.ScanFile` and
-`MetadataStripper.StripFile` are already path-based and Avalonia-free, so wiring this into
-`KawaPaint.Cli` or an export preset (2.6) is a small job whenever either is wanted.
+**Follow-up completed 2026-08-25:** targeted IFD editing, GPS-only removal, source-EXIF retention in
+projects/transforms, and JPEG/PNG/WebP export re-injection now sit alongside the original stripping
+path. JXL/JP2 metadata writing remains native-format-pack work.
 
 ## UI bug sweep U1..U10 - fixed 2026-08-24
 
@@ -621,13 +676,11 @@ was verified, and any known gaps left on purpose.
    Subtract-from-inactive case failed exactly as described (`result is active` false) - before
    restoring the fix and reconfirming all 6 pass.
    
-   **Pre-existing wrinkle noticed while fixing this, not fixed here** (out of scope, doesn't get
-   worse from this fix): `Combine`'s trailing `IsActive = (any mask byte nonzero)` conflates "no
-   selection was ever made" with "a selection was explicitly narrowed to literally nothing" - both
-   end up as an all-zero mask with `IsActive=false`, which `IsSelected` then reads as "everything
-   editable," the opposite of what subtracting a selection down to nothing should mean. Reachable
-   today via a plain active selection fully covered by a Subtract shape, no inactive base needed -
-   an existing property of `Combine`, not something this fix introduces.
+   **Follow-up fixed 2026-08-25:** `Combine` no longer conflates "no selection was ever made" with
+   "the selection was explicitly narrowed to nothing." An empty Subtract/Intersect result stays
+   active over its zero mask, so no pixels are editable; `SelectNone()` remains the distinct action
+   that returns to the inactive/all-editable state. Empty active bounds are `(0,0,0,0)`, letting
+   `Clip` bulk-restore every row. The Sandbox covers subtract-all, invert-empty and Select None.
 
 8. **~~Live-preview dialogs run the full effect synchronously per slider tick~~ - fixed
    2026-08-20.** Each `ValueChanged`/`IsCheckedChanged`/`SelectionChanged`/`ColorChanged` did a
@@ -1137,75 +1190,75 @@ From the same 2026-08-20 read-through, ordered by expected felt impact. Same evi
 bug list - these are reasoned from the code, not profiled. **Profile before committing to any of
 the big ones**; the ordering below is a hypothesis about where the time goes, not a measurement.
 
-1. **Dirty-rect compositing.** Every brush move calls `Composite()` → `RenderComposite`
+1. **~~Dirty-rect compositing~~ - DONE 2026-08-25.** Every brush move calls `Composite()` → `RenderComposite`
    (`SurfaceView.cs:141`) → full `Document.RenderTo` over every layer → `RefreshBitmap` (`:148`)
    copying the whole composite. On a 4000×3000 doc with 5 layers that's 60M blends plus a 48 MB
    memcpy *per mouse-move event*. Track the changed rect from the tool and composite/upload only
    that. Single biggest win in the app.
 
-2. **`Blending.Composite` fast paths.** `Blending.cs` runs three `BlendChannel` switch dispatches
+2. **~~`Blending.Composite` fast paths~~ - DONE 2026-08-25.** `Blending.cs` runs three `BlendChannel` switch dispatches
    plus double-precision math per pixel per layer. Add: Normal + opacity 255 → integer `BlendOver`;
    first visible layer over a just-cleared dest → straight copy; hoist the mode switch out of the
    pixel loop into per-mode specialized loops.
 
-3. **Checkerboard as a tile brush.** `DrawCheckerboard` (`SurfaceView.cs:326`) emits one
+3. **~~Checkerboard as a tile brush~~ - DONE 2026-08-25.** `DrawCheckerboard` (`SurfaceView.cs:326`) emits one
    `FillRectangle` per 8px screen cell - ~22,000 draw ops per frame at 1600×900, repainting on
    every pointer move because the brush cursor calls `InvalidateVisual()`. One `ImageBrush` with
    `TileMode.Tile` over a 16×16 bitmap replaces all of it.
 
-4. **Cache marching-ants boundaries.** `DrawMarchingAnts` (`SurfaceView.cs:291`) recomputes the
+4. **~~Cache marching-ants boundaries~~ - DONE 2026-08-25.** `DrawMarchingAnts` (`SurfaceView.cs:291`) recomputes the
    boundary set and emits one rect per boundary pixel, 8× a second indefinitely. Compute the
    boundary once per selection change into a `StreamGeometry`; the animation only needs the phase.
 
-5. **Cache layer thumbnails.** `MakeThumbnail` (`MainView.axaml.cs:2340`) does a full-surface Skia
+5. **~~Cache layer thumbnails~~ - DONE.** `MakeThumbnail` (`MainView.axaml.cs:2340`) does a full-surface Skia
    resample per layer, and `RebuildLayerPanel` (`:2265`) runs on *every* `DocumentChanged` -
    including clicking a layer row, undo, redo and opacity changes. Key a cached thumbnail off a
    per-layer version counter bumped only on pixel writes.
 
-6. **`RebuildHistoryPanel` is O(steps × tiles) per edit.** `MainView.axaml.cs:2383` calls
+6. **~~Make `RebuildHistoryPanel` incremental~~ - DONE 2026-08-25.** `MainView.axaml.cs:2383` calls
    `history.ResidentBytes`, which walks every step's every tile, and recreates all N
    `ListBoxItem`s. Maintain the resident total incrementally in `HistoryStack` (the `Trim` comment
    already recognises the cost, it just doesn't cache across calls), and append/mark rows instead
    of clearing.
 
-7. **Shape tools full-copy the surface per mouse move.** `ShapeToolBase` (`Tools.cs:167`) -
+7. **~~Shape tools full-copy the surface per mouse move~~ - DONE 2026-08-25.** `ShapeToolBase` (`Tools.cs:167`) -
    `CopyFrom(c.PreStroke)` is a whole-surface memcpy to discard the previous preview; restore only
    the previous shape's bounding rect. `FreeformShapeTool` and `LassoSelectTool` are worse: they
    re-rasterize a monotonically growing point list every move, so a long drag is O(n²).
 
-8. **`SurfaceOps.ShiftInto` is per-pixel with a bounds test** (`SurfaceOps.cs:45`) and sits on the
+8. **~~Optimize `SurfaceOps.ShiftInto` and `Rotate90`~~ - DONE 2026-08-25.** The old per-pixel path (`SurfaceOps.cs:45`) sat on the
    Move tool's per-mouse-move path - clip the row span once, then one `NativeMemory.Copy` per row.
    Same file, `Rotate90` (`:29`) uses the bounds-checked indexer with a cache-hostile
    stride-jumping write; a 32×32 tiled transpose is typically 3-5×.
 
-9. **LUT base class for per-pixel effects.** `PerPixelEffect.Apply` (`Effects.cs:25`) makes a
+9. **~~LUT base class for per-pixel effects~~ - DONE 2026-08-25.** `PerPixelEffect.Apply` (`Effects.cs:25`) makes a
    virtual call per pixel. Invert, Grayscale, BrightnessContrast, Curves and Posterize are all
    expressible as a 256-entry byte table - a `LutEffect` base collapses them to a table lookup with
    no dispatch. (Sepia is cross-channel; leave it.)
 
-10. **Trig out of the radial-blur inner loop.** `Effects.Blur.cs:97` calls `Math.Cos`/`Math.Sin`
+10. **~~Trig out of the radial-blur inner loop~~ - DONE 2026-08-25.** `Effects.Blur.cs:97` calls `Math.Cos`/`Math.Sin`
     per sample per pixel - at default quality ~1B transcendentals on a 12 MP image. The samples are
     evenly spaced angles, so rotate a vector by a precomputed fixed delta instead. Relatedly,
     `BilinearAt` (`Surface.cs:187`) does four `double` lerps per channel; 16.16 fixed-point is a
     broad win across every warp and blur.
 
-11. **`Surface.Clear` is a scalar per-pixel loop** (`Surface.cs:69`). `NativeMemory.Fill` for the
+11. **~~Optimize `Surface.Clear`~~ - DONE 2026-08-25.** The old scalar loop (`Surface.cs:69`) is now a native clear for the
     transparent case - which is what `Document.RenderTo` calls every composite - or a
     `Span<uint>.Fill` otherwise.
 
-12. **FloodFill recomputes row pointers inside the inner loop.** `FloodFill.cs:42,48` call
+12. **~~Hoist FloodFill row pointers and use a bitset~~ - DONE 2026-08-25.** The old path (`FloodFill.cs:42,48`) called
     `GetRowPointer(y±1)` per pixel, twice - hoist them. `visited` as a bitset instead of
     `bool[w*h]` also cuts an 8 MP fill from 8 MB to 1 MB and helps cache.
 
-13. **`Selection.GetBounds` and `Clip` scan the full mask** (`Selection.cs:188`, `:208`). Cache
+13. **~~Cache `Selection.GetBounds` and bulk-restore `Clip`~~ - DONE 2026-08-25.** The old path (`Selection.cs:188`, `:208`) scanned
     bounds (invalidated on mutation) and let `Clip` restore row runs within them rather than
     branching per pixel over the whole image.
 
-14. **Parallelize the PNG encodes in `DocumentFile.Save`** (`DocumentFile.cs:58`, currently
-    serial). Encode into memory buffers in parallel, write sequentially. Pairs naturally with
-    moving autosave off the UI thread (bug #9).
+14. **~~Parallelize the PNG encodes in `DocumentFile.Save`~~ - DONE 2026-08-25.** Layers encode
+    into independent memory buffers in parallel, then write to the ZIP sequentially. Autosave was
+    already off the UI thread (bug #9).
 
-15. **Drop the clipboard PNG round-trip.** `FromClipboardBitmap` (`MainView.axaml.cs:2526`) encodes
+15. **~~Drop the clipboard PNG round-trip~~ - DONE 2026-08-25.** `FromClipboardBitmap` previously encoded
     an Avalonia bitmap to PNG then decodes it through `CodecRegistry`. The comment justifies this by
     header-sniffing "any format Skia can read" - but the preceding
     `bitmap.Save(...PngBitmapEncoderOptions)` has already normalized it to PNG, so the sniff always
@@ -1376,51 +1429,19 @@ gesture* (`ITool.PointerDown` calls `c.RequestText`, `Tools.cs:252`), deliberate
 `IsScriptable`'s allow-list, so `text.draw` is a genuinely new step rather than one that merely needs
 un-excluding.
 
-**The one question to put to the user rather than guess:** `TextOps.DrawText` is left-aligned, with no
-wrapping and no box fitting (`TextOps.cs:20-26` walks lines and advances by font metrics). Merge
-fields are variable-length by nature, so a real mail merge wants a text *box* - wrap, align,
-shrink-to-fit. That is a second, separable piece of work. **Estimate:** one session for CSV + format
-v2 + `text.draw` + per-row filename patterns; a second one if text boxes are wanted.
+**Text boxes - DONE 2026-08-25:** `TextOps.DrawTextBox` and dynamic zones support wrapping,
+horizontal/vertical alignment, clipping and shrink-to-fit. Mail-merge smoke coverage exercises the
+persistent zone properties and variable-length row rendering.
 
-### 2.8 - EXIF strip / edit (`Exif strip/edit`) - strip **DONE 2026-08-24**, edit **Spike first**, per format
+### 2.8 - EXIF strip / edit (`Exif strip/edit`) - **DONE 2026-08-25 for JPEG/PNG/WebP**
 
-> **The strip half is built and verified** - see the "2.8 EXIF strip" section at the top of this
-> file for the account, the walker bug the tests caught, and the three-way verification. What is
-> written below is the estimate as made *before* building it; it held up, including the framing that
-> "strip" was mostly already true. Everything still open is the **edit** half described further
-> down: IFD rewriting plus per-format re-injection, and "strip location only", which needs the
-> writer before it can exist.
-
-**Current state, checked this pass:** nothing in the Engine touches metadata (a grep for
-`Exif|Metadata|IPTC|XMP` across `shared/` hits only `DocumentSession.cs`, and there for unrelated
-reasons). Both decode and encode go through Skia (`Codecs/SkiaCodec.cs`), which hands back pixels
-only. **So KawaPaint already strips EXIF from everything it saves** - silently, today, GPS included.
-That reframes both halves of the request:
-
-- **Strip** is mostly already true. What is missing is (a) *telling* the user, and (b) a strip path
-  that does **not** re-encode the pixels, for a JPEG the user wants byte-preserved. That second one
-  is APPn-segment surgery on the raw file - walk markers, drop APP1/APP13 (and optionally the APP2
-  ICC profile), rewrite - with no decode and no generation loss. Roughly 100 lines, and exactly the
-  sort of thing `KawaPaint.Sandbox` can test headlessly against real photos.
-- **Edit** - and *preserve on save*, which is what users actually notice - is the hard half: parse
-  TIFF/EXIF IFDs (byte-order marker, tag/type/count/offset, sub-IFDs, and MakerNote blobs that must
-  be copied verbatim or dropped, never rewritten), then re-inject on encode. Injection difficulty is
-  per format and should be scoped per format: **JPEG** = splice an APP1 into Skia's output before the
-  first non-APPn marker, straightforward; **PNG** = add an `eXIf` chunk, straightforward; **WebP** =
-  EXIF lives in an extended-format (VP8X) RIFF container while Skia emits the simple form, so the
-  container has to be rewritten by hand - the same shape of problem as animated WebP in 5.1a;
-  **JXL/JP2** go through the native packs and each needs its own answer.
-
-**Licensing note, and this repo of all repos cares** (see LICENSE.MD / FORK.TXT - the fork exists
-*because* of a licence change): MetadataExtractor is Apache-2.0 and reads well, but it does not
-write. There is no comfortable permissively-licensed .NET EXIF *writer*; ExifTool is an external Perl
-process under Artistic/GPL and this app ships self-contained. Assume hand-rolled, and check the
-licence of anything pulled in before taking the dependency.
-
-**Build the privacy case explicitly:** "strip location only" is what most people actually want, and
-it is a one-tag delete once the IFD parser exists. Pair it with a 2.6 preset. **Estimate:** strip
-~half a session; read-and-display one; full edit with preserve-on-save is JPEG-first as a spike, then
-per format.
+The Metadata dialog supports full stripping or targeted editing. Targeted mode can remove only the
+GPS IFD and edit/clear existing Make, Model and capture-date tags. `MetadataEditor` rewrites the
+JPEG APP1, PNG `eXIf`, or WebP RIFF EXIF container without decoding pixels, preserves unedited EXIF
+(including opaque MakerNote bytes) and other metadata blocks, and repairs container lengths/CRCs.
+Smoke tests verify identical decoded pixels, retained IPTC/PNG text, GPS removal, longer replacement
+values and valid JPEG/PNG/WebP output. JXL/JP2 metadata writing remains format-pack work and was not
+part of this request.
 
 ### 2.9 - Art-platform export packages (`Integration plateformes art`) - local half **DONE 2026-08-24**, posting **Gated**
 
@@ -1441,29 +1462,18 @@ feature and an account integration, and only the first is a KawaPaint-sized prob
   *This paragraph is written from prior knowledge, not from any call made in this repo - verify the
   current API terms before treating it as settled.*
 
-### 5.1 - Animated GIF, and the animation model behind it (`Support gif animes`) - export **Clear-with-caveat**, timeline **Gated**
+### 5.1 - Animated formats and real timeline (`Support gif animes`) - **DONE 2026-08-25**
 
-Two very different asks share one line, and separating them is most of the value of this entry.
+`DocumentFrame` is a real frame axis with an independent layer stack, name and duration. All
+document transforms operate across it and `.kwp` v3 persists it with backwards loading for v1/v2.
+The editor has a horizontal timeline for selection, navigation, blank/duplicate/delete and duration.
+Animated GIF/APNG/WebP imports become frames instead of layers.
 
-- **5.1a - animated formats in and out.** *Decode:* Skia can walk GIF frames, but the codec contract
-  is single-surface by design - `Surface Decode(Stream)` (`Codecs/IImageCodec.cs:51`) - so multi-frame
-  needs an interface addition (`SupportsFrames` + `DecodeFrames`) that every existing codec then
-  ignores. *Encode:* GIF is registered `canEncode: false` (`Codecs/CodecRegistry.cs:33`) because Skia
-  does not encode GIF at all, so export means **writing the GIF encoder**: LZW, palette quantization
-  (median-cut or octree), dithering, frame disposal and delta rectangles. Well-documented, bounded,
-  roughly 400-600 lines, entirely CPU-side and 100% headless-testable - which suits this Engine well.
-  APNG is the easier neighbour (wrap Skia's per-frame PNG output in `acTL`/`fcTL`/`fdAT` chunks);
-  animated WebP needs the VP8X container written by hand, the same obstacle as WebP EXIF in 2.8.
-- **5.1b - the timeline** (the "Motionity / Affinity-package" half). `Document` is `Width`, `Height`,
-  `List<Layer>` (`Engine/Document.cs`) - there is no frame axis anywhere: not in `.kwp`
-  (`DocumentFile`), not in history (`TileDeltaMemento` keys off layer tiles), not in the layers panel,
-  not in `DocumentOps`. Two honest options: **layers-as-frames** (a per-document flag plus a per-layer
-  delay; no format break, gets animated export working immediately, and matches how GIF authoring
-  works in most raster editors), or a **real frame dimension** (touches the document model, the file
-  format, the history stack, every transform, and the entire UI - a subsystem on the scale of the
-  effect catalogue).
-  **Recommendation: build 5.1a on layers-as-frames now, and put the frame dimension in Open decisions
-  rather than assuming it.** Logged there.
+GIF export now uses a global adaptive median-cut palette, nearest-colour cache, Floyd-Steinberg
+dithering, transparency, per-frame timing, looping and the existing tested LZW writer. APNG export
+writes `acTL`/`fcTL`/`fdAT`; its decoder supports frame bounds, blending and disposal. Animated WebP
+export writes VP8X/ANIM/ANMF around Skia-encoded frame payloads, and Skia decodes it through the common
+frame-codec path. Round-trip smoke tests cover all three containers and `.kwp` timeline persistence.
 
 ### 5.2 - Android tablets and foldables (`Version mobile`) - port **Clear-with-caveat**, usable UI is multi-session
 
@@ -1523,13 +1533,14 @@ the estimate:
 
 1. ~~**2.6 export presets**~~ - **done 2026-08-24**.
 2. ~~**2.9 local half**~~ - **done 2026-08-24**; direct posting remains gated.
-3. ~~**2.8 strip** (including the no-re-encode JPEG path)~~ - **done 2026-08-24**, took about the
-   estimated half session. The edit half remains.
+3. ~~**2.8 strip/edit/preserve**~~ - strip **done 2026-08-24**; targeted editing, GPS-only removal
+   and JPEG/PNG/WebP preservation **done 2026-08-25**.
 4. ~~**2.7 mail merge**~~ - **done 2026-08-24** as persistent dynamic canvas zones; no script-v2
    dependency after the clarified use case.
 5. ~~**Demo parameter capture**~~ - **done 2026-08-24**, with a backward-compatible v2 stream.
 6. **2.5 tablet support** - as soon as there is a tablet on the box to spike against.
-7. **5.1a animated GIF** on layers-as-frames.
+7. ~~**5.1 animation**~~ - adaptive/dithered GIF, APNG, animated WebP and the real timeline are
+   **done 2026-08-25**.
 8. **5.2 Android head**, then its UI, once there is a device or emulator.
 9. **5.3(a) 3D reference layer**, if the scoping question comes back as (a).
 

@@ -142,6 +142,9 @@ public sealed class WorkspaceSettings
 
     public bool ShowRulers { get; set; } = true;
 
+    /// <summary>Show composited thumbnails in timeline frame cards.</summary>
+    public bool ShowFramePreviews { get; set; } = true;
+
     [JsonConverter(typeof(JsonStringEnumConverter<RulerUnit>))]
     public RulerUnit RulerUnit { get; set; } = RulerUnit.Pixels;
 

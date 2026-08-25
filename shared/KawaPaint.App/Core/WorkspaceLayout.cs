@@ -79,6 +79,8 @@ public sealed class WorkspaceLayout
                 : descriptor.DefaultPlace,
             FloatX = descriptor.DefaultFloatX,
             FloatY = descriptor.DefaultFloatY,
+            FloatWidth = descriptor.DefaultFloatWidth,
+            FloatHeight = descriptor.DefaultFloatHeight,
             DockSize = descriptor.DefaultDockSize
         };
         Panels[descriptor.Id] = created;

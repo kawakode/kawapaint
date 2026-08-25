@@ -78,6 +78,14 @@ public static class BrushOps
     public static void DrawLine(Surface s, double x0, double y0, double x1, double y1, int radius,
                                 ColorBgra color, StampMode mode = StampMode.Blend, bool antialias = false)
     {
+        if (mode == StampMode.Blend)
+        {
+            var stroke = new SoftBrushStroke(s.Width, s.Height);
+            stroke.DabLine(x0, y0, x1, y1, Math.Max(0.5, radius), 1, antialias);
+            stroke.Flush(s, s, color);
+            return;
+        }
+
         double dx = x1 - x0;
         double dy = y1 - y0;
         double dist = Math.Sqrt(dx * dx + dy * dy);
@@ -251,7 +259,7 @@ public sealed class SoftBrushStroke
     /// radius) to 1 (solid to the rim, with a single antialiased pixel of edge - the same edge the
     /// hard brush's antialiased path draws, so the two tools agree at hardness 1).
     /// </summary>
-    public void Dab(double cx, double cy, double radius, double hardness)
+    public void Dab(double cx, double cy, double radius, double hardness, bool antialias = true)
     {
         if (_mask.Length == 0) return;
 
@@ -274,7 +282,8 @@ public sealed class SoftBrushStroke
             for (int x = x0; x <= x1; x++)
             {
                 double dx = x - cx;
-                double t = (outer - Math.Sqrt(dx * dx + dy * dy)) / falloff;
+                double distance = Math.Sqrt(dx * dx + dy * dy);
+                double t = antialias ? (outer - distance) / falloff : (distance <= radius ? 1 : 0);
                 if (t <= 0) continue;
 
                 if (t >= 1) t = 1;
@@ -295,7 +304,8 @@ public sealed class SoftBrushStroke
     /// <summary>Dabs along the segment from (x0,y0) to (x1,y1). Spacing is a quarter of the radius
     /// rather than the hard brush's half: a soft dab contributes much less at its rim, so sparser
     /// spacing shows as scalloping along the stroke.</summary>
-    public void DabLine(double x0, double y0, double x1, double y1, double radius, double hardness)
+    public void DabLine(double x0, double y0, double x1, double y1, double radius, double hardness,
+        bool antialias = true)
     {
         double dx = x1 - x0, dy = y1 - y0;
         double dist = Math.Sqrt(dx * dx + dy * dy);
@@ -305,7 +315,7 @@ public sealed class SoftBrushStroke
         for (int i = 0; i <= steps; i++)
         {
             double t = (double)i / steps;
-            Dab(x0 + dx * t, y0 + dy * t, radius, hardness);
+            Dab(x0 + dx * t, y0 + dy * t, radius, hardness, antialias);
         }
     }
 

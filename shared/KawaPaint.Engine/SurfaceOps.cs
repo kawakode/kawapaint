@@ -1,5 +1,7 @@
 // KawaPaint - misc whole-surface operations.
 
+using System.Runtime.InteropServices;
+
 namespace KawaPaint.Engine;
 
 public static class SurfaceOps
@@ -29,13 +31,27 @@ public static class SurfaceOps
     public static unsafe Surface Rotate90(Surface s, bool clockwise)
     {
         var dst = new Surface(s.Height, s.Width);
-        for (int y = 0; y < s.Height; y++)
+        const int TileSize = 32;
+        ColorBgra* source = (ColorBgra*)s.Scan0;
+        ColorBgra* destination = (ColorBgra*)dst.Scan0;
+        int sourceStride = s.Stride / ColorBgra.SizeOf;
+        int destinationStride = dst.Stride / ColorBgra.SizeOf;
+
+        // A tiled transpose keeps both the source reads and stride-jumping destination writes in
+        // cache. The old indexer also performed two bounds checks for every pixel.
+        for (int tileY = 0; tileY < s.Height; tileY += TileSize)
+        for (int tileX = 0; tileX < s.Width; tileX += TileSize)
         {
-            ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
-            for (int x = 0; x < s.Width; x++)
+            int endY = Math.Min(tileY + TileSize, s.Height);
+            int endX = Math.Min(tileX + TileSize, s.Width);
+            for (int x = tileX; x < endX; x++)
+            for (int y = tileY; y < endY; y++)
             {
-                if (clockwise) dst[s.Height - 1 - y, x] = row[x];
-                else dst[y, s.Width - 1 - x] = row[x];
+                ColorBgra value = source[y * sourceStride + x];
+                if (clockwise)
+                    destination[x * destinationStride + s.Height - 1 - y] = value;
+                else
+                    destination[(s.Width - 1 - x) * destinationStride + y] = value;
             }
         }
         return dst;
@@ -45,21 +61,21 @@ public static class SurfaceOps
     public static unsafe void ShiftInto(Surface dst, Surface src, int dx, int dy)
     {
         dst.Clear(ColorBgra.Transparent);
-        int w = src.Width, h = src.Height;
+        int srcX = Math.Max(0, -dx);
+        int srcY = Math.Max(0, -dy);
+        int dstX = Math.Max(0, dx);
+        int dstY = Math.Max(0, dy);
+        int copyWidth = Math.Min(src.Width - srcX, dst.Width - dstX);
+        int copyHeight = Math.Min(src.Height - srcY, dst.Height - dstY);
 
-        for (int sy = 0; sy < h; sy++)
+        if (copyWidth <= 0 || copyHeight <= 0) return;
+
+        nuint rowBytes = checked((nuint)copyWidth * ColorBgra.SizeOf);
+        for (int row = 0; row < copyHeight; row++)
         {
-            int ty = sy + dy;
-            if ((uint)ty >= (uint)dst.Height) continue;
-
-            ColorBgra* srcRow = (ColorBgra*)src.GetRowPointer(sy);
-            ColorBgra* dstRow = (ColorBgra*)dst.GetRowPointer(ty);
-            for (int sx = 0; sx < w; sx++)
-            {
-                int tx = sx + dx;
-                if ((uint)tx < (uint)dst.Width)
-                    dstRow[tx] = srcRow[sx];
-            }
+            void* source = src.GetRowPointer(srcY + row) + (long)srcX * ColorBgra.SizeOf;
+            void* destination = dst.GetRowPointer(dstY + row) + (long)dstX * ColorBgra.SizeOf;
+            NativeMemory.Copy(source, destination, rowBytes);
         }
     }
 

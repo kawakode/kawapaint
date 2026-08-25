@@ -2,6 +2,7 @@
 // with zoom/pan, paints the pencil onto the active layer, and records undo/redo history.
 
 using System;
+using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -19,6 +20,7 @@ public sealed class SurfaceView : Control
     private Document? _document;
     private Surface? _composite;
     private WriteableBitmap? _bitmap;
+    private readonly Dictionary<DocumentFrame, int> _frameContentVersions = new();
 
     // Bumped every time a different document (or a crop/resize/rotate/flatten result) is adopted.
     // Tools that anchor state to image coordinates across gestures - Clone Stamp's source point -
@@ -27,6 +29,7 @@ public sealed class SurfaceView : Control
 
     private int _antPhase;
     private DispatcherTimer? _antTimer;
+    private StreamGeometry[] _antGeometry = Array.Empty<StreamGeometry>();
 
     public Selection? Selection { get; private set; }
 
@@ -126,6 +129,8 @@ public sealed class SurfaceView : Control
 
         _documentVersion++;
         _document = document;
+        _frameContentVersions.Clear();
+        foreach (DocumentFrame frame in document.Frames) _frameContentVersions[frame] = 0;
         ActiveLayer = document.LayerCount > 0 ? document.Layers[^1] : document.AddLayer();
         _composite = new Surface(document.Width, document.Height);
         Selection = new Selection(document.Width, document.Height);
@@ -137,7 +142,7 @@ public sealed class SurfaceView : Control
 
         NotifySelectionChanged();   // stops the marching-ants timer for the discarded selection
         _fitPending = true;
-        RenderComposite();
+        RenderCompositeCore(contentChanged: false);
         InvalidateVisual();
         DocumentChanged?.Invoke(this, EventArgs.Empty);
         return old;
@@ -166,25 +171,52 @@ public sealed class SurfaceView : Control
     /// </summary>
     public int CompositeVersion { get; private set; }
 
+    /// <summary>Preview-cache key that is stable while frames are merely selected or played.</summary>
+    public int FrameContentVersion(DocumentFrame frame) =>
+        _frameContentVersions.TryGetValue(frame, out int version) ? version : 0;
+
     /// <summary>Re-flattens the document and pushes the result to the display bitmap.</summary>
-    public void RenderComposite()
+    public void RenderComposite() => RenderCompositeCore(contentChanged: true);
+
+    private void RenderCompositeCore(bool contentChanged)
     {
         if (_document is null || _composite is null) return;
         CompositeVersion++;
+        if (contentChanged)
+            _frameContentVersions[_document.ActiveFrame] = FrameContentVersion(_document.ActiveFrame) + 1;
         _document.RenderTo(_composite);
         RefreshBitmap();
     }
 
+    /// <summary>Re-flattens and uploads only a changed canvas rectangle.</summary>
+    public void RenderComposite(int x, int y, int width, int height)
+    {
+        if (_document is null || _composite is null || width <= 0 || height <= 0) return;
+        int left = Math.Clamp(x, 0, _document.Width);
+        int top = Math.Clamp(y, 0, _document.Height);
+        int right = (int)Math.Clamp((long)x + width, 0, _document.Width);
+        int bottom = (int)Math.Clamp((long)y + height, 0, _document.Height);
+        if (right <= left || bottom <= top) return;
+        CompositeVersion++;
+        _frameContentVersions[_document.ActiveFrame] = FrameContentVersion(_document.ActiveFrame) + 1;
+        _document.RenderTo(_composite, left, top, right - left, bottom - top);
+        RefreshBitmap(left, top, right - left, bottom - top);
+    }
+
     private unsafe void RefreshBitmap()
+        => RefreshBitmap(0, 0, _composite?.Width ?? 0, _composite?.Height ?? 0);
+
+    private unsafe void RefreshBitmap(int x, int y, int width, int height)
     {
         if (_composite is null || _bitmap is null) return;
         using ILockedFramebuffer fb = _bitmap.Lock();
-        int rowBytes = _composite.Width * ColorBgra.SizeOf;
+        int rowBytes = width * ColorBgra.SizeOf;
         byte* dst = (byte*)fb.Address;
-        for (int y = 0; y < _composite.Height; y++)
+        for (int row = y; row < y + height; row++)
         {
-            byte* src = _composite.GetRowPointer(y);
-            System.Buffer.MemoryCopy(src, dst + (long)y * fb.RowBytes, fb.RowBytes, rowBytes);
+            byte* src = _composite.GetRowPointer(row) + (long)x * ColorBgra.SizeOf;
+            byte* target = dst + (long)row * fb.RowBytes + (long)x * ColorBgra.SizeOf;
+            System.Buffer.MemoryCopy(src, target, rowBytes, rowBytes);
         }
     }
 
@@ -192,6 +224,7 @@ public sealed class SurfaceView : Control
     public void NotifySelectionChanged()
     {
         bool active = Selection is { IsActive: true };
+        RebuildMarchingAntGeometry();
 
         if (active && _antTimer is null)
         {
@@ -212,6 +245,12 @@ public sealed class SurfaceView : Control
     {
         if (Selection is { IsActive: true } && ActiveLayer is not null && _preStroke is not null)
             Selection.Clip(ActiveLayer.Surface, _preStroke);
+    }
+
+    private void ClipToSelection(int x, int y, int width, int height)
+    {
+        if (Selection is { IsActive: true } && ActiveLayer is not null && _preStroke is not null)
+            Selection.Clip(ActiveLayer.Surface, _preStroke, x, y, width, height);
     }
 
     public void Undo()
@@ -275,6 +314,7 @@ public sealed class SurfaceView : Control
     private static readonly IBrush Backdrop = new SolidColorBrush(Color.FromRgb(0x30, 0x30, 0x30));
     private static readonly IBrush CheckLight = new SolidColorBrush(Color.FromRgb(0xC0, 0xC0, 0xC0));
     private static readonly IBrush CheckDark = new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80));
+    private static readonly IBrush Checkerboard = CreateCheckerboardBrush();
     private static readonly IBrush AntBlack = new SolidColorBrush(Colors.Black);
     private static readonly IBrush AntWhite = new SolidColorBrush(Colors.White);
     private static readonly IPen EdgePen = new Pen(Brushes.Black, 1);
@@ -305,9 +345,7 @@ public sealed class SurfaceView : Control
         double w = _composite.Width * _zoom;
         double h = _composite.Height * _zoom;
         var dest = new Rect(_origin.X, _origin.Y, w, h);
-        var viewport = new Rect(Bounds.Size);
-
-        DrawCheckerboard(context, dest, viewport);
+        DrawCheckerboard(context, dest);
         context.DrawImage(_bitmap, new Rect(0, 0, _composite.Width, _composite.Height), dest);
 
         if (Selection is { IsActive: true } sel)
@@ -350,63 +388,112 @@ public sealed class SurfaceView : Control
 
     private void DrawMarchingAnts(DrawingContext context, Selection sel)
     {
-        var mask = sel.Mask;
-        int w = sel.Width, h = sel.Height;
-
-        // Only walk the pixels currently on screen, and - when zoomed out far enough that many
-        // image pixels share one screen pixel - sample every Nth so the cost stays bound to the
-        // viewport instead of the image size.
-        int step = Math.Max(1, (int)Math.Ceiling(1.0 / _zoom));
-        double size = Math.Max(1.0, _zoom * step);
-
-        int xMin = Math.Max(0, (int)Math.Floor(-_origin.X / _zoom));
-        int xMax = Math.Min(w - 1, (int)Math.Ceiling((Bounds.Width - _origin.X) / _zoom));
-        int yMin = Math.Max(0, (int)Math.Floor(-_origin.Y / _zoom));
-        int yMax = Math.Min(h - 1, (int)Math.Ceiling((Bounds.Height - _origin.Y) / _zoom));
-
-        for (int y = yMin; y <= yMax; y += step)
+        if (_antGeometry.Length == 0) return;
+        using (context.PushTransform(new Matrix(_zoom, 0, 0, _zoom, _origin.X, _origin.Y)))
         {
-            for (int x = xMin; x <= xMax; x += step)
+            for (int group = 0; group < _antGeometry.Length; group++)
             {
-                int idx = y * w + x;
-                if (mask[idx] == 0) continue;
-
-                // Boundary pixel: a selected pixel touching an unselected one (or the image edge).
-                bool interior = x > 0 && x < w - 1 && y > 0 && y < h - 1
-                    && mask[idx - 1] != 0 && mask[idx + 1] != 0
-                    && mask[idx - w] != 0 && mask[idx + w] != 0;
-                if (interior) continue;
-
-                var brush = (((x + y + _antPhase) >> 2) & 1) == 0 ? AntBlack : AntWhite;
-                context.FillRectangle(brush, new Rect(_origin.X + x * _zoom, _origin.Y + y * _zoom, size, size));
+                IBrush brush = (((group + _antPhase) >> 2) & 1) == 0 ? AntBlack : AntWhite;
+                context.DrawGeometry(brush, null, _antGeometry[group]);
             }
         }
     }
 
-    private static void DrawCheckerboard(DrawingContext context, Rect dest, Rect viewport)
+    /// <summary>Switches the editable layer stack to another animation frame.</summary>
+    public void SetActiveFrame(int index)
     {
-        const int cell = 8;
-
-        // Cells are only emitted for the on-screen part of the canvas: at high zoom the canvas
-        // rect is far larger than the window, and tiling all of it would stall the render thread.
-        Rect vis = dest.Intersect(viewport);
-        if (vis.Width <= 0 || vis.Height <= 0) return;
-
-        context.FillRectangle(CheckLight, vis);
-
-        int x0 = (int)Math.Floor((vis.X - dest.X) / cell);
-        int x1 = (int)Math.Ceiling((vis.Right - dest.X) / cell);
-        int y0 = (int)Math.Floor((vis.Y - dest.Y) / cell);
-        int y1 = (int)Math.Ceiling((vis.Bottom - dest.Y) / cell);
-
-        using (context.PushClip(vis))
+        if (_document is null) return;
+        bool changed = index != _document.ActiveFrameIndex;
+        _document.SetActiveFrame(index);
+        ActiveLayer = _document.LayerCount > 0 ? _document.Layers[^1] : _document.AddLayer();
+        if (changed)
         {
-            for (int y = y0; y < y1; y++)
-                for (int x = x0; x < x1; x++)
-                    if (((x + y) & 1) != 0)
-                        context.FillRectangle(CheckDark, new Rect(dest.X + x * cell, dest.Y + y * cell, cell, cell));
+            Selection?.SelectNone();
+            NotifySelectionChanged();
         }
+        RenderCompositeCore(contentChanged: false);
+        InvalidateVisual();
+        DocumentChanged?.Invoke(this, EventArgs.Empty);
     }
+
+    private void RebuildMarchingAntGeometry()
+    {
+        if (Selection is not { IsActive: true } selection)
+        {
+            _antGeometry = Array.Empty<StreamGeometry>();
+            return;
+        }
+
+        var geometry = new StreamGeometry[8];
+        var writers = new StreamGeometryContext[8];
+        for (int i = 0; i < geometry.Length; i++)
+        {
+            geometry[i] = new StreamGeometry();
+            writers[i] = geometry[i].Open();
+            writers[i].SetFillRule(FillRule.NonZero);
+        }
+
+        try
+        {
+            ReadOnlySpan<byte> mask = selection.Mask;
+            int width = selection.Width, height = selection.Height;
+            for (int y = 0; y < height; y++)
+            for (int x = 0; x < width; x++)
+            {
+                int index = y * width + x;
+                if (mask[index] == 0) continue;
+                bool interior = x > 0 && x < width - 1 && y > 0 && y < height - 1
+                    && mask[index - 1] != 0 && mask[index + 1] != 0
+                    && mask[index - width] != 0 && mask[index + width] != 0;
+                if (interior) continue;
+
+                StreamGeometryContext writer = writers[(x + y) & 7];
+                writer.BeginFigure(new Point(x, y), true);
+                writer.LineTo(new Point(x + 1, y));
+                writer.LineTo(new Point(x + 1, y + 1));
+                writer.LineTo(new Point(x, y + 1));
+                writer.EndFigure(true);
+            }
+        }
+        finally
+        {
+            foreach (StreamGeometryContext writer in writers) writer.Dispose();
+        }
+        _antGeometry = geometry;
+    }
+
+    private static IBrush CreateCheckerboardBrush()
+    {
+        var drawing = new DrawingGroup();
+        drawing.Children.Add(new GeometryDrawing
+        {
+            Brush = CheckLight,
+            Geometry = new RectangleGeometry(new Rect(0, 0, 16, 16))
+        });
+        drawing.Children.Add(new GeometryDrawing
+        {
+            Brush = CheckDark,
+            Geometry = new RectangleGeometry(new Rect(8, 0, 8, 8))
+        });
+        drawing.Children.Add(new GeometryDrawing
+        {
+            Brush = CheckDark,
+            Geometry = new RectangleGeometry(new Rect(0, 8, 8, 8))
+        });
+
+        return new DrawingBrush(drawing)
+        {
+            SourceRect = new RelativeRect(0, 0, 16, 16, RelativeUnit.Absolute),
+            DestinationRect = new RelativeRect(0, 0, 16, 16, RelativeUnit.Absolute),
+            Stretch = Stretch.None,
+            TileMode = TileMode.Tile,
+            AlignmentX = AlignmentX.Left,
+            AlignmentY = AlignmentY.Top
+        };
+    }
+
+    private static void DrawCheckerboard(DrawingContext context, Rect dest) =>
+        context.FillRectangle(Checkerboard, dest);
 
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
     {
@@ -610,6 +697,12 @@ public sealed class SurfaceView : Control
                     _pendingHistoryName = CurrentTool.Name;
                 },
                 Composite = () => { ClipToSelection(); RenderComposite(); InvalidateVisual(); },
+                CompositeRect = (x, y, width, height) =>
+                {
+                    ClipToSelection(x, y, width, height);
+                    RenderComposite(x, y, width, height);
+                    InvalidateVisual();
+                },
                 SampleComposite = (x, y) =>
                     (uint)x < (uint)_composite.Width && (uint)y < (uint)_composite.Height
                         ? _composite[x, y] : ColorBgra.Transparent,

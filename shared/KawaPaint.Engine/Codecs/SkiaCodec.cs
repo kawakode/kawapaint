@@ -11,7 +11,7 @@ using SkiaSharp;
 
 namespace KawaPaint.Engine.Codecs;
 
-public class SkiaCodec : IImageCodec
+public class SkiaCodec : IFrameImageCodec
 {
     private readonly byte[][] _signatures;
     private bool? _available;
@@ -66,6 +66,55 @@ public class SkiaCodec : IImageCodec
     }
 
     public virtual Surface Decode(Stream stream) => Surface.Decode(stream);
+
+    public virtual unsafe IReadOnlyList<DecodedImageFrame> DecodeFrames(Stream stream)
+    {
+        using var codec = SKCodec.Create(stream)
+            ?? throw new InvalidOperationException($"could not decode {DisplayName} stream");
+        int frameCount = Math.Max(1, codec.FrameCount);
+        SKCodecFrameInfo[] frameInfo = codec.FrameInfo;
+        var result = new List<DecodedImageFrame>(frameCount);
+        var outputInfo = new SKImageInfo(codec.Info.Width, codec.Info.Height,
+            SKColorType.Bgra8888, SKAlphaType.Unpremul);
+        try
+        {
+            for (int index = 0; index < frameCount; index++)
+            {
+                var surface = new Surface(outputInfo.Width, outputInfo.Height);
+                // Reuse an already composited predecessor. Passing -1 for every frame makes Skia
+                // replay the animation from its required frame repeatedly and is quadratic.
+                int priorFrame = FindReusablePriorFrame(index, frameInfo);
+                if (priorFrame >= 0) surface.CopyFrom(result[priorFrame].Surface);
+                SKCodecResult status = codec.GetPixels(outputInfo, surface.Scan0,
+                    new SKCodecOptions(index, priorFrame));
+                if (status != SKCodecResult.Success && status != SKCodecResult.IncompleteInput)
+                {
+                    surface.Dispose();
+                    throw new InvalidOperationException($"could not decode {DisplayName} frame {index + 1} ({status})");
+                }
+                int duration = index < frameInfo.Length ? Math.Max(0, frameInfo[index].Duration) : 0;
+                result.Add(new DecodedImageFrame(surface, duration));
+            }
+            return result;
+        }
+        catch
+        {
+            foreach (DecodedImageFrame frame in result) frame.Surface.Dispose();
+            throw;
+        }
+    }
+
+    private static int FindReusablePriorFrame(int frameIndex, SKCodecFrameInfo[] info)
+    {
+        if (frameIndex <= 0 || frameIndex >= info.Length) return -1;
+        int required = info[frameIndex].RequiredFrame;
+        if (required < 0) return -1;
+        for (int candidate = frameIndex - 1; candidate >= required; candidate--)
+            if (candidate >= info.Length ||
+                info[candidate].DisposalMethod != SKCodecAnimationDisposalMethod.RestorePrevious)
+                return candidate;
+        return -1;
+    }
 
     public virtual void Encode(Surface surface, Stream stream, EncodeOptions options)
     {

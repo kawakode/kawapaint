@@ -13,39 +13,43 @@ public static class FloodFill
         if (target == fill && tolerance == 0) return;
 
         int w = s.Width, h = s.Height;
-        var visited = new bool[w * h];
+        var visited = new uint[(checked(w * h) + 31) / 32];
         var stack = new Stack<(int x, int y)>();
         stack.Push((seedX, seedY));
 
         while (stack.Count > 0)
         {
             var (x, y) = stack.Pop();
+            int rowBase = y * w;
+            ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
 
             // Walk left to the run start.
             int xl = x;
-            while (xl >= 0 && !visited[y * w + xl] && Match(((ColorBgra*)s.GetRowPointer(y))[xl], target, tolerance))
+            while (xl >= 0 && !IsVisited(visited, rowBase + xl) && Match(row[xl], target, tolerance))
                 xl--;
             xl++;
 
             bool spanAbove = false, spanBelow = false;
-            ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
+            int aboveBase = rowBase - w, belowBase = rowBase + w;
+            ColorBgra* above = y > 0 ? (ColorBgra*)s.GetRowPointer(y - 1) : null;
+            ColorBgra* below = y < h - 1 ? (ColorBgra*)s.GetRowPointer(y + 1) : null;
 
             for (int xr = xl; xr < w; xr++)
             {
-                if (visited[y * w + xr] || !Match(row[xr], target, tolerance)) break;
+                if (IsVisited(visited, rowBase + xr) || !Match(row[xr], target, tolerance)) break;
 
                 row[xr] = fill;
-                visited[y * w + xr] = true;
+                MarkVisited(visited, rowBase + xr);
 
-                if (y > 0)
+                if (above != null)
                 {
-                    bool m = Match(((ColorBgra*)s.GetRowPointer(y - 1))[xr], target, tolerance) && !visited[(y - 1) * w + xr];
+                    bool m = Match(above[xr], target, tolerance) && !IsVisited(visited, aboveBase + xr);
                     if (m && !spanAbove) { stack.Push((xr, y - 1)); spanAbove = true; }
                     else if (!m) spanAbove = false;
                 }
-                if (y < h - 1)
+                if (below != null)
                 {
-                    bool m = Match(((ColorBgra*)s.GetRowPointer(y + 1))[xr], target, tolerance) && !visited[(y + 1) * w + xr];
+                    bool m = Match(below[xr], target, tolerance) && !IsVisited(visited, belowBase + xr);
                     if (m && !spanBelow) { stack.Push((xr, y + 1)); spanBelow = true; }
                     else if (!m) spanBelow = false;
                 }
@@ -77,38 +81,42 @@ public static class FloodFill
 
         ColorBgra target = s[seedX, seedY];
         int w = s.Width, h = s.Height;
-        var visited = new bool[w * h];
+        var visited = new uint[(checked(w * h) + 31) / 32];
         var stack = new Stack<(int x, int y)>();
         stack.Push((seedX, seedY));
 
         while (stack.Count > 0)
         {
             var (x, y) = stack.Pop();
+            int rowBase = y * w;
+            ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
 
             int xl = x;
-            while (xl >= 0 && !visited[y * w + xl] && Match(((ColorBgra*)s.GetRowPointer(y))[xl], target, tolerance))
+            while (xl >= 0 && !IsVisited(visited, rowBase + xl) && Match(row[xl], target, tolerance))
                 xl--;
             xl++;
 
             bool spanAbove = false, spanBelow = false;
-            ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
+            int aboveBase = rowBase - w, belowBase = rowBase + w;
+            ColorBgra* above = y > 0 ? (ColorBgra*)s.GetRowPointer(y - 1) : null;
+            ColorBgra* below = y < h - 1 ? (ColorBgra*)s.GetRowPointer(y + 1) : null;
 
             for (int xr = xl; xr < w; xr++)
             {
-                if (visited[y * w + xr] || !Match(row[xr], target, tolerance)) break;
+                if (IsVisited(visited, rowBase + xr) || !Match(row[xr], target, tolerance)) break;
 
                 selection.Select(xr, y);
-                visited[y * w + xr] = true;
+                MarkVisited(visited, rowBase + xr);
 
-                if (y > 0)
+                if (above != null)
                 {
-                    bool m = Match(((ColorBgra*)s.GetRowPointer(y - 1))[xr], target, tolerance) && !visited[(y - 1) * w + xr];
+                    bool m = Match(above[xr], target, tolerance) && !IsVisited(visited, aboveBase + xr);
                     if (m && !spanAbove) { stack.Push((xr, y - 1)); spanAbove = true; }
                     else if (!m) spanAbove = false;
                 }
-                if (y < h - 1)
+                if (below != null)
                 {
-                    bool m = Match(((ColorBgra*)s.GetRowPointer(y + 1))[xr], target, tolerance) && !visited[(y + 1) * w + xr];
+                    bool m = Match(below[xr], target, tolerance) && !IsVisited(visited, belowBase + xr);
                     if (m && !spanBelow) { stack.Push((xr, y + 1)); spanBelow = true; }
                     else if (!m) spanBelow = false;
                 }
@@ -136,4 +144,10 @@ public static class FloodFill
             && Math.Abs(a.R - b.R) <= tol
             && Math.Abs(a.A - b.A) <= tol;
     }
+
+    private static bool IsVisited(uint[] bits, int index) =>
+        (bits[index >> 5] & (1u << (index & 31))) != 0;
+
+    private static void MarkVisited(uint[] bits, int index) =>
+        bits[index >> 5] |= 1u << (index & 31);
 }

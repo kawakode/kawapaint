@@ -42,6 +42,8 @@ public sealed class PanelDescriptor
 
     public double DefaultFloatX { get; init; } = 60;
     public double DefaultFloatY { get; init; } = 60;
+    public double DefaultFloatWidth { get; init; } = double.NaN;
+    public double DefaultFloatHeight { get; init; } = double.NaN;
 
     /// <summary>
     /// Floor for interactive resizing. The effective minimum is the larger of this and the

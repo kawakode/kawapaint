@@ -34,11 +34,53 @@ public abstract class PerPixelEffect : IEffect
     }
 }
 
-public sealed class InvertEffect : PerPixelEffect
+/// <summary>Base for independent per-channel transforms. Building the 256 possible results once
+/// avoids a virtual call and repeated arithmetic for every pixel.</summary>
+public abstract class LutEffect : IEffect
 {
+    private readonly byte[] _blue;
+    private readonly byte[] _green;
+    private readonly byte[] _red;
+
+    protected LutEffect(byte[] lut) : this(lut, lut, lut) { }
+
+    protected LutEffect(byte[] blue, byte[] green, byte[] red)
+    {
+        if (blue.Length != 256 || green.Length != 256 || red.Length != 256)
+            throw new ArgumentException("Each LUT must have 256 entries.");
+        _blue = blue;
+        _green = green;
+        _red = red;
+    }
+
+    public abstract string Name { get; }
+
+    public unsafe void Apply(Surface surface)
+    {
+        int width = surface.Width;
+        Parallel.For(0, surface.Height, y =>
+        {
+            ColorBgra* row = (ColorBgra*)surface.GetRowPointer(y);
+            for (int x = 0; x < width; x++)
+            {
+                ColorBgra color = row[x];
+                row[x] = ColorBgra.FromBgra(_blue[color.B], _green[color.G], _red[color.R], color.A);
+            }
+        });
+    }
+}
+
+public sealed class InvertEffect : LutEffect
+{
+    public InvertEffect() : base(BuildLut()) { }
     public override string Name => "Invert Colors";
-    protected override ColorBgra Transform(ColorBgra c)
-        => ColorBgra.FromBgra((byte)(255 - c.B), (byte)(255 - c.G), (byte)(255 - c.R), c.A);
+
+    private static byte[] BuildLut()
+    {
+        var lut = new byte[256];
+        for (int value = 0; value < lut.Length; value++) lut[value] = (byte)(255 - value);
+        return lut;
+    }
 }
 
 public sealed class GrayscaleEffect : PerPixelEffect
@@ -64,62 +106,49 @@ public sealed class SepiaEffect : PerPixelEffect
     }
 }
 
-public sealed class BrightnessContrastEffect : PerPixelEffect
+public sealed class BrightnessContrastEffect : LutEffect
 {
-    private readonly int _brightness;
-    private readonly double _contrast;
-
     /// <param name="brightness">[-255,255] added per channel.</param>
     /// <param name="contrast">multiplier around mid-gray (1.0 = no change).</param>
-    public BrightnessContrastEffect(int brightness, double contrast)
-    {
-        _brightness = brightness;
-        _contrast = contrast;
-    }
+    public BrightnessContrastEffect(int brightness, double contrast) : base(BuildLut(brightness, contrast)) { }
 
     public override string Name => "Brightness / Contrast";
 
-    protected override ColorBgra Transform(ColorBgra c)
+    private static byte[] BuildLut(int brightness, double contrast)
     {
-        byte Adj(int v) => Clamp.B((v - 128) * _contrast + 128 + _brightness);
-        return ColorBgra.FromBgra(Adj(c.B), Adj(c.G), Adj(c.R), c.A);
+        var lut = new byte[256];
+        for (int value = 0; value < lut.Length; value++)
+            lut[value] = Clamp.B((value - 128) * contrast + 128 + brightness);
+        return lut;
     }
 }
 
 /// <summary>Applies a 256-entry tone curve LUT to the R, G, B channels.</summary>
-public sealed class CurvesEffect : PerPixelEffect
+public sealed class CurvesEffect : LutEffect
 {
-    private readonly byte[] _lut;
     public override string Name => "Curves";
 
-    public CurvesEffect(byte[] lut256)
-    {
-        if (lut256.Length != 256) throw new ArgumentException("LUT must have 256 entries");
-        _lut = lut256;
-    }
-
-    protected override ColorBgra Transform(ColorBgra c)
-        => ColorBgra.FromBgra(_lut[c.B], _lut[c.G], _lut[c.R], c.A);
+    public CurvesEffect(byte[] lut256) : base(lut256) { }
 }
 
 /// <summary>Posterize: reduce each channel to N levels.</summary>
-public sealed class PosterizeEffect : PerPixelEffect
+public sealed class PosterizeEffect : LutEffect
 {
-    private readonly byte[] _lut = new byte[256];
     public override string Name => "Posterize";
 
-    public PosterizeEffect(int levels)
+    public PosterizeEffect(int levels) : base(BuildLut(levels)) { }
+
+    private static byte[] BuildLut(int levels)
     {
         levels = Math.Clamp(levels, 2, 256);
+        var lut = new byte[256];
         for (int v = 0; v < 256; v++)
         {
             int q = v * (levels - 1) / 255;          // bucket
-            _lut[v] = (byte)(q * 255 / (levels - 1)); // back to 0..255
+            lut[v] = (byte)(q * 255 / (levels - 1)); // back to 0..255
         }
+        return lut;
     }
-
-    protected override ColorBgra Transform(ColorBgra c)
-        => ColorBgra.FromBgra(_lut[c.B], _lut[c.G], _lut[c.R], c.A);
 }
 
 /// <summary>Adds uniform random noise (+/- amount) to each channel.</summary>
@@ -140,28 +169,28 @@ public sealed class NoiseEffect : PerPixelEffect
 }
 
 /// <summary>Levels: remap each channel through input black/white points and gamma.</summary>
-public sealed class LevelsEffect : PerPixelEffect
+public sealed class LevelsEffect : LutEffect
 {
-    private readonly byte[] _lut = new byte[256];
     public override string Name => "Levels";
 
-    public LevelsEffect(int inBlack, int inWhite, double gamma)
+    public LevelsEffect(int inBlack, int inWhite, double gamma) : base(BuildLut(inBlack, inWhite, gamma)) { }
+
+    private static byte[] BuildLut(int inBlack, int inWhite, double gamma)
     {
         inBlack = Math.Clamp(inBlack, 0, 254);
         inWhite = Math.Clamp(inWhite, inBlack + 1, 255);
         double invGamma = 1.0 / Math.Max(0.01, gamma);
         double range = inWhite - inBlack;
+        var lut = new byte[256];
 
         for (int v = 0; v < 256; v++)
         {
             double t = (v - inBlack) / range;
             t = t < 0 ? 0 : t > 1 ? 1 : t;
-            _lut[v] = Clamp.B(Math.Pow(t, invGamma) * 255);
+            lut[v] = Clamp.B(Math.Pow(t, invGamma) * 255);
         }
+        return lut;
     }
-
-    protected override ColorBgra Transform(ColorBgra c)
-        => ColorBgra.FromBgra(_lut[c.B], _lut[c.G], _lut[c.R], c.A);
 }
 
 /// <summary>Auto levels: stretch each channel's used range to full [0,255].</summary>

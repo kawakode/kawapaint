@@ -27,6 +27,8 @@ public static class MetadataSmokeTest
         ColorProfilePolicy();
         PngRoundTrip();
         WebPExtendedContainer();
+        TargetedExifEditingPreservesPixelsAndOtherMetadata();
+        ExportExifPreservation();
         MalformedInputRefuses();
         RealPhotoIfAvailable();
 
@@ -125,6 +127,66 @@ public static class MetadataSmokeTest
         Expect(stripped[20] == 0, $"VP8X flags must be cleared, were 0x{stripped[20]:X2}");
         Expect(!MetadataScanner.Scan(stripped).HasAny, "nothing should survive the webp strip");
         SamePixels(tagged, stripped, "webp");
+    }
+
+    private static void TargetedExifEditingPreservesPixelsAndOtherMetadata()
+    {
+        byte[] jpegClean = Encode(SKEncodedImageFormat.Jpeg);
+        byte[] jpeg = Splice(jpegClean, 2,
+            JpegSegment(0xE1, Cat(Ascii("Exif\0\0"), Tiff(gps: true))),
+            JpegSegment(0xED, Cat(Ascii("Photoshop 3.0\0"), new byte[16])));
+        var request = new MetadataEditOptions
+        {
+            RemoveGps = true,
+            CameraModel = "KawaCam ZX-EDITED LONG",
+            Captured = "2027:01:02 03:04:05"
+        };
+        MetadataEditResult jpegResult = MetadataEditor.Edit(jpeg, request);
+        Expect(jpegResult.Changed && jpegResult.Error is null, "jpeg targeted edit failed: " + jpegResult.Error);
+        MetadataReport jpegReport = MetadataScanner.Scan(jpegResult.Bytes);
+        Expect(!jpegReport.HasLocation, "jpeg GPS pointer survived targeted removal");
+        Expect(jpegReport.Camera == "KawaCam ZX-EDITED LONG", $"jpeg camera edit was '{jpegReport.Camera}'");
+        Expect(jpegReport.Captured == request.Captured, "jpeg capture date edit did not survive");
+        Expect(jpegReport.Blocks.Any(block => block.Kind == MetadataKind.Iptc), "jpeg IPTC was not preserved");
+        SamePixels(jpeg, jpegResult.Bytes, "jpeg targeted edit");
+
+        byte[] pngClean = Encode(SKEncodedImageFormat.Png);
+        byte[] png = Splice(pngClean, 33, PngChunk("eXIf", Tiff(gps: true)),
+            PngChunk("tEXt", Cat(Ascii("Author\0"), Ascii("somebody"))));
+        MetadataEditResult pngResult = MetadataEditor.Edit(png, new MetadataEditOptions { RemoveGps = true });
+        Expect(pngResult.Changed && !MetadataScanner.Scan(pngResult.Bytes).HasLocation,
+            "png GPS-only edit failed");
+        Expect(MetadataScanner.Scan(pngResult.Bytes).Blocks.Any(block => block.Kind == MetadataKind.Comment),
+            "png text metadata was not preserved");
+        SamePixels(png, pngResult.Bytes, "png targeted edit");
+
+        byte[] simple = Encode(SKEncodedImageFormat.Webp);
+        byte[] webp = Cat(Ascii("RIFF"), new byte[4], Ascii("WEBP"),
+            RiffChunk("VP8X", Cat(new byte[] { 0x08, 0, 0, 0 }, Uint24(63), Uint24(47))),
+            simple[12..], RiffChunk("EXIF", Tiff(gps: true)));
+        WriteLe32(webp, 4, webp.Length - 8);
+        MetadataEditResult webpResult = MetadataEditor.Edit(webp, new MetadataEditOptions { RemoveGps = true });
+        Expect(webpResult.Changed && !MetadataScanner.Scan(webpResult.Bytes).HasLocation,
+            "webp GPS-only edit failed");
+        Expect(ReadLe32(webpResult.Bytes, 4) == webpResult.Bytes.Length - 8, "webp RIFF size was not repaired");
+        SamePixels(webp, webpResult.Bytes, "webp targeted edit");
+    }
+
+    private static void ExportExifPreservation()
+    {
+        byte[] tiff = Tiff(gps: true);
+        foreach (SKEncodedImageFormat format in new[]
+                 { SKEncodedImageFormat.Jpeg, SKEncodedImageFormat.Png, SKEncodedImageFormat.Webp })
+        {
+            byte[] clean = Encode(format);
+            byte[] preserved = ExifPreserver.Inject(clean, tiff, 64, 48);
+            MetadataReport report = MetadataScanner.Scan(preserved);
+            Expect(report.HasLocation && report.Camera == "KawaCam ZX1",
+                $"{format} export did not preserve EXIF");
+            Expect(ExifPreserver.ExtractTiff(preserved)?.SequenceEqual(tiff) == true,
+                $"{format} EXIF did not extract intact");
+            SamePixels(clean, preserved, $"{format} EXIF preservation");
+        }
     }
 
     private static void MalformedInputRefuses()

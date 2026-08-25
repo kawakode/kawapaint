@@ -76,5 +76,8 @@ KawaPaint.Sandbox.ExportPresetSmokeTest.RunAll();
 KawaPaint.Sandbox.DemoFormatSmokeTest.RunAll();
 KawaPaint.Sandbox.CliPresetSmokeTest.RunAll();
 KawaPaint.Sandbox.MailMergeSmokeTest.RunAll();
+KawaPaint.Sandbox.EngineOptimizationSmokeTest.RunAll();
+KawaPaint.Sandbox.ScriptingV2SmokeTest.RunAll();
+KawaPaint.Sandbox.AnimatedGifSmokeTest.RunAll();
 
 static byte[] BuildIdentityLut() { var l = new byte[256]; for (int i = 0; i < 256; i++) l[i] = (byte)i; return l; }

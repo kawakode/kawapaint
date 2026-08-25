@@ -63,9 +63,12 @@ public sealed class ScriptRecorder
     }
 
     public void NoteAction(string id, IReadOnlyList<double> args)
+        => NoteAction(id, args, null);
+
+    public void NoteAction(string id, IReadOnlyList<double> args, IReadOnlyList<string>? stringArgs)
     {
         if (Off || !IsScriptable(id)) return;
-        _script!.Steps.Add(new ScriptStep(id, args));
+        _script!.Steps.Add(new ScriptStep(id, args, stringArgs));
         Progress?.Invoke();
     }
 
@@ -93,6 +96,8 @@ public sealed class ScriptRecorder
             case "layer.delete":
             case "layer.duplicate":
             case "layer.mergeDown":
+            case "layer.rename":
+            case "text.draw":
             case "layer.up":
             case "layer.down":
                 return true;

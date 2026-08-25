@@ -69,13 +69,37 @@ public sealed unsafe class Surface : IDisposable
     public void Clear(ColorBgra color)
     {
         ThrowIfDisposed();
+
+        // Transparent clears dominate compositing and temporary-surface creation. The buffer is
+        // tightly packed, so clear it in one native call instead of assigning one pixel at a time.
+        if (color.Bgra == 0)
+        {
+            NativeMemory.Clear((void*)scan0, checked((nuint)((long)Stride * Height)));
+            return;
+        }
+
         for (int y = 0; y < Height; ++y)
         {
-            ColorBgra* row = (ColorBgra*)GetRowPointer(y);
-            for (int x = 0; x < Width; ++x)
-            {
-                row[x] = color;
-            }
+            new Span<uint>(GetRowPointer(y), Width).Fill(color.Bgra);
+        }
+    }
+
+    /// <summary>Clears a clipped rectangular region without touching pixels outside it.</summary>
+    public void ClearRect(int x, int y, int width, int height, ColorBgra color)
+    {
+        ThrowIfDisposed();
+        int left = Math.Clamp(x, 0, Width);
+        int top = Math.Clamp(y, 0, Height);
+        int right = (int)Math.Clamp((long)x + width, 0, Width);
+        int bottom = (int)Math.Clamp((long)y + height, 0, Height);
+        if (right <= left || bottom <= top) return;
+
+        int count = right - left;
+        for (int row = top; row < bottom; row++)
+        {
+            uint* start = (uint*)GetRowPointer(row) + left;
+            if (color.Bgra == 0) NativeMemory.Clear(start, checked((nuint)count * ColorBgra.SizeOf));
+            else new Span<uint>(start, count).Fill(color.Bgra);
         }
     }
 
@@ -207,12 +231,24 @@ public sealed unsafe class Surface : IDisposable
         ColorBgra c00 = Sample(x0, y0), c10 = Sample(x0 + 1, y0);
         ColorBgra c01 = Sample(x0, y0 + 1), c11 = Sample(x0 + 1, y0 + 1);
 
-        static double Lerp(double a, double b, double t) => a + (b - a) * t;
-        double b = Lerp(Lerp(c00.B, c10.B, fx), Lerp(c01.B, c11.B, fx), fy);
-        double g = Lerp(Lerp(c00.G, c10.G, fx), Lerp(c01.G, c11.G, fx), fy);
-        double r = Lerp(Lerp(c00.R, c10.R, fx), Lerp(c01.R, c11.R, fx), fy);
-        double a = Lerp(Lerp(c00.A, c10.A, fx), Lerp(c01.A, c11.A, fx), fy);
-        return ColorBgra.FromBgra(Clamp.B(b), Clamp.B(g), Clamp.B(r), Clamp.B(a));
+        // 16.16 weights replace eight floating-point lerps. The coordinates arrive as floats, so
+        // quantizing their fractional component here loses less than 1/65536 pixel.
+        int wx = Math.Clamp((int)(fx * 65536f + 0.5f), 0, 65536);
+        int wy = Math.Clamp((int)(fy * 65536f + 0.5f), 0, 65536);
+        long w00 = (long)(65536 - wx) * (65536 - wy);
+        long w10 = (long)wx * (65536 - wy);
+        long w01 = (long)(65536 - wx) * wy;
+        long w11 = (long)wx * wy;
+
+        static byte Mix(byte c00, byte c10, byte c01, byte c11,
+            long w00, long w10, long w01, long w11)
+            => (byte)((c00 * w00 + c10 * w10 + c01 * w01 + c11 * w11 + (1L << 31)) >> 32);
+
+        return ColorBgra.FromBgra(
+            Mix(c00.B, c10.B, c01.B, c11.B, w00, w10, w01, w11),
+            Mix(c00.G, c10.G, c01.G, c11.G, w00, w10, w01, w11),
+            Mix(c00.R, c10.R, c01.R, c11.R, w00, w10, w01, w11),
+            Mix(c00.A, c10.A, c01.A, c11.A, w00, w10, w01, w11));
     }
 
     /// <summary>Returns a new Surface containing the (x,y,w,h) region of this one (out-of-bounds = transparent).</summary>
@@ -243,6 +279,29 @@ public sealed unsafe class Surface : IDisposable
             throw new ArgumentException("surface size mismatch");
         long bytes = (long)Stride * Height;
         NativeMemory.Copy((void*)other.scan0, (void*)scan0, (nuint)bytes);
+    }
+
+    /// <summary>Copies a clipped rectangle from the same coordinates in another same-sized
+    /// surface. Used by live previews to erase only their previous footprint.</summary>
+    public void CopyRectFrom(Surface other, int x, int y, int width, int height)
+    {
+        ThrowIfDisposed();
+        if (other.Width != Width || other.Height != Height)
+            throw new ArgumentException("surface size mismatch");
+
+        int left = Math.Clamp(x, 0, Width);
+        int top = Math.Clamp(y, 0, Height);
+        int right = Math.Clamp(checked(x + width), 0, Width);
+        int bottom = Math.Clamp(checked(y + height), 0, Height);
+        if (right <= left || bottom <= top) return;
+
+        nuint rowBytes = checked((nuint)(right - left) * ColorBgra.SizeOf);
+        for (int row = top; row < bottom; row++)
+        {
+            void* source = other.GetRowPointer(row) + (long)left * ColorBgra.SizeOf;
+            void* destination = GetRowPointer(row) + (long)left * ColorBgra.SizeOf;
+            NativeMemory.Copy(source, destination, rowBytes);
+        }
     }
 
     public void Dispose()

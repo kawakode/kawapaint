@@ -15,17 +15,14 @@ public static class DocumentOps
     /// <summary>Returns a new document cropped to the (x,y,w,h) region; every layer is cropped in place.</summary>
     public static Document Crop(Document doc, int x, int y, int w, int h)
     {
-        var result = new Document(w, h) { Dpi = doc.Dpi };
-        foreach (var layer in doc.Layers)
-        {
-            var cropped = layer.Surface.Crop(x, y, w, h);
-            result.AddLayer(new Layer(cropped, layer.Name)
+        var result = NewTransformedDocument(doc, w, h);
+        TransformFrames(doc, result, layer =>
+            new Layer(layer.Surface.Crop(x, y, w, h), layer.Name)
             {
                 Opacity = layer.Opacity,
                 Visible = layer.Visible,
                 BlendMode = layer.BlendMode
             });
-        }
         foreach (var source in doc.DynamicTextZones)
         {
             int left = Math.Max(0, source.X - x), top = Math.Max(0, source.Y - y);
@@ -42,16 +39,14 @@ public static class DocumentOps
     /// <summary>Returns a new document scaled to (w,h); every layer is resampled.</summary>
     public static Document Resize(Document doc, int w, int h)
     {
-        var result = new Document(w, h) { Dpi = doc.Dpi };
-        foreach (var layer in doc.Layers)
-        {
-            result.AddLayer(new Layer(layer.Surface.Resized(w, h), layer.Name)
+        var result = NewTransformedDocument(doc, w, h);
+        TransformFrames(doc, result, layer =>
+            new Layer(layer.Surface.Resized(w, h), layer.Name)
             {
                 Opacity = layer.Opacity,
                 Visible = layer.Visible,
                 BlendMode = layer.BlendMode
             });
-        }
         double sx = (double)w / doc.Width, sy = (double)h / doc.Height;
         foreach (var source in doc.DynamicTextZones)
         {
@@ -74,18 +69,18 @@ public static class DocumentOps
     {
         var (dx, dy) = AnchorOffset(doc.Width, doc.Height, w, h, anchor);
 
-        var result = new Document(w, h) { Dpi = doc.Dpi };
-        foreach (var layer in doc.Layers)
+        var result = NewTransformedDocument(doc, w, h);
+        TransformFrames(doc, result, layer =>
         {
             var placed = new Surface(w, h);
             SurfaceOps.ShiftInto(placed, layer.Surface, dx, dy);
-            result.AddLayer(new Layer(placed, layer.Name)
+            return new Layer(placed, layer.Name)
             {
                 Opacity = layer.Opacity,
                 Visible = layer.Visible,
                 BlendMode = layer.BlendMode
-            });
-        }
+            };
+        });
         foreach (var source in doc.DynamicTextZones)
         {
             var zone = source.Clone();
@@ -115,27 +110,27 @@ public static class DocumentOps
 
     public static void FlipHorizontal(Document doc)
     {
-        foreach (var layer in doc.Layers) SurfaceOps.FlipHorizontal(layer.Surface);
+        foreach (DocumentFrame frame in doc.Frames)
+            foreach (Layer layer in frame.Layers) SurfaceOps.FlipHorizontal(layer.Surface);
     }
 
     public static void FlipVertical(Document doc)
     {
-        foreach (var layer in doc.Layers) SurfaceOps.FlipVertical(layer.Surface);
+        foreach (DocumentFrame frame in doc.Frames)
+            foreach (Layer layer in frame.Layers) SurfaceOps.FlipVertical(layer.Surface);
     }
 
     /// <summary>Returns a new document rotated 90 degrees; canvas dimensions swap.</summary>
     public static Document Rotate90(Document doc, bool clockwise)
     {
-        var result = new Document(doc.Height, doc.Width) { Dpi = doc.Dpi };
-        foreach (var layer in doc.Layers)
-        {
-            result.AddLayer(new Layer(SurfaceOps.Rotate90(layer.Surface, clockwise), layer.Name)
+        var result = NewTransformedDocument(doc, doc.Height, doc.Width);
+        TransformFrames(doc, result, layer =>
+            new Layer(SurfaceOps.Rotate90(layer.Surface, clockwise), layer.Name)
             {
                 Opacity = layer.Opacity,
                 Visible = layer.Visible,
                 BlendMode = layer.BlendMode
             });
-        }
         foreach (var source in doc.DynamicTextZones)
         {
             var zone = source.Clone();
@@ -159,9 +154,53 @@ public static class DocumentOps
     /// <summary>Returns a new single-layer document with all layers composited together.</summary>
     public static Document Flatten(Document doc)
     {
-        var result = new Document(doc.Width, doc.Height) { Dpi = doc.Dpi };
-        result.AddLayer(new Layer(doc.Flatten(), "Flattened"));
+        var result = NewTransformedDocument(doc, doc.Width, doc.Height);
+        int active = doc.ActiveFrameIndex;
+        try
+        {
+            for (int frameIndex = 0; frameIndex < doc.FrameCount; frameIndex++)
+            {
+                doc.SetActiveFrame(frameIndex);
+                var flattened = new Layer(doc.Flatten(), "Flattened");
+                if (frameIndex == 0)
+                {
+                    result.ActiveFrame.Name = doc.ActiveFrame.Name;
+                    result.ActiveFrame.DurationMs = doc.ActiveFrame.DurationMs;
+                    result.AddLayer(flattened);
+                }
+                else result.AddFrame(new DocumentFrame(new[] { flattened }, doc.ActiveFrame.Name,
+                    doc.ActiveFrame.DurationMs));
+            }
+        }
+        finally { doc.SetActiveFrame(active); }
+        result.SetActiveFrame(active);
         foreach (var zone in doc.DynamicTextZones) result.DynamicTextZones.Add(zone.Clone());
         return result;
     }
+
+    private static void TransformFrames(Document source, Document destination, Func<Layer, Layer> transform)
+    {
+        for (int frameIndex = 0; frameIndex < source.FrameCount; frameIndex++)
+        {
+            DocumentFrame sourceFrame = source.Frames[frameIndex];
+            if (frameIndex == 0)
+            {
+                destination.ActiveFrame.Name = sourceFrame.Name;
+                destination.ActiveFrame.DurationMs = sourceFrame.DurationMs;
+                foreach (Layer layer in sourceFrame.Layers) destination.AddLayer(transform(layer));
+            }
+            else
+            {
+                destination.AddFrame(new DocumentFrame(sourceFrame.Layers.Select(transform),
+                    sourceFrame.Name, sourceFrame.DurationMs));
+            }
+        }
+        destination.SetActiveFrame(source.ActiveFrameIndex);
+    }
+
+    private static Document NewTransformedDocument(Document source, int width, int height) => new(width, height)
+    {
+        Dpi = source.Dpi,
+        ExifTiff = source.ExifTiff?.ToArray()
+    };
 }

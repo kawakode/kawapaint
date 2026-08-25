@@ -17,20 +17,22 @@ public sealed class ScriptStep
 {
     public string Id { get; set; } = "";
     public List<double> Args { get; set; } = new();
+    public List<string> StringArgs { get; set; } = new();
 
     public ScriptStep() { }
 
-    public ScriptStep(string id, IReadOnlyList<double>? args = null)
+    public ScriptStep(string id, IReadOnlyList<double>? args = null, IReadOnlyList<string>? stringArgs = null)
     {
         Id = id;
         if (args is { Count: > 0 }) Args.AddRange(args);
+        if (stringArgs is { Count: > 0 }) StringArgs.AddRange(stringArgs);
     }
 }
 
 public sealed class ScriptFile
 {
     public const string Extension = ".kpscript";
-    private const int FormatVersion = 1;
+    private const int FormatVersion = 2;
 
     public string Title { get; set; } = "";
     public string AppVersion { get; set; } = "";
@@ -91,9 +93,9 @@ public sealed class ScriptFile
     {
         var dto = JsonSerializer.Deserialize<Dto>(stream)
             ?? throw new InvalidDataException("Not a KawaPaint script file.");
-        if (dto.FormatVersion != FormatVersion)
+        if (dto.FormatVersion is not (1 or FormatVersion))
             throw new InvalidDataException(
-                $"Script format version {dto.FormatVersion} is not supported by this build (expected {FormatVersion}).");
+                $"Script format version {dto.FormatVersion} is not supported by this build (expected 1 or {FormatVersion}).");
 
         var script = new ScriptFile { Title = dto.Title, AppVersion = dto.AppVersion, RecordedUtc = dto.RecordedUtc };
         script.Steps.AddRange(dto.Steps);

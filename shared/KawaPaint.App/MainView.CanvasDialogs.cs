@@ -104,6 +104,26 @@ public partial class MainView
         return completion.Task;
     }
 
+    /// <summary>
+    /// Yes/no confirmation on whichever host is running - a real owned <see cref="ConfirmDialog"/>
+    /// on the desktop, the in-canvas shade in the browser. Callers that branched on OwnerWindow
+    /// themselves used to simply skip the prompt under the browser, which silently turned a
+    /// guarded destructive action into an unguarded one on that host.
+    /// </summary>
+    /// <param name="destructive">Cancel becomes the default button, so Enter dismisses rather than
+    /// confirms - same rule ConfirmDialog states for the desktop, applied to both hosts here.</param>
+    private async Task<bool> ConfirmAsync(string title, string message, string confirmLabel,
+        bool destructive = true)
+    {
+        if (OwnerWindow is { } owner)
+            return await new ConfirmDialog(title, message, confirmLabel, destructive).ShowDialog<bool>(owner);
+
+        var body = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap };
+        return await ShowCanvasChoiceAsync(title, body, false,
+            new CanvasChoice<bool>("Cancel", false, destructive),
+            new CanvasChoice<bool>(confirmLabel, true, !destructive));
+    }
+
     private async Task<(bool Accepted, T Value)> ShowCanvasFormAsync<T>(string title, Control body,
         Func<T> capture)
     {

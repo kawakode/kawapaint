@@ -1765,14 +1765,12 @@ public partial class MainView : UserControl
         }
 
         // The menu item has always promised a prompt with its ellipsis; until now it deleted a
-        // saved arrangement outright, with nothing to undo it.
-        if (OwnerWindow is { } owner)
-        {
-            var confirm = new ConfirmDialog("Delete Layout",
+        // saved arrangement outright, with nothing to undo it. Via ConfirmAsync so the browser host
+        // gets the prompt too - branching on OwnerWindow here used to skip it entirely there.
+        if (!await ConfirmAsync("Delete Layout",
                 $"Delete the layout \"{workspace.ActiveLayout}\"? This can't be undone.",
-                confirmLabel: "Delete", destructive: true);
-            if (!await confirm.ShowDialog<bool>(owner)) return;
-        }
+                confirmLabel: "Delete"))
+            return;
 
         string removed = workspace.ActiveLayout;
         workspace.Layouts.Remove(removed);
@@ -2263,7 +2261,12 @@ public partial class MainView : UserControl
         // Hardness is the paintbrush's alone; and the paintbrush is always antialiased by
         // construction, so the AA checkbox has nothing to say about it.
         BrushGroup.IsEnabled = tag is "Brush";
-        ShapeGroup.IsEnabled = tag is "Pencil" or "Line" or "Rect" or "Ellipse" or "Clone" or "Recolor" or "RoundRect" or "Freeform" or "Star" or "Arrow";
+        // Also on for the shape-based select tools: AA governs their edge coverage now, and the
+        // checkbox would otherwise be greyed out at exactly the moment it applies. Magic Wand is
+        // excluded - it builds its mask from colour similarity pixel by pixel, with no edge to
+        // antialias. FillShapesCheck is gated separately below, so it stays off for them.
+        ShapeGroup.IsEnabled = tag is "Pencil" or "Line" or "Rect" or "Ellipse" or "Clone" or "Recolor" or "RoundRect" or "Freeform" or "Star" or "Arrow"
+            or "RectSel" or "EllipseSel" or "Lasso";
         FillShapesCheck.IsEnabled = tag is "Rect" or "Ellipse" or "RoundRect" or "Freeform" or "Star" or "Arrow";
         BucketGroup.IsEnabled = tag is "Fill" or "Wand" or "Recolor";
         SelectGroup.IsEnabled = tag is "RectSel" or "EllipseSel" or "Lasso" or "Wand";
@@ -2724,11 +2727,7 @@ public partial class MainView : UserControl
             HistoryList.Items.RemoveAt(HistoryList.Items.Count - 1);
 
         for (int i = matching; i < steps.Count; i++)
-            HistoryList.Items.Add(new ListBoxItem
-            {
-                Content = $"{i + 1}. {steps[i].Name}",
-                Tag = i + 1
-            });
+            HistoryList.Items.Add(CreateHistoryRow(i + 1, steps[i].Name));
 
         for (int i = 0; i < steps.Count; i++)
             if (HistoryList.Items[i + 1] is ListBoxItem item)
@@ -2745,6 +2744,62 @@ public partial class MainView : UserControl
         _suppressHistory = false;
     }
 
+    /// <summary>
+    /// One step row, carrying its 1-based caret position in Tag (row N is the state after step
+    /// N-1). The context menu is attached per row rather than to the ListBox as a whole, so the
+    /// row the menu acts on is fixed at creation and never has to be re-derived from the selection.
+    ///
+    /// Note what a right-click here does, confirmed by driving the app rather than assumed: Avalonia
+    /// selects the row on right-press, and this panel's selection *is* the undo caret, so opening
+    /// the menu jumps the document to that step. Left as-is deliberately. The two cannot be
+    /// separated while the selection means the caret, and the alternative is worse: a menu acting on
+    /// row 3 while the highlight still says row 5. It is also only navigation - cancelling leaves
+    /// the later steps intact and redoable, one click away on their own rows.
+    /// </summary>
+    private ListBoxItem CreateHistoryRow(int position, string name)
+    {
+        var row = new ListBoxItem { Content = $"{position}. {name}", Tag = position };
+
+        var truncate = new MenuItem { Header = "Delete From Here…" };
+        truncate.Click += (_, _) => _ = TruncateHistoryAsync(position);
+        ToolTip.SetTip(truncate, "Drop this step and every step after it");
+
+        var menu = new ContextMenu();
+        menu.Items.Add(truncate);
+        row.ContextMenu = menu;
+        return row;
+    }
+
+    /// <summary>
+    /// Drops a step and everything after it. Steps are snapshots rather than a replayable command
+    /// log, so a step in the middle cannot be plucked out on its own - see HistoryStack.TruncateFrom.
+    /// </summary>
+    private async Task TruncateHistoryAsync(int position)
+    {
+        var history = Canvas.History;
+        int index = position - 1;   // Tag is a caret position; TruncateFrom takes a step index
+        if (index < 0 || index >= history.Count) return;
+
+        int dropped = history.Count - index;
+        // Numbered, matching the row label: step names repeat constantly (five pencil strokes are
+        // five steps all called "Pencil"), so the name alone does not say which row is about to go.
+        string step = $"step {position} \"{history.Steps()[index].Name}\"";
+        string message = dropped == 1
+            ? $"Delete {step}? The image goes back to how it was before it, and this can't be undone."
+            : $"Delete {step} and the {dropped - 1} step(s) after it? The image goes back to how it " +
+              "was before that step, and this can't be undone.";
+
+        if (!await ConfirmAsync("Delete History Steps", message, confirmLabel: "Delete")) return;
+
+        // The stack can have moved while the prompt was up (a demo replay, or a trim triggered by
+        // the jump another handler made), so re-check rather than trusting the pre-prompt index.
+        if (index >= history.Count) return;
+
+        RecordAction("history.truncate." + position);
+        Canvas.TruncateHistoryFrom(index);
+        StatusText.Text = dropped == 1 ? "Deleted 1 history step" : $"Deleted {dropped} history steps";
+    }
+
     private void OnHistorySelected(object? sender, SelectionChangedEventArgs e)
     {
         if (_suppressHistory) return;
@@ -2755,9 +2810,24 @@ public partial class MainView : UserControl
         }
     }
 
-    private void OnClearHistory(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    private async void OnClearHistory(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        // Discarding every undo step is as destructive as U11's layout delete and had no prompt
+        // either. Nothing to confirm when the stack is already empty.
+        if (Canvas.History.Count > 0 &&
+            !await ConfirmAsync("Clear History",
+                $"Discard all {Canvas.History.Count} undo step(s)? The image keeps its current pixels, " +
+                "but nothing can be undone afterwards.", confirmLabel: "Clear"))
+            return;
+
         RecordAction("history.clear");
+        ClearHistoryCore();
+    }
+
+    /// <summary>The work behind Clear History, without the prompt - what a demo replay drives, so
+    /// that replaying a recorded clear does not stop to ask the user a question.</summary>
+    private void ClearHistoryCore()
+    {
         Canvas.ClearHistory();
         StatusText.Text = "History cleared";
     }
@@ -2874,9 +2944,35 @@ public partial class MainView : UserControl
         {
             var row = (ColorBgra*)region.GetRowPointer(ry);
             for (int rx = 0; rx < w; rx++)
-                if (!sel.IsSelected(x + rx, y + ry)) row[rx] = ColorBgra.Transparent;
+            {
+                // Scaled by coverage rather than an all-or-nothing IsSelected test, so an
+                // antialiased outline is copied with a soft edge instead of being re-hardened on
+                // the way out. Unchanged for a binary mask: coverage is 0 or 255 there.
+                byte coverage = sel.CoverageAt(x + rx, y + ry);
+                if (coverage == 255) continue;
+                row[rx] = coverage == 0
+                    ? ColorBgra.Transparent
+                    : ColorBgra.FromBgra(row[rx].B, row[rx].G, row[rx].R, (byte)(row[rx].A * coverage / 255));
+            }
         }
         return region;
+    }
+
+    /// <summary>
+    /// Fills the selection's bounds with <paramref name="color"/> and then clips back against the
+    /// pre-edit snapshot. Going through <see cref="Selection.Clip"/> rather than testing IsSelected
+    /// per pixel is what makes these commands honour an antialiased edge at all - IsSelected is
+    /// all-or-nothing by design, so a per-pixel test re-hardens whatever coverage the mask holds.
+    /// </summary>
+    private static unsafe void FillSelectionBounds(Layer layer, Selection? selection, Surface snapshot,
+        ColorBgra color, int x, int y, int w, int h)
+    {
+        for (int ry = 0; ry < h; ry++)
+        {
+            var row = (ColorBgra*)layer.Surface.GetRowPointer(y + ry);
+            for (int rx = 0; rx < w; rx++) row[x + rx] = color;
+        }
+        if (selection is { IsActive: true } sel) sel.Clip(layer.Surface, snapshot, x, y, w, h);
     }
 
     private static Avalonia.Media.Imaging.Bitmap ToClipboardBitmap(Surface s)
@@ -2962,17 +3058,7 @@ public partial class MainView : UserControl
             await clipboard.SetBitmapAsync(bitmap);
 
         var snapshot = layer.Surface.Clone();
-        var selection = Canvas.Selection;
-        unsafe
-        {
-            for (int ry = 0; ry < h; ry++)
-            {
-                var row = (ColorBgra*)layer.Surface.GetRowPointer(y + ry);
-                for (int rx = 0; rx < w; rx++)
-                    if (selection is not { IsActive: true } sel || sel.IsSelected(x + rx, y + ry))
-                        row[x + rx] = ColorBgra.Transparent;
-            }
-        }
+        unsafe { FillSelectionBounds(layer, Canvas.Selection, snapshot, ColorBgra.Transparent, x, y, w, h); }
         Canvas.History.Push(TileDeltaMemento.Consume(layer, snapshot, "Cut"));
         RefreshDocument();
         StatusText.Text = "Cut";
@@ -3165,17 +3251,7 @@ public partial class MainView : UserControl
         if (w <= 0 || h <= 0) return;
 
         var snapshot = layer.Surface.Clone();
-        var selection = Canvas.Selection;
-        unsafe
-        {
-            for (int ry = 0; ry < h; ry++)
-            {
-                var row = (ColorBgra*)layer.Surface.GetRowPointer(y + ry);
-                for (int rx = 0; rx < w; rx++)
-                    if (selection is not { IsActive: true } sel || sel.IsSelected(x + rx, y + ry))
-                        row[x + rx] = Canvas.BrushColor;
-            }
-        }
+        unsafe { FillSelectionBounds(layer, Canvas.Selection, snapshot, Canvas.BrushColor, x, y, w, h); }
         Canvas.History.Push(TileDeltaMemento.Consume(layer, snapshot, "Fill Selection"));
         RefreshDocument();
         StatusText.Text = "Filled";
@@ -3192,17 +3268,7 @@ public partial class MainView : UserControl
         if (w <= 0 || h <= 0) return;
 
         var snapshot = layer.Surface.Clone();
-        var selection = Canvas.Selection;
-        unsafe
-        {
-            for (int ry = 0; ry < h; ry++)
-            {
-                var row = (ColorBgra*)layer.Surface.GetRowPointer(y + ry);
-                for (int rx = 0; rx < w; rx++)
-                    if (selection is not { IsActive: true } sel || sel.IsSelected(x + rx, y + ry))
-                        row[x + rx] = ColorBgra.Transparent;
-            }
-        }
+        unsafe { FillSelectionBounds(layer, Canvas.Selection, snapshot, ColorBgra.Transparent, x, y, w, h); }
         Canvas.History.Push(TileDeltaMemento.Consume(layer, snapshot, "Erase Selection"));
         RefreshDocument();
         StatusText.Text = "Erased";

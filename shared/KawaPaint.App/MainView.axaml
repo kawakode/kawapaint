@@ -361,7 +361,7 @@
                 <StackPanel x:Name="ShapeGroup" Classes="group">
                     <CheckBox x:Name="AntialiasCheck" Content="AA" IsChecked="True"
                               VerticalAlignment="Center" IsCheckedChanged="OnAntialias"
-                              ToolTip.Tip="Antialias strokes and outlines" />
+                              ToolTip.Tip="Antialias strokes, outlines and selection edges" />
                     <CheckBox x:Name="FillShapesCheck" Content="Fill"
                               VerticalAlignment="Center" IsCheckedChanged="OnFillShapes"
                               ToolTip.Tip="Draw shapes filled instead of outlined" />

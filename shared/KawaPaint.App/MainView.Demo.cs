@@ -129,7 +129,9 @@ public partial class MainView
             ["layer.down"] = () => OnLayerDown(this, empty),
 
             ["color.swap"] = () => OnSwapColors(this, empty),
-            ["history.clear"] = () => OnClearHistory(this, empty),
+            // The core, not OnClearHistory: the handler now prompts, and a replay must not stop to
+            // ask the user a question the recorded stream already answered.
+            ["history.clear"] = ClearHistoryCore,
             ["view.rulers.toggle"] = () => OnToggleRulers(this, empty)
         };
     }
@@ -552,6 +554,14 @@ public partial class MainView
         if (TrySplit(id, "history.jump.", out arg) && int.TryParse(arg, out int position))
         {
             Canvas.JumpToHistory(position);
+            return;
+        }
+
+        // Recorded as a caret position, same as history.jump; TruncateFrom takes a step index.
+        // Driven directly rather than through TruncateHistoryAsync, which prompts.
+        if (TrySplit(id, "history.truncate.", out arg) && int.TryParse(arg, out int truncateAt))
+        {
+            Canvas.TruncateHistoryFrom(truncateAt - 1);
             return;
         }
 

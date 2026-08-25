@@ -408,28 +408,28 @@ public abstract class SelectToolBase : ITool
         if (_base is null || _shape is null) return;
 
         _shape.SelectNone();
-        Select(_shape, x0, y0, x1, y1);
+        Select(_shape, x0, y0, x1, y1, c.Antialias);
 
         c.Selection.CopyFrom(_base);
         c.Selection.Combine(c.CombineMode, _shape);
         c.SelectionChanged();
     }
 
-    protected abstract void Select(Selection sel, double x0, double y0, double x1, double y1);
+    protected abstract void Select(Selection sel, double x0, double y0, double x1, double y1, bool antialias);
 }
 
 public sealed class RectSelectTool : SelectToolBase
 {
     public override string Name => "Rectangle Select";
-    protected override void Select(Selection sel, double x0, double y0, double x1, double y1)
-        => sel.ReplaceWithRectangle(x0, y0, x1, y1);
+    protected override void Select(Selection sel, double x0, double y0, double x1, double y1, bool antialias)
+        => sel.ReplaceWithRectangle(x0, y0, x1, y1, antialias);
 }
 
 public sealed class EllipseSelectTool : SelectToolBase
 {
     public override string Name => "Ellipse Select";
-    protected override void Select(Selection sel, double x0, double y0, double x1, double y1)
-        => sel.ReplaceWithEllipse(x0, y0, x1, y1);
+    protected override void Select(Selection sel, double x0, double y0, double x1, double y1, bool antialias)
+        => sel.ReplaceWithEllipse(x0, y0, x1, y1, antialias);
 }
 
 /// <summary>Freehand lasso selection. Combines against the pre-drag selection the same way the
@@ -463,8 +463,19 @@ public sealed class LassoSelectTool : ITool
     public void PointerUp(ToolContext c)
     {
         if (_points.Count < 3 && c.CombineMode == SelectionCombineMode.Replace)
+        {
             c.Selection.SelectNone();
-        // Every vertex was incorporated incrementally by PointerMove.
+        }
+        else if (c.Antialias && _points.Count >= 3 && _base is not null && _shape is not null)
+        {
+            // The incremental fan is an XOR parity trick (see Selection.TogglePolygon) and has no
+            // way to carry coverage, so the drag previews a hard edge and the finished outline is
+            // re-rasterized once here - the only pass that actually needs to be antialiased.
+            _shape.ReplaceWithPolygon(_points, antialias: true);
+            c.Selection.CopyFrom(_base);
+            c.Selection.Combine(c.CombineMode, _shape);
+        }
+        // Otherwise every vertex was already incorporated incrementally by PointerMove.
 
         c.SelectionChanged();
         _base = null;

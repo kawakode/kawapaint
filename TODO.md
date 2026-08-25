@@ -8,10 +8,126 @@ post-script-batch-system, post-UI-bug-sweep-U1..U10, post-UI-polish-U11..U18,
 post-TODO-features-fusion-2026-08-24 - the ten-idea `TODO-features.md` is now merged into
 the tiers below as 2.5-2.9 and a new Tier 5, with per-item feasibility; that file is gone -
 post-2.8-EXIF-strip, post-2.6-export-presets, post-2.9-local-art-packages, and
-post-demo-v2-parameter-capture, and post-2.7-dynamic-zone-mail-merge).
+post-demo-v2-parameter-capture, post-2.7-dynamic-zone-mail-merge,
+post-history-step-deletion-2026-08-25, and post-antialiased-selection-edges-2026-08-25).
 Full roadmap/rationale lives in Claude memory
 (`feature-roadmap-tiers`) and the published plan:
 https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
+
+## Antialiased selection edges - done 2026-08-25
+
+Tier 1 listed this under "deliberately skipped, not forgotten ... flag if wanted". Flagged, and the
+user's call was **reuse the existing toolbar AA checkbox** rather than a new preference or an
+always-on behaviour, so a hard-edged selection stays reachable for pixel-art and precise masking.
+
+**The mask was already `byte[]`, so this was a value-range change, not a storage rewrite.** It now
+holds per-pixel *coverage* (0 = outside, 255 = fully selected, between = a partial edge pixel).
+Every existing caller is untouched: `antialias` defaults to `false` on all three `ReplaceWith*`
+rasterizers, and the set operations were rewritten to the fuzzy-set forms - Add = `max`,
+Subtract = `min(a, 255-b)`, Intersect = `min(a, b)` - each of which is byte-for-byte the old `if`
+branch on binary input. `Invert` complements rather than flipping 0/255.
+
+- **Why min/max and not the multiplicative operators:** idempotence. Subtracting the same feathered
+  shape twice has to be a no-op, and multiplying keeps eating into the edge every time. This is not
+  a stylistic preference - `SubtractIsIdempotentOnFeatheredEdges` fails against a multiplicative
+  subtract, while the binary-parity test passes for *both*, so idempotence is the only thing that
+  discriminates them.
+- **Rasterizers.** Rectangle is exact analytic box coverage (a rectangle's overlap with an
+  axis-aligned cell is separable, so it is the product of the horizontal and vertical overlaps - no
+  sampling at all). Ellipse and polygon are exact horizontally (a scanline's span is a real
+  interval, so its overlap with a pixel is arithmetic) and sampled vertically at 4 sub-scanlines,
+  which is where a horizontal-only scheme looks worst. The ellipse fills its fully-covered core with
+  `Array.Fill` and only accumulates coverage at the edges.
+- **`Clip` blends** partial pixels (`Lerp(original, edited, coverage)`) instead of restoring them
+  outright. This is the half that makes the feather visible at all - the rasterizer alone changes
+  nothing a user can see.
+- **`TogglePolygon` stays binary on purpose.** The lasso's incremental fan is an XOR *parity* trick
+  and has no coverage equivalent, so the drag previews a hard edge and `LassoSelectTool.PointerUp`
+  re-rasterizes the finished point list once through `ReplaceWithPolygon(antialias: true)`. The
+  existing `EngineOptimizationSmokeTest` fan-parity assertion is therefore still meaningful.
+- **Commands that bypassed `Clip` were the real gap.** Fill / Erase / Cut Selection each wrote
+  directly through a per-pixel `IsSelected` test, which is all-or-nothing by design and re-hardened
+  whatever coverage the mask held - so with AA on the selection would feather but a *fill* of it
+  would not. All three now fill the bounds and clip back through the tested blend path
+  (`FillSelectionBounds`), which also deletes three copies of the same loop. `ExtractRegion` (Copy)
+  scales the copied alpha by coverage for the same reason.
+
+**One real wiring bug, found by driving the app and not by reading it:** `ShapeGroup` - the toolbar
+group holding the AA checkbox - was enabled only for drawing tools, so the checkbox this feature is
+controlled by was **greyed out at exactly the moment it applies**. Fixed by enabling it for
+RectSel/EllipseSel/Lasso; Magic Wand stays out (it builds a mask from colour similarity, with no
+edge to antialias) and `FillShapesCheck` is gated separately so Fill stays off for them.
+
+**`SelectionAntialiasSmokeTest`** (new): grid-aligned rectangle is *identical* either way (the
+invariant that says the AA path generalizes the old one rather than being a different shape),
+summed coverage matches the closed-form area for rectangle / ellipse / triangle within 1%, Clip
+genuinely blends, set operations are unchanged on binary masks, subtract is idempotent, invert
+round-trips. Area assertions are the real check - "it produced some values between 0 and 255" would
+pass for a completely wrong shape. **Both key tests confirmed meaningful** by breaking the code:
+disabling the blend gives `partial pixel came back as a hard 0/255`, and a multiplicative subtract
+gives `subtracting the same feathered shape twice kept eroding`. *Note what these do **not** cover:
+the choice of 4 sub-scanlines specifically - area is nearly right at 1 too. Vertical quality was
+judged in the GUI, not asserted.*
+
+**Measured, because this runs on every pointer move of a drag** (`scratchpad/seltiming`, not
+committed): at 1920x1080 AA costs 2.47 ms/move vs 1.76 binary; **at 4000x3000 AA is *faster*** -
+4.97 ms vs 11.60 - because its core `Array.Fill` beats the binary path's scalar per-pixel loop. Both
+are comfortably inside an interactive budget, and the large-canvas result was genuinely unexpected.
+
+**Verified in the real GUI by measuring pixels, not by eyeballing a screenshot** - a zoomed
+screenshot proves nothing here, since the view's own scaling filter would soften a hard edge and
+fake the result. Instead: two ellipses drawn with the identical gesture into the *same* document at
+100% zoom, left with AA on and right with AA off, then Fill Selection on each, deselect, and count
+intermediate-tone pixels in identically-sized boxes around each. **96 with AA on, 0 with AA off** -
+so the coverage survives tool -> mask -> Fill Selection -> composite. Any constant screen filter
+applies to both halves equally, which is what makes the comparison sound.
+
+## History step deletion + destructive-action prompts - done 2026-08-25
+
+`HistoryStack.TruncateFrom` and `SurfaceView.TruncateHistoryFrom` existed and were correct (B5 fixed
+the index-rebase bug in them) but **had no caller anywhere** - the History panel never exposed step
+deletion, so the whole path was dead code guarded only by a throwaway project. It is now wired up.
+
+- **"Delete From Here…"** on each History row's context menu drops that step and everything after
+  it, reverting them on the way out. Rows carry their 1-based caret position in `Tag`; `TruncateFrom`
+  takes a step index, so the handler passes `position - 1`. The menu is built per row at creation
+  (`CreateHistoryRow`) rather than once on the ListBox, so the target row never has to be re-derived
+  from the selection.
+- **A right-click moves the caret**, and that is left in deliberately. Avalonia selects a
+  `ListBoxItem` on right-press, and this panel's selection *is* the undo caret
+  (`HistoryList.SelectedIndex = history.Position`), so the two cannot be separated while that
+  identity holds. Found by driving the app, not by reading - the first version of the code comment
+  asserted the opposite. Tolerable because it is only navigation: cancelling leaves the later steps
+  intact and redoable, one click away on their own rows, and the alternative (a menu acting on row 3
+  while the highlight still says row 5) is worse.
+- **`ConfirmAsync`** (`MainView.CanvasDialogs.cs`) is a new shared yes/no that picks the real
+  `ConfirmDialog` window on desktop and the in-canvas shade in the browser. `OnDeleteLayoutPreset`
+  now routes through it, which **closes a real browser gap**: it branched on `OwnerWindow` itself and
+  simply skipped the prompt under the browser host, silently turning U11's guarded delete back into
+  an unguarded one there.
+- **Clear History now prompts too** - same U11 class of gap, a destructive button with no
+  confirmation. Split into `OnClearHistory` (prompts) and `ClearHistoryCore` (the work), with the
+  demo action map pointing at the core so replaying a recorded `history.clear` does not stop to ask
+  the user a question. `history.truncate.N` is recorded and replayed alongside `history.jump.N`.
+- Confirm text is numbered (`step 3 "Pencil"`), because step names repeat constantly - five pencil
+  strokes are five steps all called "Pencil" and the name alone does not say which row is going.
+
+**`HistoryTruncateSmokeTest`** (new, wired into `Program.cs`) is the durable regression net B5 never
+had: revert-applied-steps, truncate-from-zero, out-of-range no-op, and the drop-count rebase.
+**The rebase test was vacuous when first written and was fixed rather than accepted** - asserting
+`Count <= 3` and reverted pixels passes either way, because the buggy path satisfies both by doing
+nothing at all and because `JumpTo` reverts those pixels regardless. What actually separates the two
+is whether the steps are *gone* or merely un-applied: without the rebase the stale index is past the
+end of the now-trimmed list, `TruncateFrom` returns early, and both steps sit there **still
+redoable**. Asserting `Count == 1 && !CanRedo` catches it (`got 3` with the fix neutralized).
+
+**Verified in the real GUI** with `.claude/skills/run-desktop`: five pencil dabs → five steps,
+right-click row 3 → menu opens (and the caret jumps, as above) → Delete From Here… → the numbered
+prompt → **Cancel leaves all 5 steps intact** → repeat → Delete → status bar `Deleted 3 history
+steps`, panel `2 steps · 0 MB`, and the third dot correctly gone from the canvas. Clear History's
+prompt was checked the same way, including that **Enter dismisses rather than clears** (`destructive:
+true` makes Cancel the default button) - the reflex answer is the safe one. Singular wording
+verified separately on a last-step delete: `Deleted 1 history step`.
 
 ## Smallest-first implementation pass - done 2026-08-25
 
@@ -1293,8 +1409,9 @@ from scale-Resize), recent files (MRU 10, desktop-only), per-format save options
 WebP lossless), import layer from file, rulers + units (`RulerMath` in Engine is pure/testable,
 `RulerBar` control, `Document.Dpi` threaded through everything incl. `.kwp`).
 
-Deliberately skipped, not forgotten: antialiased selection edges (mask is binary; would need a
-coverage-based rasterizer rewrite + graded `Selection.Clip` blending - real work, flag if wanted),
+Deliberately skipped, not forgotten: ~~antialiased selection edges~~ (**done 2026-08-25** - see its
+own section at the top; the mask was already `byte[]`, so it became a value-range change rather than
+the rasterizer rewrite this line assumed),
 Layer Properties dialog (redundant, panel already has name/opacity/blend/visibility inline),
 dedicated Zoom/Pan tool buttons (already covered by Ctrl+wheel/keys and middle/right-drag pan).
 

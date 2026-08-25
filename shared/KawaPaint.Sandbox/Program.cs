@@ -79,5 +79,7 @@ KawaPaint.Sandbox.MailMergeSmokeTest.RunAll();
 KawaPaint.Sandbox.EngineOptimizationSmokeTest.RunAll();
 KawaPaint.Sandbox.ScriptingV2SmokeTest.RunAll();
 KawaPaint.Sandbox.AnimatedGifSmokeTest.RunAll();
+KawaPaint.Sandbox.HistoryTruncateSmokeTest.RunAll();
+KawaPaint.Sandbox.SelectionAntialiasSmokeTest.RunAll();
 
 static byte[] BuildIdentityLut() { var l = new byte[256]; for (int i = 0; i < 256; i++) l[i] = (byte)i; return l; }

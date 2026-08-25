@@ -1,6 +1,13 @@
-// KawaPaint - a pixel selection mask (255 = selected). When inactive (the default), the whole
-// image is editable. Rectangle / ellipse / polygon (lasso) shapes rasterize into the mask, and
-// Clip() restores pixels outside the selection so edits and effects stay inside it.
+// KawaPaint - a pixel selection mask. When inactive (the default), the whole image is editable.
+// Rectangle / ellipse / polygon (lasso) shapes rasterize into the mask, and Clip() restores pixels
+// outside the selection so edits and effects stay inside it.
+//
+// The mask holds per-pixel COVERAGE, not a boolean: 0 = untouched, 255 = fully selected, and
+// anything between is a partially covered edge pixel that Clip blends rather than restores
+// outright. The rasterizers only produce intermediate values when asked to antialias
+// (`antialias: true`, wired to the toolbar's existing AA checkbox); every other caller gets the
+// same hard 0/255 mask it always did, and all the set operations below are bit-identical on
+// binary input, so nothing changes for them.
 
 using System.Runtime.InteropServices;
 
@@ -54,13 +61,28 @@ public sealed class Selection
     public void Invert()
     {
         if (!IsActive) { SelectAll(); return; }
+        // Complement rather than a 0/255 flip, so a feathered edge inverts into the matching
+        // feather instead of collapsing to a hard one. Identical to the old flip on binary input.
         for (int i = 0; i < _mask.Length; i++)
-            _mask[i] = _mask[i] == 0 ? (byte)255 : (byte)0;
+            _mask[i] = (byte)(255 - _mask[i]);
         _boundsValid = false;
     }
 
+    /// <summary>
+    /// Whether a pixel is editable at all. Any non-zero coverage counts, so a partially covered
+    /// antialiased edge pixel reads as selected here - the *degree* only matters to
+    /// <see cref="Clip"/>, which blends by it. Callers doing hit-testing (Magic Wand, flood fill)
+    /// want this all-or-nothing reading.
+    /// </summary>
     public bool IsSelected(int x, int y)
         => !IsActive || ((uint)x < (uint)Width && (uint)y < (uint)Height && _mask[y * Width + x] != 0);
+
+    /// <summary>Per-pixel coverage, 0-255. Out of bounds reads as fully covered when inactive.</summary>
+    public byte CoverageAt(int x, int y)
+    {
+        if (!IsActive) return 255;
+        return (uint)x < (uint)Width && (uint)y < (uint)Height ? _mask[y * Width + x] : (byte)0;
+    }
 
     /// <summary>Marks a single pixel selected. Used by algorithms that build a mask pixel-by-pixel
     /// (Magic Wand) rather than rasterizing a closed shape.</summary>
@@ -114,13 +136,18 @@ public sealed class Selection
             case SelectionCombineMode.Replace:
                 CopyFrom(shape);
                 return;
+            // The three set operations are the standard fuzzy-set ones - max / min-with-complement /
+            // min - chosen over the multiplicative alternatives because they are idempotent, so
+            // subtracting the same shape twice cannot keep eroding a feathered edge. Each reduces
+            // exactly to the old branch on binary input: with shape 0 or 255 every one of these
+            // produces byte-for-byte what the `if` it replaced produced.
             case SelectionCombineMode.Add:
                 // Add's base is deliberately read as a physically-empty mask even when inactive
                 // (not "everything", despite IsSelected's convention) - union-with-everything would
                 // just stay everything, which would make Add-mode useless for starting a fresh
                 // selection from nothing. Producing exactly the shape is the useful behavior here.
                 for (int i = 0; i < _mask.Length; i++)
-                    if (shape._mask[i] != 0) _mask[i] = 255;
+                    if (shape._mask[i] > _mask[i]) _mask[i] = shape._mask[i];
                 break;
             case SelectionCombineMode.Subtract:
                 // Unlike Add, Subtract/Intersect must honor IsSelected's "inactive = everything
@@ -128,12 +155,15 @@ public sealed class Selection
                 // bytes instead of subtracting from/intersecting with the whole canvas.
                 if (!IsActive) SelectAll();
                 for (int i = 0; i < _mask.Length; i++)
-                    if (shape._mask[i] != 0) _mask[i] = 0;
+                {
+                    int keep = 255 - shape._mask[i];
+                    if (keep < _mask[i]) _mask[i] = (byte)keep;
+                }
                 break;
             case SelectionCombineMode.Intersect:
                 if (!IsActive) SelectAll();   // see Subtract
                 for (int i = 0; i < _mask.Length; i++)
-                    if (shape._mask[i] == 0) _mask[i] = 0;
+                    if (shape._mask[i] < _mask[i]) _mask[i] = shape._mask[i];
                 break;
         }
 
@@ -149,8 +179,10 @@ public sealed class Selection
         _boundsValid = false;
     }
 
-    public void ReplaceWithRectangle(double x0, double y0, double x1, double y1)
+    public void ReplaceWithRectangle(double x0, double y0, double x1, double y1, bool antialias = false)
     {
+        if (antialias) { ReplaceWithRectangleAntialiased(x0, y0, x1, y1); return; }
+
         int left = (int)Math.Round(Math.Min(x0, x1));
         int top = (int)Math.Round(Math.Min(y0, y1));
         int right = (int)Math.Round(Math.Max(x0, x1));
@@ -167,8 +199,75 @@ public sealed class Selection
         _bounds = IsActive ? (left, top, right - left, bottom - top) : (0, 0, Width, Height);
     }
 
-    public void ReplaceWithEllipse(double x0, double y0, double x1, double y1)
+    /// <summary>
+    /// Exact box coverage: a pixel's value is the area of its 1x1 cell that falls inside the
+    /// (unrounded) rectangle. No sampling needed - a rectangle's overlap with an axis-aligned cell
+    /// is separable, so it is the product of the horizontal and vertical overlaps.
+    /// </summary>
+    private void ReplaceWithRectangleAntialiased(double x0, double y0, double x1, double y1)
     {
+        Array.Clear(_mask);
+        double left = Math.Clamp(Math.Min(x0, x1), 0, Width);
+        double right = Math.Clamp(Math.Max(x0, x1), 0, Width);
+        double top = Math.Clamp(Math.Min(y0, y1), 0, Height);
+        double bottom = Math.Clamp(Math.Max(y0, y1), 0, Height);
+        if (right <= left || bottom <= top)
+        {
+            IsActive = false;
+            _boundsValid = true;
+            _bounds = (0, 0, Width, Height);
+            return;
+        }
+
+        int firstX = (int)Math.Floor(left), lastX = (int)Math.Ceiling(right) - 1;
+        int firstY = (int)Math.Floor(top), lastY = (int)Math.Ceiling(bottom) - 1;
+        lastX = Math.Min(lastX, Width - 1);
+        lastY = Math.Min(lastY, Height - 1);
+
+        // Column coverages are the same for every row, so compute them once.
+        var columns = new double[lastX - firstX + 1];
+        for (int x = firstX; x <= lastX; x++)
+            columns[x - firstX] = Overlap(left, right, x);
+
+        bool any = false;
+        for (int y = firstY; y <= lastY; y++)
+        {
+            double rowCoverage = Overlap(top, bottom, y);
+            if (rowCoverage <= 0) continue;
+            int rowBase = y * Width;
+            for (int x = firstX; x <= lastX; x++)
+            {
+                byte value = ToCoverage(columns[x - firstX] * rowCoverage);
+                if (value == 0) continue;
+                _mask[rowBase + x] = value;
+                any = true;
+            }
+        }
+
+        IsActive = any;
+        _boundsValid = false;
+    }
+
+    /// <summary>How much of the unit cell starting at <paramref name="cell"/> lies in [lo, hi].</summary>
+    private static double Overlap(double lo, double hi, int cell)
+        => Math.Clamp(Math.Min(hi, cell + 1) - Math.Max(lo, cell), 0, 1);
+
+    private static byte ToCoverage(double value)
+        => value <= 0 ? (byte)0 : value >= 1 ? (byte)255 : (byte)(value * 255 + 0.5);
+
+    /// <summary>
+    /// Sub-scanlines per pixel row used by the antialiased ellipse/polygon rasterizers. Coverage is
+    /// exact horizontally (a scanline's span is a real interval, so its overlap with a pixel is
+    /// arithmetic, not sampled); only the vertical direction is sampled, which is why 4 is enough -
+    /// it bounds the error to an eighth of a pixel on the near-horizontal parts of a curve, and
+    /// those are exactly where a purely horizontal AA scheme looks worst.
+    /// </summary>
+    private const int SubScanlines = 4;
+
+    public void ReplaceWithEllipse(double x0, double y0, double x1, double y1, bool antialias = false)
+    {
+        if (antialias) { ReplaceWithEllipseAntialiased(x0, y0, x1, y1); return; }
+
         double cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
         double rx = Math.Abs(x1 - x0) / 2, ry = Math.Abs(y1 - y0) / 2;
         Array.Clear(_mask);
@@ -201,8 +300,104 @@ public sealed class Selection
         _boundsValid = false;
     }
 
-    public void ReplaceWithPolygon(IReadOnlyList<(double X, double Y)> points)
+    private void ReplaceWithEllipseAntialiased(double x0, double y0, double x1, double y1)
     {
+        Array.Clear(_mask);
+        double cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+        double rx = Math.Abs(x1 - x0) / 2, ry = Math.Abs(y1 - y0) / 2;
+        if (rx < 0.5 || ry < 0.5)
+        {
+            IsActive = false;
+            _boundsValid = true;
+            _bounds = (0, 0, Width, Height);
+            return;
+        }
+
+        int firstY = Math.Max(0, (int)Math.Floor(cy - ry));
+        int lastY = Math.Min(Height - 1, (int)Math.Ceiling(cy + ry));
+        var spanLeft = new double[SubScanlines];
+        var spanRight = new double[SubScanlines];
+        bool any = false;
+
+        for (int y = firstY; y <= lastY; y++)
+        {
+            // Widest and narrowest span across this row's sub-scanlines. The narrowest bounds the
+            // fully-covered core; the widest bounds the pixels that need coverage at all.
+            double minLeft = double.MaxValue, maxLeft = double.MinValue;
+            double minRight = double.MaxValue, maxRight = double.MinValue;
+            bool anySpan = false;
+
+            for (int s = 0; s < SubScanlines; s++)
+            {
+                double sampleY = y + (s + 0.5) / SubScanlines;
+                double normalized = (sampleY - cy) / ry;
+                double inside = 1 - normalized * normalized;
+                if (inside <= 0) { spanLeft[s] = 0; spanRight[s] = -1; continue; }
+
+                double half = rx * Math.Sqrt(inside);
+                spanLeft[s] = cx - half;
+                spanRight[s] = cx + half;
+                anySpan = true;
+                minLeft = Math.Min(minLeft, spanLeft[s]); maxLeft = Math.Max(maxLeft, spanLeft[s]);
+                minRight = Math.Min(minRight, spanRight[s]); maxRight = Math.Max(maxRight, spanRight[s]);
+            }
+            if (!anySpan) continue;
+
+            // A sub-scanline that missed this row contributes nothing, so it must not be allowed to
+            // widen the core - treat the core as empty unless every sub-scanline produced a span.
+            bool everySubScanlineHit = true;
+            for (int s = 0; s < SubScanlines; s++)
+                if (spanRight[s] < spanLeft[s]) { everySubScanlineHit = false; break; }
+
+            int lo = Math.Max(0, (int)Math.Floor(minLeft));
+            int hi = Math.Min(Width - 1, (int)Math.Ceiling(maxRight) - 1);
+            if (hi < lo) continue;
+
+            int coreStart = lo, coreEnd = lo - 1;
+            if (everySubScanlineHit)
+            {
+                coreStart = Math.Max(lo, (int)Math.Ceiling(maxLeft));
+                coreEnd = Math.Min(hi, (int)Math.Floor(minRight) - 1);
+            }
+
+            int rowBase = y * Width;
+            for (int x = lo; x < coreStart; x++)
+                any |= WriteCoverage(rowBase + x, spanLeft, spanRight, x);
+
+            if (coreEnd >= coreStart)
+            {
+                Array.Fill(_mask, (byte)255, rowBase + coreStart, coreEnd - coreStart + 1);
+                any = true;
+            }
+
+            for (int x = Math.Max(coreEnd + 1, coreStart); x <= hi; x++)
+                any |= WriteCoverage(rowBase + x, spanLeft, spanRight, x);
+        }
+
+        IsActive = any;
+        _boundsValid = false;
+    }
+
+    /// <summary>Averages one pixel's exact overlap with each sub-scanline span into the mask.</summary>
+    private bool WriteCoverage(int index, double[] spanLeft, double[] spanRight, int x)
+    {
+        double sum = 0;
+        for (int s = 0; s < spanLeft.Length; s++)
+        {
+            if (spanRight[s] < spanLeft[s]) continue;   // this sub-scanline missed the shape
+            sum += Overlap(spanLeft[s], spanRight[s], x);
+        }
+
+        byte value = ToCoverage(sum / spanLeft.Length);
+        if (value <= _mask[index]) return _mask[index] != 0;
+        _mask[index] = value;
+        return true;
+    }
+
+    public void ReplaceWithPolygon(IReadOnlyList<(double X, double Y)> points, bool antialias = false)
+    {
+        if (antialias) { ReplaceWithPolygonAntialiased(points); return; }
+
         Array.Clear(_mask);
         if (points.Count < 3)
         {
@@ -257,9 +452,88 @@ public sealed class Selection
         _boundsValid = false;
     }
 
+    /// <summary>
+    /// Even-odd scanline fill, but each pixel row is resolved from <see cref="SubScanlines"/>
+    /// sub-scanlines and each span contributes its exact horizontal overlap rather than a
+    /// centre-inside test. Coverage accumulates per row before being written, so two spans meeting
+    /// inside one pixel (a thin waist, or a vertex) sum to the right value instead of one
+    /// overwriting the other.
+    /// </summary>
+    private void ReplaceWithPolygonAntialiased(IReadOnlyList<(double X, double Y)> points)
+    {
+        Array.Clear(_mask);
+        if (points.Count < 3)
+        {
+            IsActive = false;
+            _boundsValid = true;
+            _bounds = (0, 0, Width, Height);
+            return;
+        }
+
+        double minYd = double.MaxValue, maxYd = double.MinValue;
+        foreach (var p in points) { minYd = Math.Min(minYd, p.Y); maxYd = Math.Max(maxYd, p.Y); }
+        int minY = Math.Max(0, (int)Math.Floor(minYd));
+        int maxY = Math.Min(Height - 1, (int)Math.Ceiling(maxYd));
+
+        var rowCoverage = new double[Width];
+        var xs = new List<double>();
+        bool any = false;
+
+        for (int y = minY; y <= maxY; y++)
+        {
+            int touchedLo = Width, touchedHi = -1;
+
+            for (int s = 0; s < SubScanlines; s++)
+            {
+                double sampleY = y + (s + 0.5) / SubScanlines;
+                xs.Clear();
+                for (int i = 0, j = points.Count - 1; i < points.Count; j = i++)
+                {
+                    double yi = points[i].Y, yj = points[j].Y;
+                    if ((yi <= sampleY && yj > sampleY) || (yj <= sampleY && yi > sampleY))
+                    {
+                        double t = (sampleY - yi) / (yj - yi);
+                        xs.Add(points[i].X + t * (points[j].X - points[i].X));
+                    }
+                }
+                xs.Sort();
+
+                for (int k = 0; k + 1 < xs.Count; k += 2)
+                {
+                    double left = Math.Max(xs[k], 0), right = Math.Min(xs[k + 1], Width);
+                    if (right <= left) continue;
+
+                    int lo = Math.Max(0, (int)Math.Floor(left));
+                    int hi = Math.Min(Width - 1, (int)Math.Ceiling(right) - 1);
+                    for (int x = lo; x <= hi; x++) rowCoverage[x] += Overlap(left, right, x);
+                    if (lo < touchedLo) touchedLo = lo;
+                    if (hi > touchedHi) touchedHi = hi;
+                }
+            }
+
+            int rowBase = y * Width;
+            for (int x = touchedLo; x <= touchedHi; x++)
+            {
+                byte value = ToCoverage(rowCoverage[x] / SubScanlines);
+                rowCoverage[x] = 0;             // reset as we go, so the next row starts clean
+                if (value == 0) continue;
+                _mask[rowBase + x] = value;
+                any = true;
+            }
+        }
+
+        IsActive = any;
+        _boundsValid = false;
+    }
+
     /// <summary>XOR-rasterizes a polygon into the current mask and returns its clipped bounds.
     /// Adding a freehand polygon vertex can therefore update only the fan triangle formed by the
-    /// first, previous and new points instead of rasterizing the entire growing point list.</summary>
+    /// first, previous and new points instead of rasterizing the entire growing point list.
+    ///
+    /// Deliberately stays binary even when the selection is antialiased: the XOR fan trick relies on
+    /// parity, which graded coverage has no equivalent of. The lasso uses this for its live preview
+    /// during the drag and re-rasterizes the finished point list through
+    /// ReplaceWithPolygon(antialias: true) on pointer-up.</summary>
     public (int X, int Y, int W, int H) TogglePolygon(IReadOnlyList<(double X, double Y)> points)
     {
         if (points.Count < 3) return (0, 0, 0, 0);
@@ -323,8 +597,16 @@ public sealed class Selection
             ColorBgra* source = (ColorBgra*)baseline.GetRowPointer(row);
             int offset = row * Width;
             for (int column = left; column < right; column++)
-                destination[column] = _mask[offset + column] == 0
-                    ? source[column] : ColorBgra.BlendOver(source[column], color);
+            {
+                byte coverage = _mask[offset + column];
+                if (coverage == 0) { destination[column] = source[column]; continue; }
+                // Scale the paint's own alpha by coverage, so a feathered edge fades out rather
+                // than stopping abruptly. Identical to a plain BlendOver at full coverage.
+                ColorBgra paint = coverage == 255
+                    ? color
+                    : ColorBgra.FromBgra(color.B, color.G, color.R, (byte)(color.A * coverage / 255));
+                destination[column] = ColorBgra.BlendOver(source[column], paint);
+            }
         }
     }
 
@@ -385,8 +667,13 @@ public sealed class Selection
 
             int rowBase = y * Width;
             for (int x = boundsX; x < suffixX; x++)
-                if (_mask[rowBase + x] == 0)
-                    e[x] = o[x];
+            {
+                byte coverage = _mask[rowBase + x];
+                if (coverage == 255) continue;                       // fully selected: keep the edit
+                e[x] = coverage == 0
+                    ? o[x]                                           // outside: restore
+                    : ColorBgra.Lerp(o[x], e[x], coverage / 255.0);  // partial: blend the edge
+            }
         }
     }
 
@@ -408,7 +695,13 @@ public sealed class Selection
             ColorBgra* source = (ColorBgra*)original.GetRowPointer(row);
             int maskOffset = row * Width;
             for (int column = left; column < right; column++)
-                if (_mask[maskOffset + column] == 0) destination[column] = source[column];
+            {
+                byte coverage = _mask[maskOffset + column];
+                if (coverage == 255) continue;                       // see the full-surface Clip
+                destination[column] = coverage == 0
+                    ? source[column]
+                    : ColorBgra.Lerp(source[column], destination[column], coverage / 255.0);
+            }
         }
     }
 }

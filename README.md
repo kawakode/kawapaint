@@ -15,6 +15,7 @@ A modern, cross-platform image editor compatible with Paint.NET 3.36 file format
 - **shared/** - Core engine (KawaPaint.Engine) and UI (KawaPaint.App), used by all platforms
 - **win/** - Windows desktop application (KawaPaint.Win)
 - **linux/** - Linux desktop application (KawaPaint.Linux)
+- **mac/** - Apple Silicon macOS desktop application (KawaPaint.Mac), with bundled JXL/JP2 codecs
 - **web/** - Browser application (KawaPaint.Web, WebAssembly/Avalonia.Browser)
 
 Open `KawaPaint.slnx` to build any platform; all share the same engine and UI code.
@@ -49,6 +50,12 @@ kawapaint --script cleanup.kpscript --in-dir photos --pattern *.png --out-dir cl
 
 Preset CLI runs read the normal KawaPaint `settings.json`; use `--settings <path>` to select a
 different settings file.
+
+## 3D reference layers
+
+Choose **File > Import 3D Reference** to load a Wavefront OBJ, pose its yaw, pitch and roll in the
+live preview, and render it into a normal antialiased raster layer. The resulting pixels support the
+usual layer tools and undo/redo; the source model is not stored as a live scene in the project.
 
 ### Mail merge from CSV
 

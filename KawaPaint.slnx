@@ -6,6 +6,7 @@
   <Project Path="plugins/KawaPaint.Plugins.Sample/KawaPaint.Plugins.Sample.csproj" />
   <Project Path="plugins/KawaPaint.Plugins.ThrowingFixture/KawaPaint.Plugins.ThrowingFixture.csproj" />
   <Project Path="win/KawaPaint.Win.csproj" />
+  <Project Path="mac/KawaPaint.Mac.csproj" />
   <Project Path="linux/KawaPaint.Linux.csproj" />
   <Project Path="web/KawaPaint.Web.csproj" />
 </Solution>

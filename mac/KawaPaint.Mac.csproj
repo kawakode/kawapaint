@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\shared\KawaPaint.App\KawaPaint.App.csproj" />
+    <ProjectReference Include="..\shared\KawaPaint.Cli\KawaPaint.Cli.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Apple Silicon builds bundle the complete JXL/JP2 native dependency closure. All dylib
+         install names use @loader_path, so neither Homebrew nor /opt/homebrew is required on the
+         destination Mac. Keep these files flat beside the apphost for NativeLibrary resolution. -->
+    <None Include="natives\osx-arm64\*.dylib" Link="%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="natives\LICENSES\*" Link="licenses\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -17,6 +17,7 @@ using KawaPaint.App.Core;
 using KawaPaint.Engine;
 using KawaPaint.Engine.Codecs;
 using KawaPaint.Engine.Metadata;
+using KawaPaint.Engine.ThreeD;
 
 namespace KawaPaint.App;
 
@@ -3239,6 +3240,75 @@ public partial class MainView : UserControl
         catch (Exception ex)
         {
             StatusText.Text = "Import failed: " + ex.Message;
+        }
+    }
+
+    private async void OnImport3DReference(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document;
+        if (doc is null) return;
+        RecordSkipped("Import 3D Reference");
+
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Import OBJ as 3D reference",
+            AllowMultiple = false,
+            FileTypeFilter = new[]
+            {
+                new FilePickerFileType("Wavefront OBJ model") { Patterns = new[] { "*.obj" } }
+            }
+        });
+        var file = files.FirstOrDefault();
+        if (file is null) return;
+
+        try
+        {
+            byte[] bytes;
+            await using (Stream stream = await file.OpenReadAsync())
+            {
+                using var buffer = new MemoryStream();
+                await stream.CopyToAsync(buffer);
+                bytes = buffer.ToArray();
+            }
+
+            ObjMesh mesh = await Task.Run(() =>
+            {
+                using var stream = new MemoryStream(bytes, writable: false);
+                return ObjMesh.Load(stream);
+            });
+
+            ReferenceRenderOptions options = new();
+            if (OwnerWindow is { } owner)
+            {
+                var dialog = new ThreeDImportDialog(mesh, file.Name);
+                if (!await dialog.ShowDialog<bool>(owner)) return;
+                options = dialog.ResultOptions;
+            }
+
+            StatusText.Text = $"Rendering {mesh.Triangles.Count:N0} triangles…";
+            Surface rendered = await Task.Run(() => ReferenceRenderer.Render(mesh, doc.Width, doc.Height, options));
+            if (!ReferenceEquals(doc, Canvas.Document))
+            {
+                rendered.Dispose();
+                return;
+            }
+            var layer = new Layer(rendered, System.IO.Path.GetFileNameWithoutExtension(file.Name) + " 3D");
+            try { doc.AddLayer(layer); }
+            catch { layer.Dispose(); throw; }
+            Canvas.SetActiveLayer(layer);
+
+            Canvas.History.Push(new DelegateMemento("Import 3D Reference",
+                undo: () => { doc.RemoveLayer(layer); Canvas.SetActiveLayer(doc.Layers[^1]); },
+                redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); },
+                approximateBytes: () => doc.IndexOf(layer) < 0 ? SurfaceBytes(layer.Surface) : 0,
+                dispose: () => { if (doc.IndexOf(layer) < 0) layer.Dispose(); }));
+
+            RefreshDocument();
+            StatusText.Text = $"Imported {mesh.Triangles.Count:N0} OBJ triangles as a raster layer";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "3D import failed: " + ex.Message;
         }
     }
 

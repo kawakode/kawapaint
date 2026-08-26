@@ -14,6 +14,44 @@ Full roadmap/rationale lives in Claude memory
 (`feature-roadmap-tiers`) and the published plan:
 https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
 
+## 5.3(a) rasterized 3D reference layers - first slice done 2026-08-25
+
+File > Import 3D Reference now loads Wavefront OBJ geometry, shows a live yaw/pitch/roll preview,
+and renders the chosen pose at document resolution into a normal transparent raster layer. The
+shared engine parser handles positions, normals, `v`, `v/vt`, `v//vn` and `v/vt/vn` corners,
+positive and negative indices, comments, arbitrary whitespace and polygon fan triangulation, with
+finite-value, range and complexity validation that reports the offending line.
+
+`ReferenceRenderer` is a deterministic orthographic CPU renderer with automatic centering/framing,
+smooth generated normals when an OBJ supplies none, explicit-normal lighting, double-sided faces,
+a per-pixel z-buffer and adaptive 2x supersampling. Supersampling backs off for very large canvases
+instead of multiplying memory without bound. Transparent output makes the result immediately useful
+as a reference above artwork; importing it is one structural undo/redo step with correct detached
+layer memory accounting. The browser uses the same parser and renderer with the default pose; the
+desktop dialog adds the live camera preview.
+
+`ThreeDReferenceSmokeTest` checks quad triangulation, negative indices, normal normalization,
+line-numbered invalid-reference rejection, deterministic pixels, meaningful partial-alpha edge
+coverage and a deliberately order-reversed pair of overlapping triangles where the test only stays
+bright if the front face wins the z-buffer. Still outside this slice: MTL/materials and textures,
+glTF, UV painting, perspective cameras, and any persistent/editable 3D scene layer.
+
+## Apple Silicon macOS codec packaging - done 2026-08-25
+
+The native-codec packaging gap is closed for Apple Silicon. `mac/KawaPaint.Mac.csproj` is a
+dedicated `osx-arm64` desktop head and bundles libjxl 0.12.0, OpenJPEG 2.5.4 and the six non-system
+libraries libjxl needs. The eight dylibs are 3.6 MB total, copied flat beside the apphost just like
+the Windows native set. Every Homebrew/Cellar install name was replaced with `@loader_path`, and
+each modified arm64 binary was ad-hoc signed, so the output has no runtime dependency on Homebrew
+or `/opt/homebrew`. Upstream license texts ship beside the binaries.
+
+Verified on a Mac Mini M4 running macOS 26.1: the full solution builds with .NET 10.0.400, all eight
+dylibs pass strict signature validation and contain no Homebrew paths, and the complete Sandbox
+suite runs with the app-local dylibs. The native portion executes real lossless JXL and JP2
+encode/decode/metadata-edit/strip round trips and JP2 lossy calibration (Q20 MSE 182.25 versus Q90
+MSE 1.75), rather than merely checking that the files load. An `osx-arm64` self-contained publish
+also places the complete dependency set next to `KawaPaint.Mac`.
+
 ## Unblocked follow-ups - done 2026-08-25
 
 - **JXL/JP2 metadata:** the scanner, stripper, targeted EXIF editor and export-time EXIF reinjection
@@ -1658,17 +1696,18 @@ The cost is everything around the port, and each of these is a real item:
 **Estimate:** one session to launch on a tablet, several more before the UI is honestly usable. The
 first without the second should not ship.
 
-### 5.3 - 3D model support (`Support modeles 3D`) - **Gated on scoping**; sub-option (a) is **Clear**
+### 5.3 - 3D model support (`Support modeles 3D`) - option (a) **STARTED 2026-08-25**
 
 "3D models (layer management++)" could mean two very different products, and which one is meant *is*
 the estimate:
 
-- **(a) 3D reference layer.** Import OBJ/glTF, pose a camera, render the mesh into a raster layer;
+- **(a) 3D reference layer.** **OBJ import and raster rendering are done** as described at the top;
+  glTF/materials/textures remain. Pose a camera and render the mesh into a raster layer;
   pixels stay the only truth - Krita's reference images, Clip Studio's 3D dolls. This fits the
   existing architecture almost suspiciously well: the Engine is already pure CPU with `unsafe` pixel
   loops (`Surface`, `Document.RenderTo`), headless, and unit-testable, so a mesh loader plus a
   z-buffered triangle rasterizer is ordinary Engine code - no GPU context, no Avalonia dependency,
-  testable in `KawaPaint.Sandbox` like everything else. **Clear**, one to two sessions.
+  testable in `KawaPaint.Sandbox` like everything else.
 - **(b) 3D as a live layer type.** A persistent scene graph inside `Document` and `.kwp`, re-rendered
   on edit, with materials, lighting, gizmos, and a history stack that can undo a camera move. That
   needs a real renderer (SkiaSharp has no 3D; either a GPU context via Silk.NET or a far larger
@@ -1678,8 +1717,8 @@ the estimate:
   reason artists ask for 3D in a paint program. It is reachable from (a) plus a UV lookup and a live
   preview panel, and it is far more useful here than (b).
 
-**Ask which one is meant before writing any code.** Recommended default if the answer comes back as
-"whichever you think": (a), then (c), and never (b) without an explicit decision.
+The user chose to start with 3D on 2026-08-25, so the recommended (a) path is now the active scope.
+Continue with materials/textures and glTF, then (c); never start (b) without an explicit decision.
 
 ### Suggested order, if nobody says otherwise
 
@@ -1694,7 +1733,7 @@ the estimate:
 7. ~~**5.1 animation**~~ - adaptive/dithered GIF, APNG, animated WebP and the real timeline are
    **done 2026-08-25**.
 8. **5.2 Android head**, then its UI, once there is a device or emulator.
-9. **5.3(a) 3D reference layer**, if the scoping question comes back as (a).
+9. **5.3(a) 3D reference layer** - OBJ raster-import slice done; materials/textures and glTF remain.
 
 ### Provenance - the original ten lines
 
@@ -1704,7 +1743,7 @@ the estimate:
 | Support explicite tablettes dessin | 2.5 (Spike first - needs hardware) |
 | Version mobile (tablettes android, foldables) | 5.2 (Clear-with-caveat; the UI is the cost, not the port) |
 | Support gif animes (voir pour integration Motionity > package type Affinity) | 5.1a (Clear-with-caveat) + 5.1b (Gated) |
-| Support modeles 3D (gestion des couches++) | 5.3 (Gated on scoping; option (a) Clear) |
+| Support modeles 3D (gestion des couches++) | 5.3(a) OBJ raster-reference slice shipped; extensions remain |
 | Integration plateformes art (Ex: Instagram > genere carre, JPG, description, tagging) | 2.9 local half **shipped 2026-08-24** + posting half (Gated) |
 | Presets d'export | **Shipped 2026-08-24** (2.6) |
 | Batch/Scripting | **Shipped** 2026-08-21 (Script / batch-apply system) |
@@ -2466,10 +2505,8 @@ code.
   `KawaPaint.Win.exe` after this change - starts clean, no crash, autosave/crash-recovery correctly
   restored the prior session's canvas.
 
-  Still open: macOS packaging (same pattern, needs a macOS box or cross-fetching prebuilt osx-x64/
-  osx-arm64 releases from both upstreams - not attempted here, this session only had a Windows
-  box). `IsAvailable` still correctly degrades to false wherever the bundled natives aren't present
-  for the current RID.
+  **Closed 2026-08-25:** Apple Silicon macOS packaging now follows the same app-local native-library
+  pattern and is validated on a Mac Mini M4; see the current status section at the top.
 
   **Mid-project machine switch, worth knowing if something here looks inconsistent:** the JXL work
   and this file's original resume plan were written on a Linux (CachyOS) box; this JP2 work was
@@ -2497,10 +2534,9 @@ prioritized git-compat truncate-only over this.
 - **Is Android first-class (new 2026-08-24, from 5.2)?** Assumed: same posture as the browser build -
   a real target, features gracefully absent, but the desktop remains the design centre. If it is
   meant to be first-class instead, the touch UI is the project, not the port.
-- **What does "3D support" mean (new 2026-08-24, from 5.3)?** Assumed: a 3D *reference layer* that
-  renders to pixels (option (a)), then UV/texture painting (option (c)). A live 3D layer type
-  (option (b)) changes the document model and needs an explicit decision. **Worth asking outright** -
-  the three readings differ by more than an order of magnitude in cost.
+- **3D scope (resolved 2026-08-25):** proceed with rasterized reference imports (option (a)), then
+  UV/texture painting (option (c)). A live 3D layer type (option (b)) still changes the document
+  model and remains gated on an explicit decision.
 - **Third-party posting (new 2026-08-24, from 2.9):** publishing straight to art platforms is gated
   in the same bucket as the 2.4 forge OAuth half - accounts, tokens, app review, and (for Instagram)
   an API that fetches a public URL instead of accepting an upload. Assumed: build the local export

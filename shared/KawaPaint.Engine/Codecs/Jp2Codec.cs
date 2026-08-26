@@ -1,8 +1,8 @@
 // KawaPaint - JPEG 2000 (JP2) via a hand-rolled binding to the system libopenjp2, following the
-// same pattern as JxlCodec: no bundled native dependency, IsAvailable degrades to false when the
-// library isn't installed. See TODO.md's 3.x spike entry for the size rationale (this and JXL
-// together cost ~6.7MB total versus Magick.NET's 20-38MB single blob covering both plus ~270
-// unused formats).
+// same pattern as JxlCodec: Windows x64 and macOS arm64 bundle the native dependency; other targets
+// degrade to false when the library isn't installed. See TODO.md's 3.x spike entry for the size
+// rationale (this and JXL together cost ~6.7MB total versus Magick.NET's 20-38MB single blob
+// covering both plus ~270 unused formats).
 //
 // The struct layouts below (OpjCParameters especially, at ~18.7KB with over 100 fields) were
 // hand-transliterated from openjpeg-2.5/openjpeg.h field-by-field, in declaration order, using

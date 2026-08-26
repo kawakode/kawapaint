@@ -163,6 +163,13 @@ public partial class MainView : UserControl
         ApplyTolerance(Canvas.FillTolerance);
 
         BuildPanelManager();
+        if (OperatingSystem.IsAndroid())
+        {
+            // Arbitrary desktop plugin discovery is disabled in App on Android; keep both entry
+            // points out of the mobile menu as well.
+            PluginsMenu.IsVisible = false;
+            ManagePluginsMenuItem.IsVisible = false;
+        }
         RebuildLayoutPresetsMenu();
         RebuildRecentFilesMenu();
         RebuildExportPresetsMenu();
@@ -207,7 +214,7 @@ public partial class MainView : UserControl
         _autosave.Saved += name => StatusText.Text = $"Autosaved {name} at {DateTime.Now:HH:mm}";
         _autosave.Saved += _ => CommitGitProject(autosave: true);
 
-        _configGit = new ConfigGitTracker(_settings);
+        _configGit = OperatingSystem.IsAndroid() ? null : new ConfigGitTracker(_settings);
 
         // Deferred: on desktop this needs a Window to own the dialog, which is only available
         // once this view is attached (OwnerWindow is null during the constructor).
@@ -523,6 +530,11 @@ public partial class MainView : UserControl
     /// </summary>
     private async Task OnLinkGitProjectAsync()
     {
+        if (OperatingSystem.IsAndroid())
+        {
+            StatusText.Text = "Git-backed project history is unavailable on Android.";
+            return;
+        }
         if (_session is null) return;
 
         var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
@@ -552,6 +564,7 @@ public partial class MainView : UserControl
     /// </summary>
     private void CommitGitProject(bool autosave)
     {
+        if (OperatingSystem.IsAndroid()) return;
         if (Canvas.Document is null || _session?.GitProjectDirectory is not { } dir) return;
 
         var git = _settings.Settings.Git;
@@ -1207,13 +1220,16 @@ public partial class MainView : UserControl
     private void BuildPanelManager()
     {
         var workspace = _settings.Settings.Workspace;
-        if (!workspace.Layouts.TryGetValue(workspace.ActiveLayout, out var layout))
+        if (OperatingSystem.IsAndroid()) workspace.ActiveLayout = "Mobile";
+
+        bool createdLayout = !workspace.Layouts.TryGetValue(workspace.ActiveLayout, out var layout) || layout is null;
+        if (createdLayout)
         {
             layout = new WorkspaceLayout();
             workspace.Layouts[workspace.ActiveLayout] = layout;
         }
 
-        _panels = new PanelManager(RootDock, FloatingLayer, CanvasArea, layout);
+        _panels = new PanelManager(RootDock, FloatingLayer, CanvasArea, layout!);
 
         _panels.Register(new PanelDescriptor("Tools", "Tools", ToolsBorder)
         {
@@ -1297,6 +1313,20 @@ public partial class MainView : UserControl
             MinHeight = 100
         });
 
+        if (OperatingSystem.IsAndroid() && createdLayout)
+        {
+            // A phone is narrower than the desktop Color + Layers columns combined. Start with a
+            // useful canvas and the vertical tool rail; every other panel remains one tap away in
+            // the top-right panel toggles and opens as a movable overlay.
+            ConfigureMobilePlacement("Tools", PanelPlace.Left, 70);
+            ConfigureMobilePlacement("Colors", PanelPlace.Hidden);
+            ConfigureMobilePlacement("ColorWheel", PanelPlace.Hidden, floatWidth: 300, floatHeight: 520);
+            ConfigureMobilePlacement("Layers", PanelPlace.Hidden, floatWidth: 330, floatHeight: 560);
+            ConfigureMobilePlacement("History", PanelPlace.Hidden, floatWidth: 330, floatHeight: 560);
+            ConfigureMobilePlacement("Timeline", PanelPlace.Hidden, floatWidth: 360, floatHeight: 300);
+            ConfigureMobilePlacement("Dock", PanelPlace.Hidden, floatWidth: 330, floatHeight: 220);
+        }
+
         _panels.LayoutChanged += (_, _) =>
         {
             RefreshPanelToggleButtons();
@@ -1305,6 +1335,20 @@ public partial class MainView : UserControl
 
         _panels.Apply();
         RefreshPanelToggleButtons();
+
+        void ConfigureMobilePlacement(string id, PanelPlace place, double dockSize = double.NaN,
+            double floatWidth = double.NaN, double floatHeight = double.NaN)
+        {
+            var placement = _panels.PlacementOf(id);
+            placement.Place = place;
+            placement.LastShown = place == PanelPlace.Hidden ? PanelPlace.Floating : place;
+            placement.LastDock = id == "Tools" ? PanelPlace.Left : PanelPlace.Right;
+            placement.DockSize = dockSize;
+            placement.FloatX = 36;
+            placement.FloatY = 72;
+            placement.FloatWidth = floatWidth;
+            placement.FloatHeight = floatHeight;
+        }
     }
 
     private void OnPanelPlace(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

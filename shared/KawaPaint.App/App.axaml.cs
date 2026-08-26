@@ -20,13 +20,24 @@ public partial class App : Application
         // with it, so it is pure waste on disk.
         Core.AppPaths.ClearHistoryCache();
 
-        // Before MainWindow/MainView is constructed, so EffectRegistry/ToolRegistry are already
-        // populated by the time RebuildPluginsMenu() runs. A failed plugin is reported, not thrown
-        // - see AppPluginHost.LoadAll / PluginManager.
-        AppPluginHost.LoadAll(SettingsService.Instance.Settings);
-        AppPdnPluginHost.LoadAll(SettingsService.Instance.Settings);
+        // Android uses an activity factory and may recreate its activity. Desktop plugin discovery
+        // is deliberately skipped there: loading arbitrary assemblies is neither mobile-safe nor
+        // trimming-safe. Built-in tools and effects remain available on every platform.
+        bool isAndroid = ApplicationLifetime is IActivityApplicationLifetime;
+        if (!isAndroid)
+        {
+            // Before MainWindow/MainView is constructed, so EffectRegistry/ToolRegistry are already
+            // populated by the time RebuildPluginsMenu() runs. A failed plugin is reported, not thrown
+            // - see AppPluginHost.LoadAll / PluginManager.
+            AppPluginHost.LoadAll(SettingsService.Instance.Settings);
+            AppPdnPluginHost.LoadAll(SettingsService.Instance.Settings);
+        }
 
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        if (ApplicationLifetime is IActivityApplicationLifetime activity)
+        {
+            activity.MainViewFactory = () => new MainView();
+        }
+        else if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.MainWindow = new MainWindow();
         }

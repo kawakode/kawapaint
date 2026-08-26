@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <style name="KawaPaintTheme" />
+  <style name="KawaPaintTheme.NoActionBar" parent="@style/Theme.AppCompat.NoActionBar">
+    <item name="android:windowActionBar">false</item>
+    <item name="android:windowBackground">@null</item>
+    <item name="android:windowNoTitle">true</item>
+    <item name="android:windowSplashScreenBackground">@color/splash_background</item>
+    <item name="android:windowSplashScreenAnimatedIcon">@drawable/icon</item>
+    <item name="android:windowSplashScreenAnimationDuration">300</item>
+    <item name="postSplashScreenTheme">@style/KawaPaintTheme.Main</item>
+  </style>
+  <style name="KawaPaintTheme.Main" parent="KawaPaintTheme.NoActionBar">
+    <item name="android:windowIsTranslucent">true</item>
+  </style>
+</resources>

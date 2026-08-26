@@ -21,6 +21,14 @@ public sealed class PluginToolContext
     public required bool FillShapes { get; init; }
     public required bool CtrlHeld { get; init; }
 
+    // Raw tablet data is exposed as primitives so plugin authors can choose their own response
+    // curve. Pressure is normalized to 0..1; tilt is in degrees and twist is in degrees.
+    public required double Pressure { get; init; }
+    public required double XTilt { get; init; }
+    public required double YTilt { get; init; }
+    public required double Twist { get; init; }
+    public required bool IsEraser { get; init; }
+
     public double X { get; set; }
     public double Y { get; set; }
     public int IX => (int)Math.Round(X);

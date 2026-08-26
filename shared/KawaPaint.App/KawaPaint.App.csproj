@@ -14,7 +14,10 @@
       <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
       <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="LibGit2Sharp" Version="0.31.0" />
+    <!-- The shared UI compiles GitService but cannot know the runtime platform. Native libgit2
+         assets are selected by desktop heads instead, preventing them from leaking into Android
+         and WebAssembly packages. -->
+    <PackageReference Include="LibGit2Sharp" Version="0.31.0" ExcludeAssets="runtime;native" />
   </ItemGroup>
 
   <ItemGroup>

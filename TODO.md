@@ -1,6 +1,6 @@
 # KawaPaint - resume-here notes
 
-Status snapshot: 2026-08-25, branch `master` (updated post-2.4,
+Status snapshot: 2026-08-26, branch `master` (updated post-2.4,
 post-JXL/JP2-Windows-packaging, post-3.x-classic-PDN-plugin-bridge,
 post-3.x-BitmapEffect-tier-spike-proven-impossible, post-bughunt-sweep,
 post-second-bughunt-pass-B1..B7-all-fixed, post-UI-gaps-pass, post-demo-recorder,
@@ -10,7 +10,8 @@ the tiers below as 2.5-2.9 and a new Tier 5, with per-item feasibility; that fil
 post-2.8-EXIF-strip, post-2.6-export-presets, post-2.9-local-art-packages, and
 post-demo-v2-parameter-capture, post-2.7-dynamic-zone-mail-merge,
 post-history-step-deletion-2026-08-25, post-antialiased-selection-edges-2026-08-25,
-post-tablet-pressure-touch-navigation-2026-08-25, and post-3D-reference-import-2026-08-25).
+post-tablet-pressure-touch-navigation-2026-08-25, post-3D-reference-import-2026-08-25,
+and post-Android-head-emulator-validation-2026-08-26).
 Full roadmap/rationale lives in Claude memory
 (`feature-roadmap-tiers`) and the published plan:
 https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
@@ -36,6 +37,20 @@ https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
   works in the browser with default camera settings. Smoke coverage checks parsing, transforms,
   deterministic camera-dependent pixels, meaningful antialias coverage, depth order and bad indices.
   This completes option 5.3(a); persistent live 3D layers and UV painting remain separate scopes.
+
+## Android head and mobile workspace - done 2026-08-26; device validation pending
+
+- `android/KawaPaint.Android.csproj` is an Avalonia 12 `net10.0-android` head using the activity
+  lifetime and a self-contained debug APK. Arbitrary desktop plugins and native libgit2 payloads
+  are excluded on mobile; JXL/JP2 continue to degrade through their existing availability probes.
+- A dedicated `Mobile` workspace starts with the canvas and touch-sized tool rail, while layers,
+  color, history, timeline and the custom dock open on demand as movable overlays. Activity
+  recreation and responsive sizing use Android configuration changes.
+- Verified on this Apple Silicon Mac in a Pixel 7 API 36 ARM64 emulator: zero-warning APK build,
+  cold launch, portrait/landscape rotation, touch navigation input, live process and no crash log.
+  A physical Android tablet/foldable and real pen remain the only mobile validation gap.
+- Plugin tools now receive raw pressure, X/Y tilt, twist and eraser-tip state, matching the tablet
+  data available to built-in tools.
 
 ## Apple Silicon macOS codec packaging - done 2026-08-25
 
@@ -1663,13 +1678,13 @@ writes `acTL`/`fcTL`/`fdAT`; its decoder supports frame bounds, blending and dis
 export writes VP8X/ANIM/ANMF around Skia-encoded frame payloads, and Skia decodes it through the common
 frame-codec path. Round-trip smoke tests cover all three containers and `.kwp` timeline persistence.
 
-### 5.2 - Android tablets and foldables (`Version mobile`) - shared gestures **DONE**, Android head **environment-blocked**
+### 5.2 - Android tablets and foldables (`Version mobile`) - **DONE 2026-08-26; physical-device validation pending**
 
-The shared canvas now has the required touch/pen behavior: one/two-finger navigation, pinch zoom,
-pen-vs-touch separation, pressure and eraser-tip mapping. The machine still has neither the .NET
-Android workload nor an Android SDK/device/emulator, so an Android csproj cannot be built or launched
-honestly here. Do not add an unverified head to the solution merely to make the file exist. The
-remaining mobile work is the actual Android host plus responsive touch-sized menus/dialogs/layouts.
+The shared canvas has one/two-finger navigation, pinch zoom, pen-vs-touch separation, pressure and
+eraser-tip mapping. The Avalonia 12 Android activity head and a compact mobile workspace now ship in
+the solution. The API 36 ARM64 emulator pass covered install, cold launch, touch input, rotation and
+crash logs. Desktop plugin discovery is disabled and desktop libgit2 native assets are excluded.
+JXL/JP2 remain unavailable until Android ABI builds are deliberately added.
 
 **The port is unusually well-positioned, and this is the fact that should drive the estimate:** the
 browser head already forced the whole app through `ISingleViewApplicationLifetime`
@@ -1696,9 +1711,9 @@ The cost is everything around the port, and each of these is a real item:
   Jetpack `WindowManager` yourself. Recommend scoping this item to "the layout responds correctly to
   size changes", and treating true hinge-aware dual-pane as a separate item, raised only if asked for.
 
-**Verification needs a device or an emulator on this box; neither was checked for this pass.**
-**Estimate:** one session to launch on a tablet, several more before the UI is honestly usable. The
-first without the second should not ship.
+**Remaining validation, not implementation:** run the same input/rotation checks on a physical
+tablet or foldable with a pressure pen. True hinge-aware dual-pane UI and Android JXL/JP2 ABI packs
+remain separate optional scopes.
 
 ### 5.3 - 3D model support (`Support modeles 3D`) - reference layer **DONE 2026-08-25**; live/UV modes gated
 
@@ -1741,7 +1756,8 @@ extensions of the raster-reference importer.
 6. ~~**2.5 tablet support**~~ - implementation **done 2026-08-25**; physical hardware validation remains.
 7. ~~**5.1 animation**~~ - adaptive/dithered GIF, APNG, animated WebP and the real timeline are
    **done 2026-08-25**.
-8. **5.2 Android head**, then its responsive UI, once the workload, SDK and a device/emulator exist.
+8. ~~**5.2 Android head and responsive workspace**~~ - **done 2026-08-26** on an API 36 ARM64
+   emulator; physical tablet/foldable validation remains.
 9. ~~**5.3(a) 3D reference layer**~~ - **done 2026-08-25**; UV/live-scene modes remain separate decisions.
 
 ### Provenance - the original ten lines
@@ -1750,7 +1766,7 @@ extensions of the raster-reference importer.
 |---|---|
 | Enregistrement type demo pour replay | **Shipped** 2026-08-21; parameter capture shipped 2026-08-24 |
 | Support explicite tablettes dessin | 2.5 implementation **shipped 2026-08-25**; hardware validation pending |
-| Version mobile (tablettes android, foldables) | 5.2 shared touch/pen input shipped; Android host blocked on workload/SDK/device |
+| Version mobile (tablettes android, foldables) | 5.2 Android head and compact workspace **shipped 2026-08-26**; physical-device validation pending |
 | Support gif animes (voir pour integration Motionity > package type Affinity) | 5.1a (Clear-with-caveat) + 5.1b (Gated) |
 | Support modeles 3D (gestion des couches++) | 5.3(a) raster reference layer **shipped 2026-08-25**; live/UV modes gated |
 | Integration plateformes art (Ex: Instagram > genere carre, JPG, description, tagging) | 2.9 local half **shipped 2026-08-24** + posting half (Gated) |

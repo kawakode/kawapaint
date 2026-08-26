@@ -9,4 +9,5 @@
   <Project Path="mac/KawaPaint.Mac.csproj" />
   <Project Path="linux/KawaPaint.Linux.csproj" />
   <Project Path="web/KawaPaint.Web.csproj" />
+  <Project Path="android/KawaPaint.Android.csproj" />
 </Solution>

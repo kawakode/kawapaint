@@ -8,7 +8,7 @@
   <a href="https://github.com/kawakode/kawapaint/releases"><img src="https://img.shields.io/github/downloads/kawakode/kawapaint/total" alt="Downloads"></a>
 </p>
 
-A modern, cross-platform image editor compatible with Paint.NET 3.36 file format. KawaPaint is a clean rewrite built on a shared C#/SkiaSharp engine with Avalonia UI, running natively on Windows, Linux, and in the browser via WebAssembly.
+A modern, cross-platform image editor compatible with Paint.NET 3.36 file format. KawaPaint is a clean rewrite built on a shared C#/SkiaSharp engine with Avalonia UI, running on Windows, Linux, Apple Silicon macOS, Android, and in the browser via WebAssembly.
 
 ## Project Structure
 
@@ -16,9 +16,24 @@ A modern, cross-platform image editor compatible with Paint.NET 3.36 file format
 - **win/** - Windows desktop application (KawaPaint.Win)
 - **linux/** - Linux desktop application (KawaPaint.Linux)
 - **mac/** - Apple Silicon macOS desktop application (KawaPaint.Mac), with bundled JXL/JP2 codecs
+- **android/** - Android application (KawaPaint.Android), with touch/pen input and a compact workspace
 - **web/** - Browser application (KawaPaint.Web, WebAssembly/Avalonia.Browser)
 
 Open `KawaPaint.slnx` to build any platform; all share the same engine and UI code.
+
+### Android on Apple Silicon
+
+Install the Android workload, JDK 21, command-line SDK, API 36 platform and an ARM64 system image.
+The project recognizes the standard `~/Library/Android/sdk` plus Homebrew's `openjdk@21` path. Then:
+
+```text
+dotnet build android/KawaPaint.Android.csproj -c Debug
+adb install --no-incremental android/bin/Debug/net10.0-android/com.kawapaint.app-Signed.apk
+```
+
+Debug APKs embed their assemblies and can be installed directly. Desktop plugins and Git-backed
+history are disabled on Android; native JXL/JP2 are reported unavailable when no Android ABI pack
+is present.
 
 ## Docker
 

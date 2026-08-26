@@ -51,11 +51,15 @@ kawapaint --script cleanup.kpscript --in-dir photos --pattern *.png --out-dir cl
 Preset CLI runs read the normal KawaPaint `settings.json`; use `--settings <path>` to select a
 different settings file.
 
-## 3D reference layers
+## Tablet input and 3D reference layers
 
-Choose **File > Import 3D Reference** to load a Wavefront OBJ, pose its yaw, pitch and roll in the
-live preview, and render it into a normal antialiased raster layer. The resulting pixels support the
-usual layer tools and undo/redo; the source model is not stored as a live scene in the project.
+Pen pressure can control brush size, opacity, or both; inverted/eraser tips are recognized
+automatically. Touch input pans and pinch-zooms instead of painting. Configure this under
+**Preferences > Drawing**.
+
+Choose **File > Import 3D Reference** to load an OBJ, glTF or GLB model, pose its yaw, pitch and roll
+in the live preview, and render it into a normal antialiased raster layer. The resulting pixels
+support the usual layer tools and undo/redo; the source model is not stored as a live scene.
 
 ### Mail merge from CSV
 

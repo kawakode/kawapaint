@@ -112,11 +112,12 @@ public sealed class DemoRecorder
 
     // ---- pointer ---------------------------------------------------------
 
-    public void NoteStrokeBegin(double x, double y, bool ctrl)
+    public void NoteStrokeBegin(ToolPointerSample sample, bool ctrl)
     {
         if (Off) return;
         _strokeInFlight = true;
-        Add(DemoEvent.Down(Now, x, y, ctrl));
+        Add(DemoEvent.Down(Now, sample.X, sample.Y, ctrl, sample.Pressure, sample.Kind,
+            sample.IsEraser, sample.XTilt, sample.YTilt, sample.Twist));
     }
 
     /// <summary>
@@ -126,10 +127,11 @@ public sealed class DemoRecorder
     /// replay come out visibly lighter at stroke starts, where the duplicate samples cluster -
     /// caught by diffing a recorded session against its own replay, not by reading the code.
     /// </summary>
-    public void NoteStrokeMove(double x, double y)
+    public void NoteStrokeMove(ToolPointerSample sample)
     {
         if (Off || !_strokeInFlight) return;
-        Add(DemoEvent.Move(Now, x, y));
+        Add(DemoEvent.Move(Now, sample.X, sample.Y, sample.Pressure,
+            sample.XTilt, sample.YTilt, sample.Twist));
     }
 
     public void NoteStrokeEnd()

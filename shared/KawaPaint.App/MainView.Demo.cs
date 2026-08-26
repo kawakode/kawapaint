@@ -57,8 +57,8 @@ public partial class MainView
     /// <summary>Called from the constructor once the AXAML tree and Canvas exist.</summary>
     private void InitializeDemo()
     {
-        Canvas.StrokeBegan += (x, y, ctrl) => _demoRecorder.NoteStrokeBegin(x, y, ctrl);
-        Canvas.StrokeExtended += (x, y) => _demoRecorder.NoteStrokeMove(x, y);
+        Canvas.StrokeBegan += (sample, ctrl) => _demoRecorder.NoteStrokeBegin(sample, ctrl);
+        Canvas.StrokeExtended += sample => _demoRecorder.NoteStrokeMove(sample);
         Canvas.StrokeEnded += () => _demoRecorder.NoteStrokeEnd();
         Canvas.ViewChanged += () => _demoRecorder.NoteView(Canvas.Zoom, Canvas.Origin.X, Canvas.Origin.Y);
 
@@ -394,13 +394,15 @@ public partial class MainView
             case DemoOp.PointerDown:
                 _demoCursorX = e.X; _demoCursorY = e.Y;
                 Canvas.SetDemoCursor(e.X, e.Y, true);
-                Canvas.BeginStroke(e.X, e.Y, e.A != 0);
+                Canvas.BeginStroke(new ToolPointerSample(e.X, e.Y, e.Pressure, e.XTilt, e.YTilt,
+                    e.Twist, e.PointerKind, e.IsEraser), (e.A & 1) != 0);
                 break;
 
             case DemoOp.PointerMove:
                 _demoCursorX = e.X; _demoCursorY = e.Y;
                 Canvas.SetDemoCursor(e.X, e.Y, true);
-                Canvas.ExtendStroke(e.X, e.Y);
+                Canvas.ExtendStroke(new ToolPointerSample(e.X, e.Y, e.Pressure, e.XTilt, e.YTilt,
+                    e.Twist));
                 break;
 
             case DemoOp.PointerUp:

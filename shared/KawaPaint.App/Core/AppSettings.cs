@@ -15,12 +15,13 @@ namespace KawaPaint.App.Core;
 public sealed class AppSettings
 {
     /// <summary>Bumped whenever a migration is needed; see <see cref="SettingsService.Migrate"/>.</summary>
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
     public AutosaveSettings Autosave { get; set; } = new();
     public HistorySettings History { get; set; } = new();
+    public DrawingSettings Drawing { get; set; } = new();
     public GitSettings Git { get; set; } = new();
     public WorkspaceSettings Workspace { get; set; } = new();
     public PluginSettings Plugins { get; set; } = new();
@@ -61,6 +62,25 @@ public sealed class AppSettings
             PackageText = "{name}\n\n#art", CopyPackageTextToClipboard = true
         }
     };
+}
+
+public sealed class DrawingSettings
+{
+    /// <summary>How pen pressure changes each freehand tool.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter<PressureMapping>))]
+    public PressureMapping PencilPressure { get; set; } = PressureMapping.Size;
+
+    [JsonConverter(typeof(JsonStringEnumConverter<PressureMapping>))]
+    public PressureMapping PaintbrushPressure { get; set; } = PressureMapping.Size;
+
+    [JsonConverter(typeof(JsonStringEnumConverter<PressureMapping>))]
+    public PressureMapping EraserPressure { get; set; } = PressureMapping.Size;
+
+    /// <summary>Use an inverted stylus or eraser tip as Eraser without changing the selected tool.</summary>
+    public bool PenEraserEnabled { get; set; } = true;
+
+    /// <summary>Reserve touch for panning and pinch zoom; pen and mouse remain drawing inputs.</summary>
+    public bool TouchNavigationEnabled { get; set; } = true;
 }
 
 public sealed class AutosaveSettings

@@ -37,6 +37,7 @@ public sealed class SurfaceView : Control
     private Point _origin;
     private bool _panning;
     private Point _lastPointer;
+    private readonly Dictionary<int, Point> _touches = new();
     private bool _fitPending = true;
 
     private bool _drawing;
@@ -53,6 +54,11 @@ public sealed class SurfaceView : Control
     public int FillTolerance { get; set; } = 32;
     public bool GlobalFill { get; set; }
     public bool FillShapes { get; set; }
+    public PressureMapping PencilPressure { get; set; } = PressureMapping.Size;
+    public PressureMapping PaintbrushPressure { get; set; } = PressureMapping.Size;
+    public PressureMapping EraserPressure { get; set; } = PressureMapping.Size;
+    public bool PenEraserEnabled { get; set; } = true;
+    public bool TouchNavigationEnabled { get; set; } = true;
     public SelectionCombineMode SelectionCombineMode { get; set; } = SelectionCombineMode.Replace;
 
     public ITool CurrentTool { get; set; } = new PencilTool();
@@ -75,6 +81,8 @@ public sealed class SurfaceView : Control
 
     private Surface? _preStroke;
     private ToolContext? _toolCtx;
+    private ITool? _gestureTool;
+    private readonly EraserTool _penEraserTool = new();
 
     // A tool asks for history at the start of its gesture, before it has touched a pixel.
     // The step is only built at pointer-up, when the changed region is known and can be
@@ -651,6 +659,17 @@ public sealed class SurfaceView : Control
         if (SuppressPointerInput) return;
         var pt = e.GetCurrentPoint(this);
 
+        if (e.Pointer.Type == PointerType.Touch)
+        {
+            if (TouchNavigationEnabled && !(_drawing && _toolCtx?.PointerKind == ToolPointerKind.Pen))
+            {
+                _touches[e.Pointer.Id] = pt.Position;
+                e.Pointer.Capture(this);
+                e.Handled = true;
+            }
+            return;
+        }
+
         if (pt.Properties.IsMiddleButtonPressed || pt.Properties.IsRightButtonPressed)
         {
             _panning = true;
@@ -661,7 +680,8 @@ public sealed class SurfaceView : Control
         {
             Point img = ControlToImage(pt.Position);
             bool ctrl = e.KeyModifiers.HasFlag(KeyModifiers.Control);
-            if (BeginStroke(img.X, img.Y, ctrl)) StrokeBegan?.Invoke(img.X, img.Y, ctrl);
+            ToolPointerSample sample = PointerSample(pt, img);
+            if (BeginStroke(sample, ctrl)) StrokeBegan?.Invoke(sample, ctrl);
             e.Pointer.Capture(this);
         }
     }
@@ -671,9 +691,9 @@ public sealed class SurfaceView : Control
     /// whether Ctrl was held. Deliberately *not* raised by <see cref="BeginStroke"/> itself, so a
     /// demo being replayed through that method cannot re-record itself. Same for the two below.
     /// </summary>
-    public event Action<double, double, bool>? StrokeBegan;
+    public event Action<ToolPointerSample, bool>? StrokeBegan;
 
-    public event Action<double, double>? StrokeExtended;
+    public event Action<ToolPointerSample>? StrokeExtended;
 
     public event Action? StrokeEnded;
 
@@ -684,12 +704,16 @@ public sealed class SurfaceView : Control
     /// Returns false when there is nothing to draw on.
     /// </summary>
     public bool BeginStroke(double ix, double iy, bool ctrl)
+        => BeginStroke(new ToolPointerSample(ix, iy), ctrl);
+
+    public bool BeginStroke(ToolPointerSample sample, bool ctrl)
     {
         if (ActiveLayer is null || _composite is null) return false;
         if (_drawing) EndStroke();
 
         _drawing = true;
         Layer layer = ActiveLayer;
+        _gestureTool = sample.IsEraser && PenEraserEnabled ? _penEraserTool : CurrentTool;
 
         _preStroke?.Dispose();
         _preStroke = layer.Surface.Clone();
@@ -708,13 +732,20 @@ public sealed class SurfaceView : Control
                 GlobalFill = GlobalFill,
                 FillShapes = FillShapes,
                 CtrlHeld = ctrl,
+                PressureResponse = PressureResponseFor(_gestureTool),
+                PointerKind = sample.Kind,
+                IsEraser = sample.IsEraser,
                 DocumentVersion = _documentVersion,
-                X = ix,
-                Y = iy,
+                X = sample.X,
+                Y = sample.Y,
+                Pressure = sample.Kind == ToolPointerKind.Pen ? Math.Clamp(sample.Pressure, 0.01, 1) : 1,
+                XTilt = sample.XTilt,
+                YTilt = sample.YTilt,
+                Twist = sample.Twist,
                 PushHistory = () =>
                 {
                     _pendingHistoryLayer = layer;
-                    _pendingHistoryName = CurrentTool.Name;
+                    _pendingHistoryName = _gestureTool.Name;
                 },
                 Composite = () => { ClipToSelection(); RenderComposite(); InvalidateVisual(); },
                 CompositeRect = (x, y, width, height) =>
@@ -734,7 +765,7 @@ public sealed class SurfaceView : Control
                 CombineMode = SelectionCombineMode
             };
 
-            CurrentTool.PointerDown(_toolCtx);
+            _gestureTool.PointerDown(_toolCtx);
         }
 
         return true;
@@ -748,11 +779,23 @@ public sealed class SurfaceView : Control
 
     /// <summary>Continues the in-flight gesture at an image-space point. No-op when none is.</summary>
     public void ExtendStroke(double ix, double iy)
+        => ExtendStroke(new ToolPointerSample(ix, iy,
+            Pressure: _toolCtx?.Pressure ?? 1,
+            XTilt: _toolCtx?.XTilt ?? 0, YTilt: _toolCtx?.YTilt ?? 0,
+            Twist: _toolCtx?.Twist ?? 0, Kind: _toolCtx?.PointerKind ?? ToolPointerKind.Mouse,
+            IsEraser: _toolCtx?.IsEraser ?? false));
+
+    public void ExtendStroke(ToolPointerSample sample)
     {
         if (!_drawing || _toolCtx is null) return;
-        _toolCtx.X = ix;
-        _toolCtx.Y = iy;
-        CurrentTool.PointerMove(_toolCtx);
+        _toolCtx.X = sample.X;
+        _toolCtx.Y = sample.Y;
+        _toolCtx.Pressure = _toolCtx.PointerKind == ToolPointerKind.Pen
+            ? Math.Clamp(sample.Pressure, 0.01, 1) : 1;
+        _toolCtx.XTilt = sample.XTilt;
+        _toolCtx.YTilt = sample.YTilt;
+        _toolCtx.Twist = sample.Twist;
+        _gestureTool?.PointerMove(_toolCtx);
     }
 
     /// <summary>Finishes the in-flight gesture and commits its undo step. No-op when none is.</summary>
@@ -767,6 +810,16 @@ public sealed class SurfaceView : Control
         base.OnPointerMoved(e);
         if (SuppressPointerInput) return;
         Point p = e.GetPosition(this);
+
+        if (e.Pointer.Type == PointerType.Touch)
+        {
+            if (_touches.ContainsKey(e.Pointer.Id))
+            {
+                UpdateTouch(e.Pointer.Id, p);
+                e.Handled = true;
+            }
+            return;
+        }
 
         if (CursorMoved is not null)
         {
@@ -789,9 +842,11 @@ public sealed class SurfaceView : Control
         }
         else if (_drawing && _toolCtx is not null)
         {
+            var pt = e.GetCurrentPoint(this);
             Point img = ControlToImage(p);
-            ExtendStroke(img.X, img.Y);
-            StrokeExtended?.Invoke(img.X, img.Y);
+            ToolPointerSample sample = PointerSample(pt, img);
+            ExtendStroke(sample);
+            StrokeExtended?.Invoke(sample);
         }
     }
 
@@ -826,8 +881,9 @@ public sealed class SurfaceView : Control
     {
         if (_drawing)
         {
-            if (_toolCtx is not null) CurrentTool.PointerUp(_toolCtx);
+            if (_toolCtx is not null) _gestureTool?.PointerUp(_toolCtx);
             _toolCtx = null;
+            _gestureTool = null;
             CommitPendingHistory();
             _preStroke?.Dispose();
             _preStroke = null;
@@ -842,6 +898,13 @@ public sealed class SurfaceView : Control
     {
         base.OnPointerReleased(e);
         if (SuppressPointerInput) return;
+        if (e.Pointer.Type == PointerType.Touch)
+        {
+            _touches.Remove(e.Pointer.Id);
+            e.Pointer.Capture(null);
+            e.Handled = true;
+            return;
+        }
         bool wasActive = _panning || _drawing;
         bool wasDrawing = _drawing;
         FinishGesture();
@@ -859,8 +922,69 @@ public sealed class SurfaceView : Control
     {
         base.OnPointerCaptureLost(e);
         if (SuppressPointerInput) return;   // a replay's gesture is not the pointer's to lose
+        if (_touches.Count > 0)
+        {
+            _touches.Clear();
+            return;
+        }
         bool wasDrawing = _drawing;
         FinishGesture();
         if (wasDrawing) StrokeEnded?.Invoke();
+    }
+
+    private static ToolPointerSample PointerSample(PointerPoint point, Point image)
+    {
+        var kind = point.Pointer.Type switch
+        {
+            PointerType.Pen => ToolPointerKind.Pen,
+            PointerType.Touch => ToolPointerKind.Touch,
+            _ => ToolPointerKind.Mouse
+        };
+        var p = point.Properties;
+        return new ToolPointerSample(image.X, image.Y,
+            kind == ToolPointerKind.Pen ? p.Pressure : 1,
+            p.XTilt, p.YTilt, p.Twist, kind, p.IsEraser || p.IsInverted);
+    }
+
+    private PressureMapping PressureResponseFor(ITool tool) => tool switch
+    {
+        PencilTool => PencilPressure,
+        PaintbrushTool => PaintbrushPressure,
+        EraserTool => EraserPressure,
+        _ => PressureMapping.None
+    };
+
+    private void UpdateTouch(int id, Point current)
+    {
+        Point oldCentroid = TouchCentroid();
+        double oldDistance = TouchDistance();
+        _touches[id] = current;
+        Point newCentroid = TouchCentroid();
+        double newDistance = TouchDistance();
+
+        _origin += newCentroid - oldCentroid;
+        if (oldDistance > 1 && newDistance > 1)
+            ZoomAround(newCentroid, newDistance / oldDistance);
+        else
+        {
+            InvalidateVisual();
+            ViewChanged?.Invoke();
+        }
+    }
+
+    private Point TouchCentroid()
+    {
+        double x = 0, y = 0;
+        foreach (Point p in _touches.Values) { x += p.X; y += p.Y; }
+        return _touches.Count == 0 ? default : new Point(x / _touches.Count, y / _touches.Count);
+    }
+
+    private double TouchDistance()
+    {
+        if (_touches.Count < 2) return 0;
+        using var e = _touches.Values.GetEnumerator();
+        e.MoveNext(); Point a = e.Current;
+        e.MoveNext(); Point b = e.Current;
+        return Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
     }
 }

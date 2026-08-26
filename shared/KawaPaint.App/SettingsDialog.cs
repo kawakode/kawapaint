@@ -37,6 +37,13 @@ public sealed class SettingsDialog : Window
     private readonly NumericUpDown _historyBudget = new() { Minimum = 16, Maximum = 65536, Increment = 128 };
     private readonly CheckBox _historySpill = new() { Content = "Park steps past the budget on disk instead of dropping them" };
 
+    // Drawing / tablet
+    private readonly ComboBox _pencilPressure = PressureCombo();
+    private readonly ComboBox _paintbrushPressure = PressureCombo();
+    private readonly ComboBox _eraserPressure = PressureCombo();
+    private readonly CheckBox _penEraser = new() { Content = "Use the pen eraser tip as Eraser" };
+    private readonly CheckBox _touchNavigation = new() { Content = "Use touch for pan and pinch zoom (pen/mouse draw)" };
+
     // Git
     private readonly CheckBox _gitEnabled = new() { Content = "Keep local git history" };
     private readonly CheckBox _gitTrackConfig = new() { Content = "Track this app's own configuration" };
@@ -83,6 +90,7 @@ public sealed class SettingsDialog : Window
             {
                 new TabItem { Header = "Autosave", Content = Page(AutosavePage()) },
                 new TabItem { Header = "History", Content = Page(HistoryPage()) },
+                new TabItem { Header = "Drawing", Content = Page(DrawingPage()) },
                 new TabItem { Header = "Git", Content = Page(GitPage()) },
                 new TabItem { Header = "Plugins", Content = Page(PluginsPage()) }
             }
@@ -139,7 +147,20 @@ public sealed class SettingsDialog : Window
         Row("Memory budget", _historyBudget, "MB"),
         _historySpill,
         Note("The budget is a soft ceiling on undo data held in memory. Steps past it either move " +
-             "to the on-disk cache or, with that off, are discarded oldest-first."));
+              "to the on-disk cache or, with that off, are discarded oldest-first."));
+
+    private StackPanel DrawingPage()
+    {
+        return Stack(
+            new TextBlock { Text = "Pen pressure", FontWeight = FontWeight.Bold },
+            Row("Pencil", _pencilPressure),
+            Row("Paintbrush", _paintbrushPressure),
+            Row("Eraser", _eraserPressure),
+            _penEraser,
+            _touchNavigation,
+            Note("Pressure is read per pointer sample. Touch navigation also provides one-finger pan " +
+                 "and two-finger pan/pinch while rejecting touch input during a pen stroke."));
+    }
 
     private StackPanel GitPage() => Stack(
         _gitEnabled,
@@ -198,6 +219,39 @@ public sealed class SettingsDialog : Window
         };
     }
 
+    private static Control Row(string label, Control field) => new StackPanel
+    {
+        Orientation = Orientation.Horizontal,
+        Spacing = 6,
+        Children =
+        {
+            new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center },
+            field
+        }
+    };
+
+    private static ComboBox PressureCombo() => new()
+    {
+        Width = 180,
+        ItemsSource = new[] { "Off", "Size", "Opacity", "Size and opacity" }
+    };
+
+    private static int PressureIndex(PressureMapping mapping) => mapping switch
+    {
+        PressureMapping.Size => 1,
+        PressureMapping.Opacity => 2,
+        PressureMapping.SizeAndOpacity => 3,
+        _ => 0
+    };
+
+    private static PressureMapping PressureValue(ComboBox combo) => combo.SelectedIndex switch
+    {
+        1 => PressureMapping.Size,
+        2 => PressureMapping.Opacity,
+        3 => PressureMapping.SizeAndOpacity,
+        _ => PressureMapping.None
+    };
+
     private static Control Note(string text) => new TextBlock
     {
         Text = text,
@@ -221,6 +275,12 @@ public sealed class SettingsDialog : Window
         _historyMaxSteps.Value = s.History.MaxSteps;
         _historyBudget.Value = s.History.MemoryBudgetMegabytes;
         _historySpill.IsChecked = s.History.SpillToDisk;
+
+        _pencilPressure.SelectedIndex = PressureIndex(s.Drawing.PencilPressure);
+        _paintbrushPressure.SelectedIndex = PressureIndex(s.Drawing.PaintbrushPressure);
+        _eraserPressure.SelectedIndex = PressureIndex(s.Drawing.EraserPressure);
+        _penEraser.IsChecked = s.Drawing.PenEraserEnabled;
+        _touchNavigation.IsChecked = s.Drawing.TouchNavigationEnabled;
 
         _gitEnabled.IsChecked = s.Git.Enabled;
         _gitTrackConfig.IsChecked = s.Git.TrackConfiguration;
@@ -249,6 +309,12 @@ public sealed class SettingsDialog : Window
             s.History.MaxSteps = Int(_historyMaxSteps, s.History.MaxSteps);
             s.History.MemoryBudgetMegabytes = Int(_historyBudget, s.History.MemoryBudgetMegabytes);
             s.History.SpillToDisk = _historySpill.IsChecked ?? true;
+
+            s.Drawing.PencilPressure = PressureValue(_pencilPressure);
+            s.Drawing.PaintbrushPressure = PressureValue(_paintbrushPressure);
+            s.Drawing.EraserPressure = PressureValue(_eraserPressure);
+            s.Drawing.PenEraserEnabled = _penEraser.IsChecked ?? true;
+            s.Drawing.TouchNavigationEnabled = _touchNavigation.IsChecked ?? true;
 
             s.Git.Enabled = _gitEnabled.IsChecked ?? false;
             s.Git.TrackConfiguration = _gitTrackConfig.IsChecked ?? true;

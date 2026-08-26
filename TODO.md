@@ -1,6 +1,6 @@
 # KawaPaint - resume-here notes
 
-Status snapshot: 2026-08-21, branch `feature/demo-recorder` (updated post-2.4,
+Status snapshot: 2026-08-25, branch `master` (updated post-2.4,
 post-JXL/JP2-Windows-packaging, post-3.x-classic-PDN-plugin-bridge,
 post-3.x-BitmapEffect-tier-spike-proven-impossible, post-bughunt-sweep,
 post-second-bughunt-pass-B1..B7-all-fixed, post-UI-gaps-pass, post-demo-recorder,
@@ -9,48 +9,44 @@ post-TODO-features-fusion-2026-08-24 - the ten-idea `TODO-features.md` is now me
 the tiers below as 2.5-2.9 and a new Tier 5, with per-item feasibility; that file is gone -
 post-2.8-EXIF-strip, post-2.6-export-presets, post-2.9-local-art-packages, and
 post-demo-v2-parameter-capture, post-2.7-dynamic-zone-mail-merge,
-post-history-step-deletion-2026-08-25, and post-antialiased-selection-edges-2026-08-25).
+post-history-step-deletion-2026-08-25, post-antialiased-selection-edges-2026-08-25,
+post-tablet-pressure-touch-navigation-2026-08-25, and post-3D-reference-import-2026-08-25).
 Full roadmap/rationale lives in Claude memory
 (`feature-roadmap-tiers`) and the published plan:
 https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
 
-## 5.3(a) rasterized 3D reference layers - first slice done 2026-08-25
+## Tablet input, touch navigation and 3D reference import - done 2026-08-25
 
-File > Import 3D Reference now loads Wavefront OBJ geometry, shows a live yaw/pitch/roll preview,
-and renders the chosen pose at document resolution into a normal transparent raster layer. The
-shared engine parser handles positions, normals, `v`, `v/vt`, `v//vn` and `v/vt/vn` corners,
-positive and negative indices, comments, arbitrary whitespace and polygon fan triangulation, with
-finite-value, range and complexity validation that reports the offending line.
-
-`ReferenceRenderer` is a deterministic orthographic CPU renderer with automatic centering/framing,
-smooth generated normals when an OBJ supplies none, explicit-normal lighting, double-sided faces,
-a per-pixel z-buffer and adaptive 2x supersampling. Supersampling backs off for very large canvases
-instead of multiplying memory without bound. Transparent output makes the result immediately useful
-as a reference above artwork; importing it is one structural undo/redo step with correct detached
-layer memory accounting. The browser uses the same parser and renderer with the default pose; the
-desktop dialog adds the live camera preview.
-
-`ThreeDReferenceSmokeTest` checks quad triangulation, negative indices, normal normalization,
-line-numbered invalid-reference rejection, deterministic pixels, meaningful partial-alpha edge
-coverage and a deliberately order-reversed pair of overlapping triangles where the test only stays
-bright if the front face wins the z-buffer. Still outside this slice: MTL/materials and textures,
-glTF, UV painting, perspective cameras, and any persistent/editable 3D scene layer.
+- **Tablet input:** Avalonia pen samples now reach `ToolContext` with pressure, tilt, twist, pointer
+  kind and eraser-tip state. Preferences choose size, opacity, both or neither for pressure. Pencil,
+  Paintbrush and Eraser interpolate pressure between samples; the eraser supports partial-alpha
+  strokes, and an inverted/eraser pen temporarily uses Eraser without changing the selected tool.
+- **Replay parity:** `.kpdemo` v3 quantizes pressure to 1/4095 and carries tilt/twist plus pen and
+  eraser identity. The reader remains compatible with v1/v2. Headless coverage proves pressure
+  changes radius/opacity, partial erasing works, and the new input payload round-trips.
+- **Touch navigation:** touch is navigation rather than paint input: one finger pans, two fingers
+  pan and pinch-zoom, and touches are rejected during a pen stroke for basic palm rejection. Mouse
+  and pen behavior remains unchanged. Physical tablet feel/backend delivery still needs a hardware
+  pass; no drawing tablet is attached to this Mac.
+- **3D reference layer:** File > Import 3D Reference reads defensive Wavefront OBJ and glTF 2.0/GLB
+  geometry, fan-triangulates OBJ polygons (including relative indices), resolves glTF accessors,
+  buffers and node transforms, and provides a live yaw/pitch/roll preview. The shared renderer uses
+  explicit or generated smooth normals, double-sided lighting, a z-buffer and adaptive 2x
+  supersampling, then returns a normal transparent undoable layer. The pure-CPU Engine path also
+  works in the browser with default camera settings. Smoke coverage checks parsing, transforms,
+  deterministic camera-dependent pixels, meaningful antialias coverage, depth order and bad indices.
+  This completes option 5.3(a); persistent live 3D layers and UV painting remain separate scopes.
 
 ## Apple Silicon macOS codec packaging - done 2026-08-25
 
-The native-codec packaging gap is closed for Apple Silicon. `mac/KawaPaint.Mac.csproj` is a
-dedicated `osx-arm64` desktop head and bundles libjxl 0.12.0, OpenJPEG 2.5.4 and the six non-system
-libraries libjxl needs. The eight dylibs are 3.6 MB total, copied flat beside the apphost just like
-the Windows native set. Every Homebrew/Cellar install name was replaced with `@loader_path`, and
-each modified arm64 binary was ad-hoc signed, so the output has no runtime dependency on Homebrew
-or `/opt/homebrew`. Upstream license texts ship beside the binaries.
+`mac/KawaPaint.Mac.csproj` is a dedicated `osx-arm64` desktop head and bundles libjxl 0.12.0,
+OpenJPEG 2.5.4 and the six non-system libraries libjxl needs. The eight dylibs are 3.6 MB total,
+copied flat beside the apphost. Every Homebrew/Cellar install name was replaced with
+`@loader_path`, every modified binary is ad-hoc signed, and upstream licenses ship beside them.
 
-Verified on a Mac Mini M4 running macOS 26.1: the full solution builds with .NET 10.0.400, all eight
-dylibs pass strict signature validation and contain no Homebrew paths, and the complete Sandbox
-suite runs with the app-local dylibs. The native portion executes real lossless JXL and JP2
-encode/decode/metadata-edit/strip round trips and JP2 lossy calibration (Q20 MSE 182.25 versus Q90
-MSE 1.75), rather than merely checking that the files load. An `osx-arm64` self-contained publish
-also places the complete dependency set next to `KawaPaint.Mac`.
+Verified on this Mac Mini M4 with .NET 10.0.400: the full solution and self-contained publish build,
+all dylibs pass strict signature validation without Homebrew paths, and real JXL/JP2 lossless,
+lossy and metadata round trips pass from the app-local native set.
 
 ## Unblocked follow-ups - done 2026-08-25
 
@@ -337,12 +333,9 @@ privacy fix. That is what this is: byte-level container surgery, pixels copied t
   announcing the EXIF/XMP/ICC chunks, so those bits get cleared and the RIFF length corrected.
   JPEG and PNG need neither (PNG CRCs are per-chunk, so removing whole chunks leaves survivors
   valid).
-- *EXIF parsing is read-only and one directory deep.* IFD0 only, no recursion into the Exif or GPS
-  sub-directories - IFD0 is where the GPS *pointer* tag lives, which is the fact that matters, and
-  not following offsets means a corrupt file cannot walk the reader into a loop. Every read is
-  bounds-checked and every failure degrades to "field absent", because this runs while merely
-  listing files the user picked. Writing EXIF back is the genuinely hard half and is still open -
-  see 2.8's entry in the fused backlog for the per-format injection difficulty.
+- *The original EXIF scanner was read-only and one directory deep.* The later 2026-08-25 targeted
+  editor supersedes that limitation with bounded IFD traversal, GPS-only removal and lossless
+  reinjection for JPEG/PNG/WebP/JXL/JP2; see 2.8 and the completion summary above.
 - *Licensing:* nothing was taken on. MetadataExtractor (Apache-2.0) reads but does not write, and
   there is no comfortable permissively-licensed .NET EXIF writer, so this is hand-rolled - which
   also keeps the app self-contained. Relevant given why this fork exists at all (FORK.TXT).
@@ -1539,7 +1532,13 @@ Rating vocabulary, used consistently below:
   `shared/KawaPaint.Cli` is now listed directly in `KawaPaint.slnx` as well as referenced by both
   desktop heads, so it is visible to solution readers and IDEs rather than only building transitively.
 
-### 2.5 - Explicit graphics-tablet support (`Support explicite tablettes dessin`) - **Spike first**
+### 2.5 - Explicit graphics-tablet support (`Support explicite tablettes dessin`) - **DONE 2026-08-25; hardware validation pending**
+
+The shared implementation is complete as described at the top: pressure can affect size, opacity,
+both or neither; tilt/twist/pointer kind are exposed per sample; eraser tips map temporarily to the
+Eraser; touch navigates and is rejected during pen strokes; demo v3 preserves the full replay input.
+Engine and serialization smoke tests pass. What remains is not code: a real tablet must confirm that
+the Win32/X11 backends deliver varying values and that the pressure curve feels right on hardware.
 
 Pressure driving brush radius and/or opacity, tilt, eraser-tip mapping, and a stylus-vs-finger
 distinction.
@@ -1554,21 +1553,20 @@ site to fix. `SurfaceView.OnPointerPressed` already calls `e.GetCurrentPoint(thi
 `Twist` and the pointer type on exactly that object - so the values are one property access away *if
 the backend fills them in*.
 
-**Why it is Spike-first anyway.** Nothing in this repo has ever read those fields, and whether
+**Why it was originally Spike-first.** Nothing in this repo had read those fields, and whether
 Avalonia's Win32 and X11 backends deliver genuinely varying pressure for a real tablet (Win32 pointer
 messages vs. Wintab; X11 XInput2 valuators) is exactly the kind of thing this project does not take
 from documentation. Minimal spike: a temporary debug hook logging the distinct `Properties.Pressure`
 values seen across one drag, on real hardware. **This needs a tablet plugged into the box; there was
-none to test with this pass, and "it compiles" must not be reported as working for this item.**
+none to test with either pass, so the implementation is shipped as headless-verified but physical
+backend delivery and feel are still explicitly unconfirmed.**
 
-**Knock-on, worth planning for up front:** the demo recorder. `.kpdemo` pointer samples are x/y/time
-only, so adding pressure without recording it makes every replay diverge. That is `DemoFile` format
-v2, ~1-2 bytes per sample at the existing 1/4096 fixed-point precision (the precision analysis in the
-Demo section applies unchanged), and the existing byte-exact pixel-diff harness proves it.
+**Replay consequence, now implemented:** `.kpdemo` pointer samples used to be x/y/time only, which
+would make pressure replays diverge. Format v3 carries pressure at 1/4095 precision plus tilt, twist,
+pointer kind and eraser state while retaining v1/v2 loading.
 
-In scope cheaply once pressure arrives: eraser-tip mapping, and a per-tool "pressure affects:
-size / opacity / both / off" curve stored in `AppSettings`. Out of scope: pressure on shape and
-selection tools. **Estimate:** ~half a session of plumbing plus demo v2, *after* the spike answers.
+The shipped preference provides "pressure affects: size / opacity / both / off", and eraser-tip
+mapping is implemented. Pressure remains intentionally out of scope for shape and selection tools.
 
 ### 2.6 - Export presets (`Presets d'export`) - **DONE 2026-08-24**
 
@@ -1665,7 +1663,13 @@ writes `acTL`/`fcTL`/`fdAT`; its decoder supports frame bounds, blending and dis
 export writes VP8X/ANIM/ANMF around Skia-encoded frame payloads, and Skia decodes it through the common
 frame-codec path. Round-trip smoke tests cover all three containers and `.kwp` timeline persistence.
 
-### 5.2 - Android tablets and foldables (`Version mobile`) - port **Clear-with-caveat**, usable UI is multi-session
+### 5.2 - Android tablets and foldables (`Version mobile`) - shared gestures **DONE**, Android head **environment-blocked**
+
+The shared canvas now has the required touch/pen behavior: one/two-finger navigation, pinch zoom,
+pen-vs-touch separation, pressure and eraser-tip mapping. The machine still has neither the .NET
+Android workload nor an Android SDK/device/emulator, so an Android csproj cannot be built or launched
+honestly here. Do not add an unverified head to the solution merely to make the file exist. The
+remaining mobile work is the actual Android host plus responsive touch-sized menus/dialogs/layouts.
 
 **The port is unusually well-positioned, and this is the fact that should drive the estimate:** the
 browser head already forced the whole app through `ISingleViewApplicationLifetime`
@@ -1696,18 +1700,22 @@ The cost is everything around the port, and each of these is a real item:
 **Estimate:** one session to launch on a tablet, several more before the UI is honestly usable. The
 first without the second should not ship.
 
-### 5.3 - 3D model support (`Support modeles 3D`) - option (a) **STARTED 2026-08-25**
+### 5.3 - 3D model support (`Support modeles 3D`) - reference layer **DONE 2026-08-25**; live/UV modes gated
+
+Option (a), the recommended default, is shipped: OBJ/glTF/GLB import, camera pose, orthographic
+lighting, optional mesh edges and z-buffer rasterization into an ordinary undoable layer. It is pure
+CPU Engine code with headless regression coverage. This deliberately does not create a persistent
+scene graph: after import pixels remain the only truth, exactly as option (a) specified.
 
 "3D models (layer management++)" could mean two very different products, and which one is meant *is*
 the estimate:
 
-- **(a) 3D reference layer.** **OBJ import and raster rendering are done** as described at the top;
-  glTF/materials/textures remain. Pose a camera and render the mesh into a raster layer;
+- **(a) 3D reference layer.** Import OBJ/glTF, pose a camera, render the mesh into a raster layer;
   pixels stay the only truth - Krita's reference images, Clip Studio's 3D dolls. This fits the
   existing architecture almost suspiciously well: the Engine is already pure CPU with `unsafe` pixel
   loops (`Surface`, `Document.RenderTo`), headless, and unit-testable, so a mesh loader plus a
   z-buffered triangle rasterizer is ordinary Engine code - no GPU context, no Avalonia dependency,
-  testable in `KawaPaint.Sandbox` like everything else.
+  testable in `KawaPaint.Sandbox` like everything else. **Clear**, one to two sessions.
 - **(b) 3D as a live layer type.** A persistent scene graph inside `Document` and `.kwp`, re-rendered
   on edit, with materials, lighting, gizmos, and a history stack that can undo a camera move. That
   needs a real renderer (SkiaSharp has no 3D; either a GPU context via Silk.NET or a far larger
@@ -1717,8 +1725,9 @@ the estimate:
   reason artists ask for 3D in a paint program. It is reachable from (a) plus a UV lookup and a live
   preview panel, and it is far more useful here than (b).
 
-The user chose to start with 3D on 2026-08-25, so the recommended (a) path is now the active scope.
-Continue with materials/textures and glTF, then (c); never start (b) without an explicit decision.
+The 2026-08-25 continuation used the documented default and completed (a). Ask explicitly before
+starting (b) or (c); a live scene graph and UV painting remain different products, not automatic
+extensions of the raster-reference importer.
 
 ### Suggested order, if nobody says otherwise
 
@@ -1729,26 +1738,26 @@ Continue with materials/textures and glTF, then (c); never start (b) without an 
 4. ~~**2.7 mail merge**~~ - **done 2026-08-24** as persistent dynamic canvas zones; no script-v2
    dependency after the clarified use case.
 5. ~~**Demo parameter capture**~~ - **done 2026-08-24**, with a backward-compatible v2 stream.
-6. **2.5 tablet support** - as soon as there is a tablet on the box to spike against.
+6. ~~**2.5 tablet support**~~ - implementation **done 2026-08-25**; physical hardware validation remains.
 7. ~~**5.1 animation**~~ - adaptive/dithered GIF, APNG, animated WebP and the real timeline are
    **done 2026-08-25**.
-8. **5.2 Android head**, then its UI, once there is a device or emulator.
-9. **5.3(a) 3D reference layer** - OBJ raster-import slice done; materials/textures and glTF remain.
+8. **5.2 Android head**, then its responsive UI, once the workload, SDK and a device/emulator exist.
+9. ~~**5.3(a) 3D reference layer**~~ - **done 2026-08-25**; UV/live-scene modes remain separate decisions.
 
 ### Provenance - the original ten lines
 
 | Original (`TODO-features.md`, French) | Landed as |
 |---|---|
 | Enregistrement type demo pour replay | **Shipped** 2026-08-21; parameter capture shipped 2026-08-24 |
-| Support explicite tablettes dessin | 2.5 (Spike first - needs hardware) |
-| Version mobile (tablettes android, foldables) | 5.2 (Clear-with-caveat; the UI is the cost, not the port) |
+| Support explicite tablettes dessin | 2.5 implementation **shipped 2026-08-25**; hardware validation pending |
+| Version mobile (tablettes android, foldables) | 5.2 shared touch/pen input shipped; Android host blocked on workload/SDK/device |
 | Support gif animes (voir pour integration Motionity > package type Affinity) | 5.1a (Clear-with-caveat) + 5.1b (Gated) |
-| Support modeles 3D (gestion des couches++) | 5.3(a) OBJ raster-reference slice shipped; extensions remain |
+| Support modeles 3D (gestion des couches++) | 5.3(a) raster reference layer **shipped 2026-08-25**; live/UV modes gated |
 | Integration plateformes art (Ex: Instagram > genere carre, JPG, description, tagging) | 2.9 local half **shipped 2026-08-24** + posting half (Gated) |
 | Presets d'export | **Shipped 2026-08-24** (2.6) |
 | Batch/Scripting | **Shipped** 2026-08-21 (Script / batch-apply system) |
 | Publipostage | **Shipped 2026-08-24** as persistent dynamic zones + CSV batch rendering |
-| Exif strip/edit | 2.8 — **strip done 2026-08-24** / edit still Spike first |
+| Exif strip/edit | 2.8 **fully shipped 2026-08-25** for JPEG/PNG/WebP/JXL/JP2 |
 
 
 ## Not started - pick one, each is its own multi-hour subsystem
@@ -2368,8 +2377,8 @@ code.
   Lossy (`Quality = 80`) encodes smaller and decodes back to the right dimensions (not checked
   pixel-exact, lossy by definition isn't).
 
-  Still open: JP2 P/Invoke binding (not started - see resume plan right below), and the
-  still-unsolved Windows/macOS packaging story (vcpkg for `libopenjp2`; a libjxl release/build for
+  **Historical note, closed below:** at this point JP2 P/Invoke was not started and the
+  Windows/macOS packaging story was unsolved (vcpkg for `libopenjp2`; a libjxl release/build for
   the same platforms) - the P/Invoke path assumes the system already has `libjxl`/`libopenjp2`
   installed, true here via CachyOS's package but not true on a clean Windows/macOS machine.
   `JxlCodec.IsAvailable` degrades cleanly to false there (probes `JxlDecoderVersion()`, catches
@@ -2505,8 +2514,10 @@ code.
   `KawaPaint.Win.exe` after this change - starts clean, no crash, autosave/crash-recovery correctly
   restored the prior session's canvas.
 
-  **Closed 2026-08-25:** Apple Silicon macOS packaging now follows the same app-local native-library
-  pattern and is validated on a Mac Mini M4; see the current status section at the top.
+  Still open: macOS packaging (same pattern, needs a macOS box or cross-fetching prebuilt osx-x64/
+  osx-arm64 releases from both upstreams - not attempted here, this session only had a Windows
+  box). `IsAvailable` still correctly degrades to false wherever the bundled natives aren't present
+  for the current RID.
 
   **Mid-project machine switch, worth knowing if something here looks inconsistent:** the JXL work
   and this file's original resume plan were written on a Linux (CachyOS) box; this JP2 work was
@@ -2526,17 +2537,15 @@ prioritized git-compat truncate-only over this.
   above, but the command-log alternative is what unlocks Tier 4 - noted here as the fork point).
 - Git scope: backup/versioning of projects + config, or the literal undo timeline? Assumed:
   backup/versioning only.
-- **Animation model (new 2026-08-24, from 5.1):** layers-as-frames, or a real frame dimension in
-  `Document`/`.kwp`/history/every transform? Assumed: **layers-as-frames**, because it gets animated
-  GIF export working without breaking the document model. The frame dimension is the "Motionity /
-  Affinity package" version of the idea and is a subsystem, not a feature - don't start it without an
-  explicit go-ahead. This is a second fork point of the same kind as the snapshot-vs-command-log one.
+- ~~**Animation model (new 2026-08-24, from 5.1):**~~ Resolved 2026-08-25 in favor of a real frame
+  dimension in `Document`/`.kwp`/history/every transform; the timeline and animated GIF/APNG/WebP
+  paths are shipped. The older layers-as-frames assumption is superseded.
 - **Is Android first-class (new 2026-08-24, from 5.2)?** Assumed: same posture as the browser build -
   a real target, features gracefully absent, but the desktop remains the design centre. If it is
   meant to be first-class instead, the touch UI is the project, not the port.
-- **3D scope (resolved 2026-08-25):** proceed with rasterized reference imports (option (a)), then
-  UV/texture painting (option (c)). A live 3D layer type (option (b)) still changes the document
-  model and remains gated on an explicit decision.
+- **What does "3D support" mean (new 2026-08-24, from 5.3)?** The default 3D *reference layer*
+  (option (a)) shipped 2026-08-25. UV/texture painting (option (c)) and a live 3D layer type
+  (option (b)) still change the product/document model enough to need an explicit decision.
 - **Third-party posting (new 2026-08-24, from 2.9):** publishing straight to art platforms is gated
   in the same bucket as the 2.4 forge OAuth half - accounts, tokens, app review, and (for Instagram)
   an API that fetches a public URL instead of accepting an upload. Assumed: build the local export

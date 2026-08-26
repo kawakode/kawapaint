@@ -22,6 +22,26 @@ public sealed class ObjMesh
         Triangles = triangles;
     }
 
+    public static ObjMesh Create(IEnumerable<Vector3> vertices, IEnumerable<ObjTriangle> triangles)
+    {
+        ArgumentNullException.ThrowIfNull(vertices);
+        ArgumentNullException.ThrowIfNull(triangles);
+        var vertexList = vertices.ToList();
+        var triangleList = triangles.ToList();
+        if (vertexList.Count == 0) throw new ArgumentException("A mesh needs vertices.", nameof(vertices));
+        if (triangleList.Count == 0) throw new ArgumentException("A mesh needs triangles.", nameof(triangles));
+        if (vertexList.Count > MaxVertices || triangleList.Count > MaxTriangles)
+            throw new ArgumentException("Mesh exceeds the supported complexity limits.");
+        foreach (Vector3 vertex in vertexList)
+            if (!float.IsFinite(vertex.X) || !float.IsFinite(vertex.Y) || !float.IsFinite(vertex.Z))
+                throw new ArgumentException("Mesh contains a non-finite vertex.", nameof(vertices));
+        foreach (ObjTriangle triangle in triangleList)
+            if ((uint)triangle.A >= (uint)vertexList.Count || (uint)triangle.B >= (uint)vertexList.Count ||
+                (uint)triangle.C >= (uint)vertexList.Count)
+                throw new ArgumentException("Mesh triangle index is out of range.", nameof(triangles));
+        return new ObjMesh(vertexList, new List<Vector3>(), triangleList);
+    }
+
     public static ObjMesh Load(Stream stream)
     {
         ArgumentNullException.ThrowIfNull(stream);

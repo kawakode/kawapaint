@@ -9,6 +9,7 @@ using Avalonia.Controls;
 using Avalonia.Input.Platform;
 using Avalonia.Platform.Storage;
 using KawaPaint.App.Core;
+using KawaPaint.Engine.Publishing;
 using KawaPaint.Engine;
 using KawaPaint.Engine.Codecs;
 using KawaPaint.Engine.Exporting;
@@ -17,6 +18,66 @@ namespace KawaPaint.App;
 
 public partial class MainView
 {
+    private async void OnPublishArtwork(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (Canvas.Document is not { } document) return;
+        if (OwnerWindow is not { } owner)
+        {
+            StatusText.Text = "Direct publishing is currently available in desktop builds";
+            return;
+        }
+
+        RecordSkipped("Publish artwork");
+        string sourceName = _currentFile?.Name ?? _session?.DisplayName ?? "untitled";
+        var dialog = new PublishArtworkDialog(_settings, Path.GetFileNameWithoutExtension(sourceName));
+        if (await dialog.ShowDialog<bool>(owner) != true || dialog.Selection is not { } selection) return;
+        if (!_settings.Settings.ExportPresets.TryGetValue(selection.PresetName, out var preset))
+        {
+            StatusText.Text = "The selected export preset no longer exists";
+            return;
+        }
+
+        string state = selection.State == PublishState.Published ? "publish" : selection.State.ToString().ToLowerInvariant();
+        if (!await ConfirmAsync("Publish artwork",
+                $"{char.ToUpperInvariant(state[0]) + state[1..]} this artwork to {selection.Target.Name} on {ProviderName(selection.ProviderId)}?",
+                "Continue")) return;
+
+        try
+        {
+            StatusText.Text = $"Preparing {selection.PresetName}…";
+            using var snapshot = document.Clone();
+            PresetUploadResult upload = await Task.Run(() => PresetExporter.ExportForUpload(
+                snapshot, sourceName, selection.PresetName, preset, AppPaths.Root));
+            var request = new ArtPublishRequest(upload.Bytes, upload.FileName, upload.MimeType,
+                upload.Width, upload.Height, selection.Title, selection.Caption, selection.AltText,
+                selection.Tags, selection.State, selection.IsMature, selection.MatureLevel,
+                selection.MatureClassifications, selection.GalleryId, selection.IsAiGenerated,
+                selection.NoAi);
+            IArtPublisher publisher = selection.ProviderId switch
+            {
+                "tumblr" => new TumblrPublisher(),
+                "deviantart" => new DeviantArtPublisher(),
+                "facebook" => new FacebookPublisher(),
+                _ => throw new InvalidOperationException("Unknown publishing platform.")
+            };
+            string accessToken = selection.Target.AccessToken ?? selection.Account.Token.AccessToken;
+            StatusText.Text = $"Publishing to {selection.Target.Name}…";
+            ArtPublishResult result = await publisher.PublishAsync(
+                new PublishDestination(accessToken, selection.Target.Id, selection.Target.Name), request);
+            StatusText.Text = result.Message + $" (ID {result.RemoteId})";
+        }
+        catch (ArtPublishException ex)
+        {
+            StatusText.Text = ex.Message + (ex.OutcomeMayBeAmbiguous ? " Do not retry until you check the platform." : "");
+        }
+        catch (Exception ex) { StatusText.Text = "Publishing failed: " + ex.Message; }
+    }
+
+    private static string ProviderName(string id) => id switch
+    {
+        "tumblr" => "Tumblr", "deviantart" => "DeviantArt", "facebook" => "Facebook", _ => id
+    };
+
     private static readonly FilePickerFileType AnimatedGifFileType = new("Animated GIF")
     {
         Patterns = new[] { "*.gif" }

@@ -72,6 +72,8 @@
                     <MenuItem Header="_Mail Merge from CSV…" Click="OnMailMerge" />
                     <MenuItem Header="Manage Presets…" Click="OnManageExportPresets" />
                 </MenuItem>
+                <MenuItem Header="_Publish Artwork…" Click="OnPublishArtwork"
+                          ToolTip.Tip="Publish to Tumblr, DeviantArt, or a Facebook Page" />
                 <Separator />
                 <MenuItem Header="_Metadata…" Click="OnMetadata"
                           ToolTip.Tip="Inspect EXIF/IPTC/XMP in image files and remove it without re-encoding them" />

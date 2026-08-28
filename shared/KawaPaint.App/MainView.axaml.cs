@@ -1121,6 +1121,7 @@ public partial class MainView : UserControl
         Add("file.openProject", "Open Project", "File", () => OnOpenProject(this, empty), CtrlShift(Key.O));
         Add("file.saveProject", "Save Project", "File", () => OnSaveProject(this, empty), Ctrl(Key.S));
         Add("file.export", "Export Flattened", "File", () => OnSaveAs(this, empty), CtrlShift(Key.S));
+        Add("file.publishArtwork", "Publish Artwork", "File", () => OnPublishArtwork(this, empty));
         Add("file.linkGitProject", "Link Git Project Folder...", "File", () => _ = OnLinkGitProjectAsync());
 
         // Edit - these stay with a focused text field, which has its own undo and select-all.

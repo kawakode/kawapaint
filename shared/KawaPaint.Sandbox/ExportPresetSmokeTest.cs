@@ -72,6 +72,15 @@ internal static class ExportPresetSmokeTest
             Assert(scriptedPixels[0, 0] != originalPixels[0, 0], "preset script did not alter pixels");
         }
 
+        var upload = PresetExporter.ExportForUpload(doc, "source.kwp", "web", new ExportPreset
+        {
+            CodecId = "jpeg", EncodeOptions = new EncodeOptions { Quality = 90 },
+            ResizeMode = ExportResizeMode.FitWithin, Width = 32, Height = 32,
+            FilenamePattern = "{name}-upload.{ext}"
+        });
+        Assert(upload.Bytes.Length > 0 && upload.MimeType == "image/jpeg" && upload.FileName == "source-upload.jpg",
+            "in-memory upload export mismatch");
+
         Assert(Directory.GetFiles(dir, "*.tmp").Length == 0, "preset export left temporary files behind");
         Console.WriteLine("EXPORT PRESET SMOKE OK");
     }

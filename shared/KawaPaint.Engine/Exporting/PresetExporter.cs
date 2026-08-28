@@ -12,8 +12,28 @@ public sealed record PresetExportResult(
     string OutputPath, string? SidecarPath, int Width, int Height,
     IReadOnlyList<ScriptStepResult> ScriptSteps);
 
+/// <summary>An in-memory preset export suitable for an HTTP multipart upload.</summary>
+public sealed record PresetUploadResult(
+    byte[] Bytes, string FileName, string MimeType, int Width, int Height,
+    IReadOnlyList<ScriptStepResult> ScriptSteps);
+
 public static class PresetExporter
 {
+    public static PresetUploadResult ExportForUpload(Document source, string sourceName,
+        string presetName, ExportPreset preset, string? scriptBaseDirectory = null)
+    {
+        Validate(preset);
+        using Document prepared = Prepare(source, preset, scriptBaseDirectory, out var steps);
+        string fileName = GetOutputFileName(sourceName, presetName, preset, prepared.Width, prepared.Height);
+        var codec = RequireCodec(preset.CodecId);
+        using var flat = prepared.Flatten();
+        using var encoded = new MemoryStream();
+        codec.Encode(flat, encoded, preset.EncodeOptions);
+        byte[] bytes = ExifPreserver.Inject(encoded.ToArray(), prepared.ExifTiff, flat.Width, flat.Height);
+        return new PresetUploadResult(bytes, fileName, MimeTypeFor(codec.Extensions[0]),
+            prepared.Width, prepared.Height, steps);
+    }
+
     public static PresetExportResult ExportInputFile(string inputPath, string presetName,
         ExportPreset preset, string? outputFolderOverride = null, string? scriptBaseDirectory = null)
     {
@@ -124,6 +144,17 @@ public static class PresetExporter
         if (!codec.IsAvailable) throw new CodecUnavailableException(id);
         return codec;
     }
+
+    private static string MimeTypeFor(string extension) => extension.ToLowerInvariant() switch
+    {
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".webp" => "image/webp",
+        ".gif" => "image/gif",
+        ".bmp" => "image/bmp",
+        ".jxl" => "image/jxl",
+        ".jp2" or ".j2k" => "image/jp2",
+        _ => "image/png"
+    };
 
     private static void ApplyResize(ref Document doc, ExportPreset preset)
     {

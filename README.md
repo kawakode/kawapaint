@@ -66,6 +66,23 @@ kawapaint --script cleanup.kpscript --in-dir photos --pattern *.png --out-dir cl
 Preset CLI runs read the normal KawaPaint `settings.json`; use `--settings <path>` to select a
 different settings file.
 
+## Publish artwork
+
+Choose **File > Publish Artwork** to publish an export-preset rendering directly to Tumblr,
+DeviantArt, or a managed Facebook Page. The dialog supports Tumblr drafts/queueing, DeviantArt
+mature-content and gallery metadata, and Facebook Page captions and alt text.
+
+Each service requires an API application. Register this desktop callback URL exactly:
+`http://127.0.0.1:43817/callback/`, then enter the application's client ID and secret in the
+publishing dialog. Secrets and OAuth tokens are stored in the operating system's credential vault,
+not in `settings.json` or image/project files. Facebook publishing targets Pages rather than
+personal profiles and may require Meta permission review. A new DeviantArt public/native client uses
+PKCE and therefore does not need a client secret; legacy confidential clients remain supported.
+
+Instagram is export-only: the default presets include **Instagram Square**, **Instagram Portrait
+4x5**, and **Instagram Landscape**. ArtStation publishing is not included because ArtStation does
+not offer an official public publishing API.
+
 ## Tablet input and 3D reference layers
 
 Pen pressure can control brush size, opacity, or both; inverted/eraser tips are recognized

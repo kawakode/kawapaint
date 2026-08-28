@@ -15,7 +15,7 @@ namespace KawaPaint.App.Core;
 public sealed class AppSettings
 {
     /// <summary>Bumped whenever a migration is needed; see <see cref="SettingsService.Migrate"/>.</summary>
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
@@ -26,6 +26,7 @@ public sealed class AppSettings
     public WorkspaceSettings Workspace { get; set; } = new();
     public PluginSettings Plugins { get; set; } = new();
     public PdnPluginSettings PdnPlugins { get; set; } = new();
+    public PublishingSettings Publishing { get; set; } = new();
 
     /// <summary>Named, reusable image-export recipes shown under File > Export.</summary>
     public Dictionary<string, ExportPreset> ExportPresets { get; set; } = CreateDefaultExportPresets();
@@ -60,8 +61,44 @@ public sealed class AppSettings
             ResizeMode = ExportResizeMode.FitAndPad, Width = 1920, Height = 1080,
             PaddingColor = "FFFFFFFF", FilenamePattern = "{name}-landscape.{ext}",
             PackageText = "{name}\n\n#art", CopyPackageTextToClipboard = true
+        },
+        ["Instagram Square"] = new()
+        {
+            CodecId = "jpeg", EncodeOptions = new EncodeOptions { Quality = 92 },
+            ResizeMode = ExportResizeMode.FitAndPad, Width = 1080, Height = 1080,
+            PaddingColor = "FFFFFFFF", FilenamePattern = "{name}-instagram-square.{ext}",
+            PackageText = "{name}\n\n#art", CopyPackageTextToClipboard = true
+        },
+        ["Instagram Portrait 4x5"] = new()
+        {
+            CodecId = "jpeg", EncodeOptions = new EncodeOptions { Quality = 92 },
+            ResizeMode = ExportResizeMode.FitAndPad, Width = 1080, Height = 1350,
+            PaddingColor = "FFFFFFFF", FilenamePattern = "{name}-instagram-portrait.{ext}",
+            PackageText = "{name}\n\n#art", CopyPackageTextToClipboard = true
+        },
+        ["Instagram Landscape"] = new()
+        {
+            CodecId = "jpeg", EncodeOptions = new EncodeOptions { Quality = 92 },
+            ResizeMode = ExportResizeMode.FitAndPad, Width = 1080, Height = 566,
+            PaddingColor = "FFFFFFFF", FilenamePattern = "{name}-instagram-landscape.{ext}",
+            PackageText = "{name}\n\n#art", CopyPackageTextToClipboard = true
         }
     };
+}
+
+/// <summary>Non-secret publisher preferences. Client secrets and OAuth tokens live in the
+/// platform credential vault and are never serialized into settings.json.</summary>
+public sealed class PublishingSettings
+{
+    public string? TumblrClientId { get; set; }
+    public string? TumblrBlogId { get; set; }
+    public string? TumblrBlogName { get; set; }
+    public string? DeviantArtClientId { get; set; }
+    public string? FacebookAppId { get; set; }
+    public string? FacebookPageId { get; set; }
+    public string? FacebookPageName { get; set; }
+    public string? LastProviderId { get; set; }
+    public string? LastExportPreset { get; set; }
 }
 
 public sealed class DrawingSettings

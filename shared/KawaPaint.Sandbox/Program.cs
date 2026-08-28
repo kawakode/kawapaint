@@ -86,5 +86,6 @@ KawaPaint.Sandbox.SelectionAntialiasSmokeTest.RunAll();
 KawaPaint.Sandbox.ThreeDReferenceSmokeTest.RunAll();
 KawaPaint.Sandbox.TabletInputSmokeTest.RunAll();
 KawaPaint.Sandbox.ReferenceModelSmokeTest.RunAll();
+KawaPaint.Sandbox.PublisherSmokeTest.RunAll();
 
 static byte[] BuildIdentityLut() { var l = new byte[256]; for (int i = 0; i < 256; i++) l[i] = (byte)i; return l; }

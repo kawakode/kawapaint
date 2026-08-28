@@ -16,6 +16,68 @@ Full roadmap/rationale lives in Claude memory
 (`feature-roadmap-tiers`) and the published plan:
 https://claude.ai/code/artifact/b584d126-8639-4875-902d-46a1cb2917c4
 
+## Current remaining work - audited 2026-08-26
+
+The art-platform publishing implementation is complete; live account verification remains external.
+The remaining entries require hardware, registered API applications, or an explicit product decision:
+
+- **Physical-device validation:** test pressure/tilt/eraser delivery and feel on a real drawing
+  tablet, then repeat the Android input/rotation checks on a physical tablet or foldable.
+- **Optional platform packaging:** build and ship Android ABI packs for JXL/JP2 if those codecs are
+  wanted on mobile. Desktop Windows and Apple Silicon macOS packaging is complete.
+- **Other external-service integrations (gated):** forge hosting (GitHub/GitLab/Gitea) remains
+  deferred. Local git history is complete.
+- **Publishing live validation:** register Tumblr, DeviantArt and Meta applications, approve the
+  loopback redirect URI, and exercise real accounts. Mocked multipart requests and all failure
+  semantics are covered; no client IDs or test accounts were available in this pass.
+- **Major product expansions (gated):** live 3D layers, UV/texture painting, branching/replayable
+  history, and Paint.NET GPU effects each need explicit scope approval. Paint.NET v5 CPU effects
+  cannot be hosted through its public API; the classic plugin tier is complete.
+- **Product posture decisions:** whether browser and Android should become design-centre,
+  first-class targets rather than graceful-parity ports remains a product choice, not unfinished
+  implementation.
+
+Everything else below is retained as implementation history and rationale; headings and old plans
+are not a second active backlog.
+
+## Art-platform publishing - implemented 2026-08-26; live-account validation pending
+
+Per the final scope, direct publishing targets **Facebook Pages, Tumblr and DeviantArt**. Instagram
+is export-only and ArtStation is out of scope because it has no official public publishing API.
+
+- **Shared flow:** File > Publish Artwork prepares an in-memory image through any existing export
+  preset, collects title/caption/alt text/tags plus provider-specific fields, and names the exact
+  destination in a final confirmation. Transport failures after a request is sent are marked
+  ambiguous and never retried automatically, preventing accidental duplicate posts.
+- **Tumblr:** OAuth 2 authorization-code flow, account blog discovery, API v2 Neue Post Format
+  multipart upload, alt text/tags, and publish/draft/queue states.
+- **DeviantArt:** OAuth 2.1 authorization code with PKCE (public clients need no secret), Sta.sh
+  multipart upload followed by publication, title/description/tags, AI and dataset-use flags,
+  optional gallery UUID, mature level/classification, and retained Sta.sh item reporting when the
+  second step fails.
+- **Facebook:** Meta OAuth, managed-Page discovery with Page access tokens, and Graph API multipart
+  Page-photo publishing with caption, hashtags and custom alt text. Personal profiles are not a
+  supported target.
+- **Credential boundary:** client secrets and OAuth access/refresh/Page tokens never enter
+  `settings.json`, `.kwp`, demos or scripts. They use Windows Credential Manager, macOS Keychain,
+  Linux Secret Service, or an explicitly reported process-only fallback. Only client IDs and chosen
+  destination IDs/names are normal settings. Expiring Tumblr/DeviantArt tokens refresh; Facebook
+  asks the user to reconnect when its token expires.
+- **Instagram:** three migrated default export presets - Square 1080x1080, Portrait 1080x1350 and
+  Landscape 1080x566 - with JPEG/caption sidecar output. There is no Instagram publisher or media
+  hosting service.
+- **ArtStation:** deliberately absent from both direct and assisted publishing. Do not use private
+  endpoints; revisit only if an official publishing API becomes available.
+- **Regression coverage:** mocked HTTP checks inspect the actual endpoints, bearer tokens,
+  multipart/form bodies and responses for all three providers, including the two-stage DeviantArt
+  failure and ambiguous transport outcome. Credential isolation, schema migration and in-memory
+  preset export are also covered.
+
+The only missing proof is live external integration. Each provider needs a registered application
+whose redirect URI is `http://127.0.0.1:43817/callback/`; Facebook also needs appropriate Page
+permissions/review for accounts outside the app's roles. This cannot be verified without those
+external credentials and accounts.
+
 ## Tablet input, touch navigation and 3D reference import - done 2026-08-25
 
 - **Tablet input:** Avalonia pen samples now reach `ToolContext` with pressure, tilt, twist, pointer
@@ -1646,24 +1708,19 @@ Smoke tests verify identical decoded pixels, retained IPTC/PNG text, GPS removal
 values and valid output in all five formats. Native JXL/JP2 tests additionally verify that injection,
 targeted editing and stripping leave decoded pixels unchanged.
 
-### 2.9 - Art-platform export packages (`Integration plateformes art`) - local half **DONE 2026-08-24**, posting **Gated**
+### 2.9 - Art-platform export and publishing (`Integration plateformes art`) - **DONE 2026-08-26; live validation pending**
 
 The one-liner ("Instagram > generate square, JPG, description, tagging") splits cleanly into a local
 feature and an account integration, and only the first is a KawaPaint-sized problem.
 
-- **Local half - build this.** A 2.6 preset that produces the *package* a platform wants: fit or pad
+- **Local half - DONE 2026-08-24.** A 2.6 preset produces the *package* a platform wants: fit or pad
   to 1:1 / 4:5 / 16:9, sRGB JPEG at a target quality and maximum dimension, plus a sidecar
   caption / hashtag / alt-text `.txt` and the caption copied to the clipboard. That is 2.6 plus a
-  padding rule and a text field. **Clear**, ~half a session on top of 2.6.
-- **Posting half - do not start yet.** Direct publishing needs per-platform OAuth, per-platform token
-  storage, and app review. One constraint decides the whole design and should be re-checked before
-  any planning: Instagram's content-publishing path is Graph-API-only, requires a business/creator
-  account linked to a Meta app, and takes an `image_url` that Meta *fetches* - it does not accept a
-  raw byte upload from a desktop client, which implies a publicly reachable host, which a local paint
-  program does not have. If that still holds, "post to Instagram" is not a feature, it is a service.
-  **Gated**, in the same bucket as the 2.4 forge OAuth half and wanting the same kind of design pass.
-  *This paragraph is written from prior knowledge, not from any call made in this repo - verify the
-  current API terms before treating it as settled.*
+  padding rule and a text field; the shipped preset/package flow covers this scope.
+- **Posting half - DONE 2026-08-26 for Tumblr, DeviantArt and Facebook Pages.** See the implementation
+  section near the top. Instagram was deliberately reduced to named export presets, avoiding the
+  public-media-host service its API would require. ArtStation was explicitly dropped because no
+  official publishing API exists. Real account/app-review validation remains external.
 
 ### 5.1 - Animated formats and real timeline (`Support gif animes`) - **DONE 2026-08-25**
 
@@ -1747,7 +1804,8 @@ extensions of the raster-reference importer.
 ### Suggested order, if nobody says otherwise
 
 1. ~~**2.6 export presets**~~ - **done 2026-08-24**.
-2. ~~**2.9 local half**~~ - **done 2026-08-24**; direct posting remains gated.
+2. ~~**2.9 local half and scoped direct publishing**~~ - local packages **done 2026-08-24**;
+   Tumblr/DeviantArt/Facebook Pages implemented **2026-08-26**, live validation pending.
 3. ~~**2.8 strip/edit/preserve**~~ - strip **done 2026-08-24**; targeted editing, GPS-only removal
    and JPEG/PNG/WebP preservation **done 2026-08-25**.
 4. ~~**2.7 mail merge**~~ - **done 2026-08-24** as persistent dynamic canvas zones; no script-v2
@@ -1767,16 +1825,16 @@ extensions of the raster-reference importer.
 | Enregistrement type demo pour replay | **Shipped** 2026-08-21; parameter capture shipped 2026-08-24 |
 | Support explicite tablettes dessin | 2.5 implementation **shipped 2026-08-25**; hardware validation pending |
 | Version mobile (tablettes android, foldables) | 5.2 Android head and compact workspace **shipped 2026-08-26**; physical-device validation pending |
-| Support gif animes (voir pour integration Motionity > package type Affinity) | 5.1a (Clear-with-caveat) + 5.1b (Gated) |
+| Support gif animes (voir pour integration Motionity > package type Affinity) | **Shipped 2026-08-25** with a real timeline and GIF/APNG/WebP import/export |
 | Support modeles 3D (gestion des couches++) | 5.3(a) raster reference layer **shipped 2026-08-25**; live/UV modes gated |
-| Integration plateformes art (Ex: Instagram > genere carre, JPG, description, tagging) | 2.9 local half **shipped 2026-08-24** + posting half (Gated) |
+| Integration plateformes art (Ex: Instagram > genere carre, JPG, description, tagging) | Local packages **shipped 2026-08-24**; Tumblr/DeviantArt/Facebook publishing implemented 2026-08-26; Instagram presets only; ArtStation out of scope |
 | Presets d'export | **Shipped 2026-08-24** (2.6) |
 | Batch/Scripting | **Shipped** 2026-08-21 (Script / batch-apply system) |
 | Publipostage | **Shipped 2026-08-24** as persistent dynamic zones + CSV batch rendering |
 | Exif strip/edit | 2.8 **fully shipped 2026-08-25** for JPEG/PNG/WebP/JXL/JP2 |
 
 
-## Not started - pick one, each is its own multi-hour subsystem
+## Remaining historical subsystem notes (completed or gated)
 
 Tiers 2.5-2.9 and the whole of Tier 5 also live in the "Feature backlog fused from
 `TODO-features.md`" section immediately above, with feasibility ratings and a suggested order -
@@ -1789,7 +1847,8 @@ OAuth or PAT, token storage per-platform, create-repo/clone-url flows) needs its
 code. See 2.3 notes in the Done section for the rough sketch.
 
 ### 3.x Paint.NET plugin compatibility
-See below in Spikes.
+Classic compatibility is complete. Paint.NET v5 CPU hosting was proven impossible through its
+public API; the Windows-only GPU tier remains an optional, explicitly gated spike. See below.
 
 ### 2.1 - Effect catalogue
 Port from paint.net 3.36's `src/Effects/` (MIT-licensed). The original source is preserved on the
@@ -2530,10 +2589,10 @@ code.
   `KawaPaint.Win.exe` after this change - starts clean, no crash, autosave/crash-recovery correctly
   restored the prior session's canvas.
 
-  Still open: macOS packaging (same pattern, needs a macOS box or cross-fetching prebuilt osx-x64/
-  osx-arm64 releases from both upstreams - not attempted here, this session only had a Windows
-  box). `IsAvailable` still correctly degrades to false wherever the bundled natives aren't present
-  for the current RID.
+  **Closed 2026-08-25 for Apple Silicon macOS:** the dedicated macOS head now bundles and signs the
+  libjxl/OpenJPEG native set; see the packaging section near the top. Intel macOS is not a declared
+  target. `IsAvailable` still correctly degrades to false wherever bundled natives are absent for
+  the current RID.
 
   **Mid-project machine switch, worth knowing if something here looks inconsistent:** the JXL work
   and this file's original resume plan were written on a Linux (CachyOS) box; this JP2 work was
@@ -2562,10 +2621,9 @@ prioritized git-compat truncate-only over this.
 - **What does "3D support" mean (new 2026-08-24, from 5.3)?** The default 3D *reference layer*
   (option (a)) shipped 2026-08-25. UV/texture painting (option (c)) and a live 3D layer type
   (option (b)) still change the product/document model enough to need an explicit decision.
-- **Third-party posting (new 2026-08-24, from 2.9):** publishing straight to art platforms is gated
-  in the same bucket as the 2.4 forge OAuth half - accounts, tokens, app review, and (for Instagram)
-  an API that fetches a public URL instead of accepting an upload. Assumed: build the local export
-  *package* only, never the account integration, until told otherwise.
+- ~~**Third-party posting (new 2026-08-24, from 2.9):**~~ Resolved 2026-08-26: direct Tumblr,
+  DeviantArt and Facebook Page providers are implemented; Instagram is presets-only and ArtStation
+  is out of scope. Live provider validation still requires registered applications and accounts.
 - ~~Native plugin API before Paint.NET compat, or the reverse?~~ Resolved: native API first (2.4),
   Paint.NET compat as a reflection-based bridge on top of it (3.x classic tier, done 2026-08-19) -
   played out exactly as assumed, `EffectRegistry`/`PluginParameterSpec`/`PluginEffectDialog` all

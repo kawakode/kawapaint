@@ -59,6 +59,12 @@ public sealed class SettingsService
     {
         if (settings.SchemaVersion < 2 && settings.ExportPresets.Count == 0)
             settings.ExportPresets = AppSettings.CreateDefaultExportPresets();
+        if (settings.SchemaVersion < 4)
+        {
+            var defaults = AppSettings.CreateDefaultExportPresets();
+            foreach (string name in new[] { "Instagram Square", "Instagram Portrait 4x5", "Instagram Landscape" })
+                if (!settings.ExportPresets.ContainsKey(name)) settings.ExportPresets[name] = defaults[name];
+        }
         settings.SchemaVersion = AppSettings.CurrentSchemaVersion;
         return settings;
     }

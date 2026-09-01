@@ -31,6 +31,11 @@ public static class Icons
         ["EllipseSel"] = (new[] { "M10.1 2.182a10 10 0 0 1 3.8 0", "M13.9 21.818a10 10 0 0 1-3.8 0", "M17.609 3.721a10 10 0 0 1 2.69 2.7", "M2.182 13.9a10 10 0 0 1 0-3.8", "M20.279 17.609a10 10 0 0 1-2.7 2.69", "M21.818 10.1a10 10 0 0 1 0 3.8", "M3.721 6.391a10 10 0 0 1 2.7-2.69", "M6.391 20.279a10 10 0 0 1-2.69-2.7" }, false),
         ["Lasso"] = (new[] { "M3.704 14.467a10 8 0 1 1 3.115 2.375", "M7 22a5 5 0 0 1-2-3.994", "M3 16 a2 2 0 1 0 4 0 a2 2 0 1 0 -4 0" }, false),
         ["Wand"] = (new[] { "m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72", "m14 7 3 3", "M5 6v4", "M19 14v4", "M10 2v2", "M7 8H3", "M21 16h-4", "M11 3H9" }, false),
+        // Not from Lucide: its pen-tool nib is already spoken for by the Freeform tool above, and
+        // two identical glyphs in one palette would be worse than no glyph. Hand-authored instead
+        // as an actual fountain-pen point - tapered shoulders, breather hole, slit to the tip -
+        // which is the shape Photoshop's Plume trained everyone to look for.
+        ["Pen"] = (new[] { "M12 21.6 C9.2 16.6 6.6 11.6 5.6 8.4 C4.8 5.7 6.6 3 9.4 2.6 C10.3 2.5 11.2 2.4 12 2.4 C12.8 2.4 13.7 2.5 14.6 2.6 C17.4 3 19.2 5.7 18.4 8.4 C17.4 11.6 14.8 16.6 12 21.6 Z", "M10.35 8.3 a1.65 1.65 0 1 0 3.3 0 a1.65 1.65 0 1 0 -3.3 0", "M12 10.2 v8.2" }, false),
         ["Clone"] = (new[] { "M14 13V8.5C14 7 15 7 15 5a3 3 0 0 0-6 0c0 2 1 2 1 3.5V13", "M20 15.5a2.5 2.5 0 0 0-2.5-2.5h-11A2.5 2.5 0 0 0 4 15.5V17a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1z", "M5 22h14" }, false),
         ["Recolor"] = (new[] { "M4 2 L16 2 A2 2 0 0 1 18 4 L18 6 A2 2 0 0 1 16 8 L4 8 A2 2 0 0 1 2 6 L2 4 A2 2 0 0 1 4 2 Z", "M10 16v-2a2 2 0 0 1 2-2h8a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2", "M9 16 L11 16 A1 1 0 0 1 12 17 L12 21 A1 1 0 0 1 11 22 L9 22 A1 1 0 0 1 8 21 L8 17 A1 1 0 0 1 9 16 Z" }, false),
         ["RoundRect"] = (new[] { "M21 11a8 8 0 0 0-8-8", "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" }, false),

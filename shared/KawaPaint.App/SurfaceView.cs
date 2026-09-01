@@ -356,6 +356,22 @@ public sealed class SurfaceView : Control
     private static readonly IPen DynamicZonePen = new Pen(new SolidColorBrush(Color.FromArgb(230, 30, 210, 230)), 1.5,
         dashStyle: new DashStyle(new[] { 5d, 3d }, 0));
 
+    // Pen-path overlay. Every line is drawn twice, a dark casing under a light core, because the
+    // path has to stay readable over whatever the image happens to be underneath it.
+    private static readonly IPen PathCasing = new Pen(new SolidColorBrush(Color.FromArgb(190, 0, 0, 0)), 3.5);
+    private static readonly IPen PathCore = new Pen(new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)), 1.4);
+    private static readonly IPen PathRubberBand = new Pen(new SolidColorBrush(Color.FromArgb(230, 255, 255, 255)), 1.4,
+        dashStyle: new DashStyle(new[] { 4d, 3d }, 0));
+    // Avalonia measures dash lengths in multiples of the pen's thickness, so the casing's pattern
+    // is divided by its own thickness ratio to land on the same dashes as the core above.
+    private static readonly IPen PathRubberBandCasing = new Pen(new SolidColorBrush(Color.FromArgb(190, 0, 0, 0)), 3.5,
+        dashStyle: new DashStyle(new[] { 4d * 1.4 / 3.5, 3d * 1.4 / 3.5 }, 0));
+    private static readonly IPen HandleArm = new Pen(new SolidColorBrush(Color.FromArgb(220, 90, 200, 255)), 1);
+    private static readonly IPen NodeEdge = new Pen(new SolidColorBrush(Color.FromArgb(255, 20, 20, 20)), 1);
+    private static readonly IBrush HandleFill = new SolidColorBrush(Color.FromArgb(255, 90, 200, 255));
+    private static readonly IBrush AnchorFill = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255));
+    private static readonly IBrush CloseAnchorFill = new SolidColorBrush(Color.FromArgb(255, 110, 235, 130));
+
     public override void Render(DrawingContext context)
     {
         base.Render(context);
@@ -398,6 +414,8 @@ public sealed class SurfaceView : Control
             }
         }
 
+        if (CurrentTool is PenTool { HasPath: true } pen) DrawPenPath(context, pen);
+
         context.DrawRectangle(null, EdgePen, dest);
 
         if (_cursorScreen is Point cs && ShowsBrushCursor && !_panning)
@@ -427,6 +445,108 @@ public sealed class SurfaceView : Control
                 context.DrawGeometry(brush, null, _antGeometry[group]);
             }
         }
+    }
+
+    /// <summary>
+    /// Paints the pen tool's in-progress outline: the curve itself, the rubber band trailing to
+    /// the cursor, and a grab handle on every node. Drawn in screen space rather than under the
+    /// zoom transform, so the furniture keeps one constant, clickable size at any magnification -
+    /// which is also the size <see cref="PenTool"/> hit-tests against.
+    /// </summary>
+    private void DrawPenPath(DrawingContext context, PenTool pen)
+    {
+        IReadOnlyList<PenAnchor> anchors = pen.Anchors;
+
+        if (anchors.Count > 1)
+        {
+            var geometry = new StreamGeometry();
+            using (StreamGeometryContext writer = geometry.Open())
+            {
+                writer.BeginFigure(ImageToControl(anchors[0].X, anchors[0].Y), false);
+                for (int i = 1; i < anchors.Count; i++)
+                {
+                    PenAnchor a = anchors[i - 1], b = anchors[i];
+                    writer.CubicBezierTo(ImageToControl(a.OutX, a.OutY),
+                                         ImageToControl(b.InX, b.InY),
+                                         ImageToControl(b.X, b.Y));
+                }
+                writer.EndFigure(false);
+            }
+            context.DrawGeometry(null, PathCasing, geometry);
+            context.DrawGeometry(null, PathCore, geometry);
+        }
+
+        // The segment the next click would add, previewed from the open end of the path. Its far
+        // control point sits on the cursor, which is what a click with no drag would produce.
+        if (pen.Hover is (double hx, double hy) && !pen.HoverClosesPath)
+        {
+            PenAnchor last = anchors[^1];
+            var band = new StreamGeometry();
+            using (StreamGeometryContext writer = band.Open())
+            {
+                writer.BeginFigure(ImageToControl(last.X, last.Y), false);
+                writer.CubicBezierTo(ImageToControl(last.OutX, last.OutY),
+                                     ImageToControl(hx, hy), ImageToControl(hx, hy));
+                writer.EndFigure(false);
+            }
+            context.DrawGeometry(null, PathRubberBandCasing, band);
+            context.DrawGeometry(null, PathRubberBand, band);
+        }
+
+        // Handles first so the anchors sit on top of their own arms.
+        foreach (PenAnchor a in anchors)
+        {
+            if (a.IsCorner) continue;
+            Point at = ImageToControl(a.X, a.Y);
+            foreach (Point handle in new[] { ImageToControl(a.InX, a.InY), ImageToControl(a.OutX, a.OutY) })
+            {
+                context.DrawLine(HandleArm, at, handle);
+                context.DrawEllipse(HandleFill, NodeEdge, handle, 3, 3);
+            }
+        }
+
+        for (int i = 0; i < anchors.Count; i++)
+        {
+            Point at = ImageToControl(anchors[i].X, anchors[i].Y);
+            // The first anchor grows and turns green once the cursor is on it and the outline has
+            // enough nodes to enclose something: that click is the one that commits the selection.
+            bool closes = i == 0 && pen.HoverClosesPath;
+            double half = closes ? 4.5 : 3.2;
+            context.DrawRectangle(closes ? CloseAnchorFill : AnchorFill, NodeEdge,
+                new Rect(at.X - half, at.Y - half, half * 2, half * 2));
+        }
+    }
+
+    /// <summary>
+    /// Commits the pen tool's outline into the selection - the keyboard route to the click on the
+    /// first anchor that normally closes it. False when the pen isn't the active tool, or its path
+    /// has too few nodes to enclose an area; the caller leaves the key unhandled in that case.
+    /// </summary>
+    public bool ClosePenPath()
+    {
+        if (CurrentTool is not PenTool pen || Selection is null) return false;
+        if (!pen.ApplyAsSelection(Selection, SelectionCombineMode, Antialias)) return false;
+
+        NotifySelectionChanged();
+        InvalidateVisual();
+        return true;
+    }
+
+    /// <summary>Throws away the pen's unfinished outline. False when there was none.</summary>
+    public bool CancelPenPath()
+    {
+        if (CurrentTool is not PenTool { HasPath: true } pen) return false;
+        pen.Clear();
+        InvalidateVisual();
+        return true;
+    }
+
+    /// <summary>Takes back the pen's most recently placed node. False when there was none.</summary>
+    public bool RemoveLastPenAnchor()
+    {
+        if (CurrentTool is not PenTool pen || !pen.RemoveLastAnchor()) return false;
+        InvalidateVisual();
+        return true;
     }
 
     /// <summary>Switches the editable layer stack to another animation frame.</summary>
@@ -617,6 +737,9 @@ public sealed class SurfaceView : Control
         // keep pointing there while it is somewhere else entirely. Skipped mid-gesture, where the
         // pointer is captured and "left the control" does not mean the user stopped drawing.
         if (!_panning && !_drawing) CursorMoved?.Invoke(CursorGone, CursorGone);
+
+        if (!_panning && !_drawing && CurrentTool is IHoverTool hoverTool && hoverTool.PointerHoverExited())
+            InvalidateVisual();
     }
 
     /// <summary>Raised whenever the zoom factor changes.</summary>
@@ -772,6 +895,8 @@ public sealed class SurfaceView : Control
                     (uint)x < (uint)_composite.Width && (uint)y < (uint)_composite.Height
                         ? _composite[x, y] : ColorBgra.Transparent,
                 SetPrimaryColor = c => { BrushColor = c; PrimaryColorPicked?.Invoke(c); },
+                ViewScale = _zoom > 0 ? 1 / _zoom : 1,
+                InvalidateOverlay = InvalidateVisual,
                 Selection = Selection!,
                 SelectionChanged = NotifySelectionChanged,
                 RequestText = (x, y) => RequestFromTool(() => TextRequested?.Invoke(x, y)),
@@ -863,6 +988,15 @@ public sealed class SurfaceView : Control
         {
             _cursorScreen = p;
             InvalidateVisual();
+        }
+
+        // Hover is only the pen's business today, and only while it isn't already mid-gesture -
+        // a drag drives the tool through ExtendStroke below and would otherwise be told about the
+        // same pointer twice.
+        if (!_drawing && !_panning && CurrentTool is IHoverTool hoverTool)
+        {
+            Point hp = ControlToImage(p);
+            if (hoverTool.PointerHover(hp.X, hp.Y, _zoom > 0 ? 1 / _zoom : 1)) InvalidateVisual();
         }
 
         if (_panning)

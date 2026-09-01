@@ -840,6 +840,32 @@ public partial class MainView : UserControl
         StatusText.Text = "Selection inverted";
     }
 
+    /// <summary>Spelled out in the status bar the moment the pen is picked: it is the one tool
+    /// here whose gestures aren't guessable from the cursor alone.</summary>
+    private const string PenHint =
+        "Pen: click for a corner, drag for a curve - click the first point (or Enter) to cut the selection";
+
+    private void OnClosePenPath(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        RecordAction("tool.pen.close");
+        // The success line comes from PenTool.PathClosed, which also covers the click-to-close
+        // route that never reaches this handler.
+        if (!Canvas.ClosePenPath())
+            StatusText.Text = "Pen: a path needs three points before it encloses anything";
+    }
+
+    private void OnCancelPenPath(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        RecordAction("tool.pen.cancel");
+        if (Canvas.CancelPenPath()) StatusText.Text = "Pen: path discarded";
+    }
+
+    private void OnRemoveLastPenAnchor(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        RecordAction("tool.pen.removePoint");
+        if (Canvas.RemoveLastPenAnchor()) StatusText.Text = PenHint;
+    }
+
     private async void OnAdjust(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (sender is not MenuItem mi || mi.Tag is not string tag || Canvas.ActiveLayer is null) return;
@@ -1112,9 +1138,10 @@ public partial class MainView : UserControl
         var empty = new Avalonia.Interactivity.RoutedEventArgs();
 
         void Add(string id, string label, string category, Action run, KeyGesture? gesture = null,
-                 bool suppressInTextInput = false, string? icon = null, KeyGesture? altGesture = null)
+                 bool suppressInTextInput = false, string? icon = null, KeyGesture? altGesture = null,
+                 Func<bool>? canExecute = null)
             => _commands.Register(id, label, run, category, icon, gesture,
-                                  canExecute: null, suppressInTextInput: suppressInTextInput,
+                                  canExecute: canExecute, suppressInTextInput: suppressInTextInput,
                                   alternateGesture: altGesture);
 
         KeyGesture Ctrl(Key key) => new(key, KeyModifiers.Control);
@@ -1195,8 +1222,24 @@ public partial class MainView : UserControl
             "RectSel" => "EllipseSel",
             "EllipseSel" => "Lasso",
             "Lasso" => "Wand",
+            "Wand" => "Pen",
             _ => "RectSel"
         }), Bare(Key.S), suppressInTextInput: true);
+
+        // Photoshop puts the Plume on P, which the pencil already owns here, so it takes the
+        // shifted key rather than displacing a tool that has had P since the first build.
+        Add("tool.Pen", "Pen (Path Cutout)", "Tools", () => SelectTool("Pen"),
+            new KeyGesture(Key.P, KeyModifiers.Shift), suppressInTextInput: true, icon: "Pen");
+
+        // The three path commands are gated on there actually being a path, and a disabled command
+        // leaves its key unhandled (see CommandRegistry.HandleKey) - so Enter, Escape and Backspace
+        // stay free for everything else whenever the pen isn't holding an outline.
+        Add("tool.pen.close", "Close Path as Selection", "Tools", () => OnClosePenPath(this, empty), Bare(Key.Enter),
+            suppressInTextInput: true, canExecute: () => Canvas.CurrentTool is PenTool { CanClose: true });
+        Add("tool.pen.cancel", "Discard Pen Path", "Tools", () => OnCancelPenPath(this, empty), Bare(Key.Escape),
+            suppressInTextInput: true, canExecute: () => Canvas.CurrentTool is PenTool { HasPath: true });
+        Add("tool.pen.removePoint", "Remove Last Pen Point", "Tools", () => OnRemoveLastPenAnchor(this, empty), Bare(Key.Back),
+            suppressInTextInput: true, canExecute: () => Canvas.CurrentTool is PenTool { HasPath: true });
 
         _commands.ReloadBindings(_settings.Settings.Workspace);
     }
@@ -2177,7 +2220,7 @@ public partial class MainView : UserControl
         {
             ("Move", "Move", "M"), ("RectSel", "Rectangle Select", "S"),
             ("EllipseSel", "Ellipse Select", "S S"), ("Lasso", "Lasso Select", "S S S"),
-            ("Wand", "Magic Wand", "S S S S")
+            ("Wand", "Magic Wand", "S S S S"), ("Pen", "Pen - path cutout", "Shift+P")
         },
         new (string Key, string Name, string Shortcut)[]
         {
@@ -2219,7 +2262,7 @@ public partial class MainView : UserControl
                 // Crop to Selection is a one-shot command, not a persistent tool, so it's a plain
                 // Button rather than one of the ToggleButtons above. Grouped right after the
                 // selection tools since it acts on whatever they selected.
-                if (key == "Wand")
+                if (key == "Pen")
                 {
                     var cropBtn = new Button
                     {
@@ -2327,6 +2370,7 @@ public partial class MainView : UserControl
             "EllipseSel" => new EllipseSelectTool(),
             "Lasso" => new LassoSelectTool(),
             "Wand" => new MagicWandTool(),
+            "Pen" => new PenTool(),
             "Clone" => new CloneStampTool(),
             "Recolor" => new RecolorTool(),
             "RoundRect" => new RoundedRectangleTool(),
@@ -2335,9 +2379,14 @@ public partial class MainView : UserControl
             "Arrow" => new ArrowTool(),
             _ => new PencilTool()
         };
+        // Closing an outline by clicking its first anchor never leaves the tool, so the tool itself
+        // is what reports it; see PenTool.PathClosed.
+        if (tool is PenTool newPen)
+            newPen.PathClosed = () => StatusText.Text = "Pen: path closed into the selection";
+
         Canvas.CurrentTool = tool;
         UpdateToolOptions(tag);
-        StatusText.Text = "Tool: " + tool.Name;
+        StatusText.Text = tag == "Pen" ? PenHint : "Tool: " + tool.Name;
     }
 
     /// <summary>Greys out toolbar options the active tool ignores.</summary>
@@ -2352,10 +2401,10 @@ public partial class MainView : UserControl
         // excluded - it builds its mask from colour similarity pixel by pixel, with no edge to
         // antialias. FillShapesCheck is gated separately below, so it stays off for them.
         ShapeGroup.IsEnabled = tag is "Pencil" or "Line" or "Rect" or "Ellipse" or "Clone" or "Recolor" or "RoundRect" or "Freeform" or "Star" or "Arrow"
-            or "RectSel" or "EllipseSel" or "Lasso";
+            or "RectSel" or "EllipseSel" or "Lasso" or "Pen";
         FillShapesCheck.IsEnabled = tag is "Rect" or "Ellipse" or "RoundRect" or "Freeform" or "Star" or "Arrow";
         BucketGroup.IsEnabled = tag is "Fill" or "Wand" or "Recolor";
-        SelectGroup.IsEnabled = tag is "RectSel" or "EllipseSel" or "Lasso" or "Wand";
+        SelectGroup.IsEnabled = tag is "RectSel" or "EllipseSel" or "Lasso" or "Wand" or "Pen";
     }
 
     private void OnSelectionCombineMode(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

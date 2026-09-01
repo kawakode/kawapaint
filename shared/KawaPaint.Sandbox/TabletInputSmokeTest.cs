@@ -74,6 +74,8 @@ internal static class TabletInputSmokeTest
             CompositeRect = (_, _, _, _) => { },
             SampleComposite = (_, _) => ColorBgra.Transparent,
             SetPrimaryColor = _ => { },
+            ViewScale = 1,
+            InvalidateOverlay = () => { },
             Selection = new Selection(32, 32),
             SelectionChanged = () => { },
             RequestText = (_, _) => { },

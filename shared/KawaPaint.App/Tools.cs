@@ -70,6 +70,15 @@ public sealed class ToolContext
     public required Func<int, int, ColorBgra> SampleComposite { get; init; }
     public required Action<ColorBgra> SetPrimaryColor { get; init; }
 
+    /// <summary>Image pixels per screen pixel (1/zoom). A tool that hit-tests against on-screen
+    /// furniture - the pen's anchors and handles - scales its click radius by this so a node is
+    /// exactly as easy to grab zoomed out to 10% as it is at 800%.</summary>
+    public required double ViewScale { get; init; }
+
+    /// <summary>Repaints the canvas overlay without recompositing any pixels. For tools that draw
+    /// editing furniture over the image rather than into it.</summary>
+    public required Action InvalidateOverlay { get; init; }
+
     public required Selection Selection { get; init; }
     public required Action SelectionChanged { get; init; }
     public required Action<int, int> RequestText { get; init; }
@@ -93,6 +102,23 @@ public interface ITool
     void PointerDown(ToolContext c);
     void PointerMove(ToolContext c);
     void PointerUp(ToolContext c);
+}
+
+/// <summary>
+/// A tool whose on-canvas overlay follows the pointer even with no button down. Ordinary tools
+/// only ever see a pointer that is mid-gesture; the pen needs the plain hover as well, to trail a
+/// rubber band from the open end of its path to the cursor. The view drives this and repaints
+/// whenever a call returns true.
+/// </summary>
+public interface IHoverTool : ITool
+{
+    /// <summary>Pointer moved over the canvas to image-space (x,y), no button down.
+    /// <paramref name="viewScale"/> is image pixels per screen pixel. Returns true when the
+    /// overlay changed and needs redrawing.</summary>
+    bool PointerHover(double x, double y, double viewScale);
+
+    /// <summary>The pointer left the canvas. Returns true when the overlay changed.</summary>
+    bool PointerHoverExited();
 }
 
 /// <summary>Freehand pencil: alpha-blended round stroke on the active layer.</summary>
@@ -538,6 +564,277 @@ public sealed class LassoSelectTool : ITool
         c.Selection.Combine(c.CombineMode, _shape);
         c.SelectionChanged();
     }
+}
+
+/// <summary>
+/// One node of a pen path, in image space: the on-curve anchor plus the two off-curve control
+/// points that shape the segments arriving at and leaving it. A corner is simply a node whose
+/// controls sit on top of the anchor, so a path of pure corners flattens to a plain polygon.
+/// </summary>
+public readonly record struct PenAnchor(double X, double Y, double InX, double InY, double OutX, double OutY)
+{
+    public static PenAnchor Corner(double x, double y) => new(x, y, x, y, x, y);
+
+    public bool IsCorner => InX == X && InY == Y && OutX == X && OutY == Y;
+
+    /// <summary>Pulls the outgoing control to (x,y) and mirrors the incoming one through the
+    /// anchor - the symmetric node a handle drag produces, which is what keeps a curve smooth
+    /// across the anchor.</summary>
+    public PenAnchor WithSmoothHandle(double x, double y)
+        => this with { OutX = x, OutY = y, InX = 2 * X - x, InY = 2 * Y - y };
+
+    /// <summary>Moves one control on its own, leaving the other where it is, so the node becomes
+    /// a cusp. This is what Ctrl-dragging a handle does.</summary>
+    public PenAnchor WithBrokenHandle(bool outgoing, double x, double y)
+        => outgoing ? this with { OutX = x, OutY = y } : this with { InX = x, InY = y };
+
+    /// <summary>Drags the anchor and both its controls together, so moving a node reshapes its two
+    /// segments without changing the curvature it was given.</summary>
+    public PenAnchor MovedTo(double x, double y)
+    {
+        double dx = x - X, dy = y - Y;
+        return new PenAnchor(x, y, InX + dx, InY + dy, OutX + dx, OutY + dy);
+    }
+}
+
+/// <summary>
+/// Pen ("Plume" in Photoshop): a Bezier outline laid down point by point and then turned into a
+/// selection - the precise cut-out the freehand lasso can't give you. Click for a corner, or
+/// click-drag to pull a smooth node's handles out of it; clicking the first anchor again closes
+/// the outline and combines it into the selection through the usual replace/add/subtract/intersect
+/// mode. An anchor that is already down can be dragged to move it, its handles re-dragged to
+/// re-shape the curve, and Ctrl-clicking one deletes it.
+///
+/// Unlike every other tool here the path deliberately outlives the pointer gesture that started it
+/// - placing points one at a time and correcting them before committing is the whole point - so
+/// the state lives on the tool instance rather than in the per-gesture ToolContext, and SurfaceView
+/// draws it as an overlay between gestures. Selecting another tool drops an unfinished path.
+/// </summary>
+public sealed class PenTool : ITool, IHoverTool
+{
+    private enum Grab { None, Anchor, InHandle, OutHandle }
+
+    private readonly List<PenAnchor> _anchors = new();
+    private Grab _grab;
+    private int _grabIndex = -1;
+    private bool _breakHandle;
+    private (double X, double Y)? _hover;
+
+    /// <summary>Click radius for anchors and handles, in screen pixels: scaled by the view so a
+    /// node stays exactly as easy to grab zoomed out to 10% as it is at 800%.</summary>
+    private const double GrabScreenRadius = 7;
+
+    public string Name => "Pen";
+
+    public IReadOnlyList<PenAnchor> Anchors => _anchors;
+
+    public bool HasPath => _anchors.Count > 0;
+
+    /// <summary>An outline needs three nodes before it encloses anything.</summary>
+    public bool CanClose => _anchors.Count >= 3;
+
+    /// <summary>Raised whenever an outline is committed to the selection. The host uses it for the
+    /// status line: closing by clicking the first anchor happens entirely inside PointerDown, so
+    /// there is otherwise no moment the view could notice it and say so.</summary>
+    public Action? PathClosed { get; set; }
+
+    /// <summary>Last hovered image-space point, for the rubber band drawn from the open end of the
+    /// path to the cursor. Null while the pointer is off the canvas.</summary>
+    public (double X, double Y)? Hover => _hover;
+
+    /// <summary>True while the cursor sits over the first anchor of a closable path - the overlay
+    /// highlights it so the click that closes the outline is visible before it happens.</summary>
+    public bool HoverClosesPath { get; private set; }
+
+    public void PointerDown(ToolContext c)
+    {
+        double grab = GrabScreenRadius * c.ViewScale;
+        _grab = Grab.None;
+        _grabIndex = -1;
+        _breakHandle = c.CtrlHeld;
+
+        // Closing takes priority over grabbing that same first anchor: with the path complete,
+        // clicking where it started means "finish", not "nudge the point I started from".
+        if (CanClose && Near(_anchors[0].X, _anchors[0].Y, c.X, c.Y, grab))
+        {
+            ApplyAsSelection(c.Selection, c.CombineMode, c.Antialias);
+            c.SelectionChanged();
+            c.InvalidateOverlay();
+            return;
+        }
+
+        // Handles before anchors: a handle pulled right out of its anchor would otherwise be
+        // unreachable, buried under the anchor's own hit circle.
+        for (int i = _anchors.Count - 1; i >= 0; i--)
+        {
+            PenAnchor a = _anchors[i];
+            if (!a.IsCorner && Near(a.OutX, a.OutY, c.X, c.Y, grab)) { Begin(Grab.OutHandle, i, c); return; }
+            if (!a.IsCorner && Near(a.InX, a.InY, c.X, c.Y, grab)) { Begin(Grab.InHandle, i, c); return; }
+        }
+
+        for (int i = _anchors.Count - 1; i >= 0; i--)
+        {
+            if (!Near(_anchors[i].X, _anchors[i].Y, c.X, c.Y, grab)) continue;
+
+            if (c.CtrlHeld) _anchors.RemoveAt(i);
+            else Begin(Grab.Anchor, i, c);
+            c.InvalidateOverlay();
+            return;
+        }
+
+        // Nothing under the cursor: extend the path. The gesture that placed the node keeps
+        // dragging its handle, so a click is a corner and a click-drag is a smooth node.
+        _anchors.Add(PenAnchor.Corner(c.X, c.Y));
+        Begin(Grab.OutHandle, _anchors.Count - 1, c);
+    }
+
+    public void PointerMove(ToolContext c)
+    {
+        if (_grab == Grab.None || (uint)_grabIndex >= (uint)_anchors.Count) return;
+
+        PenAnchor a = _anchors[_grabIndex];
+        _anchors[_grabIndex] = _grab switch
+        {
+            Grab.Anchor => a.MovedTo(c.X, c.Y),
+            Grab.InHandle when _breakHandle => a.WithBrokenHandle(outgoing: false, c.X, c.Y),
+            // Dragging the incoming handle of a symmetric node is the mirror of dragging its
+            // outgoing one, so it goes through the same helper reflected about the anchor.
+            Grab.InHandle => a.WithSmoothHandle(2 * a.X - c.X, 2 * a.Y - c.Y),
+            Grab.OutHandle when _breakHandle => a.WithBrokenHandle(outgoing: true, c.X, c.Y),
+            _ => a.WithSmoothHandle(c.X, c.Y)
+        };
+
+        _hover = (c.X, c.Y);
+        c.InvalidateOverlay();
+    }
+
+    public void PointerUp(ToolContext c)
+    {
+        _grab = Grab.None;
+        _grabIndex = -1;
+        c.InvalidateOverlay();
+    }
+
+    public bool PointerHover(double x, double y, double viewScale)
+    {
+        _hover = (x, y);
+        HoverClosesPath = CanClose && Near(_anchors[0].X, _anchors[0].Y, x, y, GrabScreenRadius * viewScale);
+        // Any hover over a live path moves the rubber band, so the overlay always needs redrawing;
+        // with no path there is nothing on screen that tracks the cursor.
+        return HasPath;
+    }
+
+    public bool PointerHoverExited()
+    {
+        if (_hover is null && !HoverClosesPath) return false;
+        _hover = null;
+        HoverClosesPath = false;
+        return true;
+    }
+
+    /// <summary>Throws the unfinished path away. Called when Escape is pressed.</summary>
+    public void Clear()
+    {
+        _anchors.Clear();
+        _grab = Grab.None;
+        _grabIndex = -1;
+        HoverClosesPath = false;
+    }
+
+    /// <summary>Drops the most recently placed node, so a misplaced point can be taken back
+    /// without restarting the outline. Returns false when there was nothing left to drop.</summary>
+    public bool RemoveLastAnchor()
+    {
+        if (_anchors.Count == 0) return false;
+        _anchors.RemoveAt(_anchors.Count - 1);
+        _grab = Grab.None;
+        _grabIndex = -1;
+        return true;
+    }
+
+    /// <summary>
+    /// Closes the path, rasterizes it into <paramref name="selection"/> under
+    /// <paramref name="mode"/>, and clears it ready for the next outline. Returns false - leaving
+    /// both the path and the selection alone - when there are too few nodes to enclose an area.
+    /// </summary>
+    public bool ApplyAsSelection(Selection selection, SelectionCombineMode mode, bool antialias)
+    {
+        if (!CanClose) return false;
+
+        var shape = new Selection(selection.Width, selection.Height);
+        shape.ReplaceWithPolygon(Flatten(), antialias);
+        selection.Combine(mode, shape);
+        Clear();
+        PathClosed?.Invoke();
+        return true;
+    }
+
+    /// <summary>
+    /// The closed outline as a polygon, each curved segment subdivided finely enough that its
+    /// chords land within about a pixel of the true curve. Public because the smoke test measures
+    /// the flattened area, and because it is the same geometry the overlay traces.
+    /// </summary>
+    public IReadOnlyList<(double X, double Y)> Flatten()
+    {
+        var points = new List<(double X, double Y)>();
+        if (_anchors.Count == 0) return points;
+
+        points.Add((_anchors[0].X, _anchors[0].Y));
+        for (int i = 0; i < _anchors.Count; i++)
+            AppendSegment(points, _anchors[i], _anchors[(i + 1) % _anchors.Count]);
+
+        // The wrap-around segment ends back on the start point the list already opens with.
+        if (points.Count > 1) points.RemoveAt(points.Count - 1);
+        return points;
+    }
+
+    /// <summary>Point on the cubic between two nodes at parameter t. Shared by the flattener and
+    /// anything else that needs to walk the curve.</summary>
+    public static (double X, double Y) CurvePoint(PenAnchor a, PenAnchor b, double t)
+    {
+        double u = 1 - t;
+        double w0 = u * u * u, w1 = 3 * u * u * t, w2 = 3 * u * t * t, w3 = t * t * t;
+        return (w0 * a.X + w1 * a.OutX + w2 * b.InX + w3 * b.X,
+                w0 * a.Y + w1 * a.OutY + w2 * b.InY + w3 * b.Y);
+    }
+
+    private void Begin(Grab grab, int index, ToolContext c)
+    {
+        _grab = grab;
+        _grabIndex = index;
+        _hover = (c.X, c.Y);
+        HoverClosesPath = false;
+        c.InvalidateOverlay();
+    }
+
+    private static void AppendSegment(List<(double X, double Y)> into, PenAnchor a, PenAnchor b)
+    {
+        // Two corners in a row describe a straight edge; subdividing it would only add collinear
+        // points for the polygon rasterizer to chew through.
+        if (a.OutX == a.X && a.OutY == a.Y && b.InX == b.X && b.InY == b.Y)
+        {
+            into.Add((b.X, b.Y));
+            return;
+        }
+
+        // The control polygon is an upper bound on the curve's length, so stepping it at roughly
+        // one point per pixel is enough to keep every chord under a pixel of the real curve.
+        double hull = Distance(a.X, a.Y, a.OutX, a.OutY)
+                    + Distance(a.OutX, a.OutY, b.InX, b.InY)
+                    + Distance(b.InX, b.InY, b.X, b.Y);
+        int steps = Math.Clamp((int)Math.Ceiling(hull), 8, 256);
+
+        for (int i = 1; i <= steps; i++) into.Add(CurvePoint(a, b, (double)i / steps));
+    }
+
+    private static bool Near(double x0, double y0, double x1, double y1, double radius)
+    {
+        double dx = x1 - x0, dy = y1 - y0;
+        return dx * dx + dy * dy <= radius * radius;
+    }
+
+    private static double Distance(double x0, double y0, double x1, double y1)
+        => Math.Sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0));
 }
 
 /// <summary>

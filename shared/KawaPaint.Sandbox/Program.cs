@@ -85,6 +85,7 @@ KawaPaint.Sandbox.HistoryTruncateSmokeTest.RunAll();
 KawaPaint.Sandbox.SelectionAntialiasSmokeTest.RunAll();
 KawaPaint.Sandbox.ThreeDReferenceSmokeTest.RunAll();
 KawaPaint.Sandbox.TabletInputSmokeTest.RunAll();
+KawaPaint.Sandbox.PenPathSmokeTest.RunAll();
 KawaPaint.Sandbox.ReferenceModelSmokeTest.RunAll();
 KawaPaint.Sandbox.PublisherSmokeTest.RunAll();
 

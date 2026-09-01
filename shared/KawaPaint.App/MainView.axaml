@@ -117,6 +117,9 @@
                 <MenuItem Header="_Invert" Click="OnInvertSelection" InputGesture="Ctrl+I" Icon="{app:Icon InvertSel}" />
                 <MenuItem Header="Deselect (Select _None)" Click="OnSelectNone" InputGesture="Ctrl+D" Icon="{app:Icon Deselect}" />
                 <Separator />
+                <MenuItem Header="Close _Path as Selection" Click="OnClosePenPath" InputGesture="Enter" Icon="{app:Icon Pen}" />
+                <MenuItem Header="Discard Pen Pat_h" Click="OnCancelPenPath" InputGesture="Escape" />
+                <Separator />
                 <MenuItem Header="_Fill Selection" Click="OnFillSelection" InputGesture="Ctrl+F" Icon="{app:Icon Fill}" />
                 <MenuItem Header="_Erase Selection" Click="OnEraseSelection" InputGesture="Delete" Icon="{app:Icon Trash}" />
             </MenuItem>

@@ -105,7 +105,11 @@ public static class Icons
         ["Cut"] = (new[] { "M3 6 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0", "M8.12 8.12 12 12", "M20 4 8.12 15.88", "M3 18 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0", "M14.8 14.8 20 20" }, false),
         ["Paste"] = (new[] { "M11 14h10", "M16 4h2a2 2 0 0 1 2 2v1.344", "m17 18 4-4-4-4", "M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 1.793-1.113", "M9 2 L15 2 A1 1 0 0 1 16 3 L16 5 A1 1 0 0 1 15 6 L9 6 A1 1 0 0 1 8 5 L8 3 A1 1 0 0 1 9 2 Z" }, false),
         ["Trash"] = (new[] { "M10 11v6", "M14 11v6", "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6", "M3 6h18", "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" }, false),
-        ["Settings"] = (new[] { "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915", "M9 12 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0" }, false),
+        // Not from Lucide: its gear is eight arc lobes, and at the 14px these buttons render at the
+        // arcs merge into a lumpy flower rather than a cog - which is what "click the gear" pointed
+        // at. This is a straight-toothed silhouette instead, filled so the teeth survive the size,
+        // with the hub knocked out by the geometry group's even-odd rule.
+        ["Settings"] = (new[] { "M18.98 9.53L22.99 9.86L22.99 14.14L18.98 14.47A7.4 7.4 0 0 1 18.68 15.19L21.29 18.26L18.26 21.29L15.19 18.68A7.4 7.4 0 0 1 14.47 18.98L14.14 22.99L9.86 22.99L9.53 18.98A7.4 7.4 0 0 1 8.81 18.68L5.74 21.29L2.71 18.26L5.32 15.19A7.4 7.4 0 0 1 5.02 14.47L1.01 14.14L1.01 9.86L5.02 9.53A7.4 7.4 0 0 1 5.32 8.81L2.71 5.74L5.74 2.71L8.81 5.32A7.4 7.4 0 0 1 9.53 5.02L9.86 1.01L14.14 1.01L14.47 5.02A7.4 7.4 0 0 1 15.19 5.32L18.26 2.71L21.29 5.74L18.68 8.81A7.4 7.4 0 0 1 18.98 9.53Z", "M8.6 12a3.4 3.4 0 1 0 6.8 0a3.4 3.4 0 1 0-6.8 0" }, true),
         ["MergeDown"] = (new[] { "m7 6 5 5 5-5", "m7 13 5 5 5-5" }, false),
         ["ChevronUp"] = (new[] { "m18 15-6-6-6 6" }, false),
         ["ChevronDown"] = (new[] { "m6 9 6 6 6-6" }, false),
@@ -124,10 +128,14 @@ public static class Icons
         if (!Defs.TryGetValue(key, out var def))
             return new TextBlock { Text = "?" };
 
-        var group = new GeometryGroup();
+        // Even-odd is what lets a filled glyph carve a hole out of itself with a second fragment.
+        var group = new GeometryGroup { FillRule = FillRule.EvenOdd };
         foreach (var fragment in def.Data)
             group.Children.Add(Geometry.Parse(fragment));
 
+        // Filled glyphs are silhouettes: stroking them too would thicken every edge and swallow
+        // the detail the fill is there to keep.
+        var ink = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xDC));
         var path = new Path
         {
             Data = group,
@@ -135,8 +143,8 @@ public static class Icons
             StrokeThickness = 1.7,
             StrokeJoin = PenLineJoin.Round,
             StrokeLineCap = PenLineCap.Round,
-            Stroke = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xDC)),
-            Fill = def.Fill ? new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xDC)) : null
+            Stroke = def.Fill ? null : ink,
+            Fill = def.Fill ? ink : null
         };
 
         return new Viewbox { Width = size, Height = size, Child = path };

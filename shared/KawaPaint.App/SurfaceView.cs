@@ -43,6 +43,11 @@ public sealed class SurfaceView : Control
     private bool _drawing;
     private Point? _cursorScreen;
 
+    // The pointer this control captured for the gesture in flight, kept so a tool that hands the
+    // canvas off to a modal dialog can give the capture back before the dialog shows. See
+    // RequestFromTool.
+    private IPointer? _capturedPointer;
+
     public ColorBgra BrushColor { get; set; } = ColorBgra.Black;
     public ColorBgra SecondaryColor { get; set; } = ColorBgra.White;
     public int BrushWidth { get; set; } = 3;
@@ -674,6 +679,7 @@ public sealed class SurfaceView : Control
         {
             _panning = true;
             _lastPointer = pt.Position;
+            _capturedPointer = e.Pointer;
             e.Pointer.Capture(this);
         }
         else if (pt.Properties.IsLeftButtonPressed && ActiveLayer is not null && _composite is not null)
@@ -681,8 +687,16 @@ public sealed class SurfaceView : Control
             Point img = ControlToImage(pt.Position);
             bool ctrl = e.KeyModifiers.HasFlag(KeyModifiers.Control);
             ToolPointerSample sample = PointerSample(pt, img);
-            if (BeginStroke(sample, ctrl)) StrokeBegan?.Invoke(sample, ctrl);
+
+            // Captured before the tool runs, not after: a tool that hands the canvas off to a modal
+            // dialog gives the capture back from inside PointerDown (see RequestFromTool), and
+            // capturing afterwards would silently take it straight back.
+            _capturedPointer = e.Pointer;
             e.Pointer.Capture(this);
+
+            // _drawing is already false again when the tool ended the gesture itself to open that
+            // dialog, and a stroke that never happened is not one a demo should record.
+            if (BeginStroke(sample, ctrl) && _drawing) StrokeBegan?.Invoke(sample, ctrl);
         }
     }
 
@@ -760,8 +774,8 @@ public sealed class SurfaceView : Control
                 SetPrimaryColor = c => { BrushColor = c; PrimaryColorPicked?.Invoke(c); },
                 Selection = Selection!,
                 SelectionChanged = NotifySelectionChanged,
-                RequestText = (x, y) => TextRequested?.Invoke(x, y),
-                RequestDynamicText = (x, y) => DynamicTextRequested?.Invoke(x, y),
+                RequestText = (x, y) => RequestFromTool(() => TextRequested?.Invoke(x, y)),
+                RequestDynamicText = (x, y) => RequestFromTool(() => DynamicTextRequested?.Invoke(x, y)),
                 CombineMode = SelectionCombineMode
             };
 
@@ -769,6 +783,24 @@ public sealed class SurfaceView : Control
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Runs a tool's "ask the host for input" callback once the pointer gesture that triggered it
+    /// is over. Both callers put a modal window on screen, and a modal disables its owner the
+    /// instant it shows: the matching pointer release is then dropped by the disabled window, so
+    /// doing this inline left the canvas holding the pointer capture forever. Every later click
+    /// anywhere in the main window - menu bar included - was routed back here and opened yet
+    /// another dialog, which is how one stray click turned into a pile of unclosable windows.
+    /// Ending the stroke and handing the capture back first, then deferring to the next dispatcher
+    /// pass, lets the in-flight pointer event unwind before the dialog takes over.
+    /// </summary>
+    private void RequestFromTool(Action request)
+    {
+        EndStroke();
+        _capturedPointer?.Capture(null);
+        _capturedPointer = null;
+        Dispatcher.UIThread.Post(request, DispatcherPriority.Input);
     }
 
     public void NotifyDynamicZonesChanged()
@@ -910,6 +942,7 @@ public sealed class SurfaceView : Control
         FinishGesture();
         if (wasDrawing) StrokeEnded?.Invoke();
         if (wasActive) e.Pointer.Capture(null);
+        _capturedPointer = null;
     }
 
     /// <summary>
@@ -928,6 +961,7 @@ public sealed class SurfaceView : Control
             return;
         }
         bool wasDrawing = _drawing;
+        _capturedPointer = null;
         FinishGesture();
         if (wasDrawing) StrokeEnded?.Invoke();
     }

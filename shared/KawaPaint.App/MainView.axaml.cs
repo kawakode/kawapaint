@@ -70,6 +70,13 @@ public partial class MainView : UserControl
 
     private IStorageProvider StorageProvider => TopLevel.GetTopLevel(this)!.StorageProvider;
 
+    /// <summary>
+    /// True while the Text or Dynamic Text prompt is on screen. Both are opened straight off a
+    /// canvas click, and a second one stacked on the first left the main window disabled for good
+    /// once they were dismissed out of order, so a click arriving while one is up is dropped.
+    /// </summary>
+    private bool _textPromptOpen;
+
     public bool IsDirty => _session?.IsDirty ?? false;
     public event Action<string>? TitleChanged;
 
@@ -2384,7 +2391,7 @@ public partial class MainView : UserControl
     private async void OnTextRequested(int x, int y)
     {
         var layer = Canvas.ActiveLayer;
-        if (layer is null) return;
+        if (layer is null || _textPromptOpen) return;
 
         // The typed string is dialog input, so it isn't in the demo file. Opening a modal prompt
         // in the middle of a replay would also stall the player's clock behind it.
@@ -2397,19 +2404,23 @@ public partial class MainView : UserControl
 
         string text;
         int size;
-        if (OwnerWindow is { } owner)
+        _textPromptOpen = true;
+        try
         {
-            var dlg = new TextDialog();
-            bool ok = await dlg.ShowDialog<bool>(owner);
-            if (!ok) return;
-            (text, size) = (dlg.ResultText, dlg.ResultSize);
+            if (OwnerWindow is { } owner)
+            {
+                var dlg = new TextDialog();
+                if (!await dlg.ShowDialog<bool>(owner)) return;
+                (text, size) = (dlg.ResultText, dlg.ResultSize);
+            }
+            else
+            {
+                var values = await ShowCanvasTextAsync();
+                if (values is null) return;
+                (text, size) = (values.Text, values.Size);
+            }
         }
-        else
-        {
-            var values = await ShowCanvasTextAsync();
-            if (values is null) return;
-            (text, size) = (values.Text, values.Size);
-        }
+        finally { _textPromptOpen = false; }
         if (string.IsNullOrEmpty(text)) return;
 
         var snapshot = layer.Surface.Clone();

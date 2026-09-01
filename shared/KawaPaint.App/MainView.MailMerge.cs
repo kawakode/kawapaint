@@ -12,7 +12,7 @@ public partial class MainView
 {
     private async void OnDynamicTextRequested(int x, int y)
     {
-        if (Canvas.Document is not { } doc || OwnerWindow is not { } owner) return;
+        if (Canvas.Document is not { } doc || OwnerWindow is not { } owner || _textPromptOpen) return;
         DynamicTextZone? existing = doc.DynamicTextZones.LastOrDefault(z =>
             x >= z.X && y >= z.Y && x < z.X + z.Width && y < z.Y + z.Height);
         var initial = existing?.Clone() ?? new DynamicTextZone
@@ -24,7 +24,10 @@ public partial class MainView
             Color = Canvas.BrushColor.ToHexString()
         };
         var editor = new DynamicTextZoneDialog(initial, existing is not null);
-        int choice = await editor.ShowDialog<int>(owner);
+        int choice;
+        _textPromptOpen = true;
+        try { choice = await editor.ShowDialog<int>(owner); }
+        finally { _textPromptOpen = false; }
         if (choice == 0) return;
         DynamicTextZone before = initial.Clone();
         if (choice == 2 && existing is not null)

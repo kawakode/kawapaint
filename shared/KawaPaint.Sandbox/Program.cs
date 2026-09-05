@@ -1,6 +1,12 @@
 using KawaPaint.Engine;
 using SkiaSharp;
 
+if (args.Contains("--ui"))
+{
+    KawaPaint.Sandbox.UiSmokeTest.RunAll();
+    return;
+}
+
 // Broad smoke test: touch every engine area once; fail loudly on any exception.
 string tmp = Path.Combine(Path.GetTempPath(), "kawa_smoke");
 Directory.CreateDirectory(tmp);

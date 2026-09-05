@@ -71,9 +71,8 @@ public partial class MainView : UserControl
     private IStorageProvider StorageProvider => TopLevel.GetTopLevel(this)!.StorageProvider;
 
     /// <summary>
-    /// True while the Text or Dynamic Text prompt is on screen. Both are opened straight off a
-    /// canvas click, and a second one stacked on the first left the main window disabled for good
-    /// once they were dismissed out of order, so a click arriving while one is up is dropped.
+    /// True while the Dynamic Text prompt is on screen, preventing repeated canvas clicks from
+    /// stacking modal prompts.
     /// </summary>
     private bool _textPromptOpen;
 
@@ -91,6 +90,7 @@ public partial class MainView : UserControl
     public MainView()
     {
         InitializeComponent();
+        InitializeTextEditing();
 
         _valueCursorBrush = this.Resources["ValueSliderCursorBrush"] as SolidColorBrush;
 
@@ -328,6 +328,7 @@ public partial class MainView : UserControl
     /// Also used by MainWindow to gate the desktop close button.</summary>
     public async Task<bool> ConfirmDiscardAsync()
     {
+        FinishTextEditing();
         if (!IsDirty) return true;
         if (OwnerWindow is not { } owner)
         {
@@ -592,6 +593,7 @@ public partial class MainView : UserControl
     /// <summary>Saves the project (to the known file, or prompts). Returns true if saved.</summary>
     private async Task<bool> SaveProjectAsync()
     {
+        FinishTextEditing();
         if (Canvas.Document is null) return false;
 
         var file = _currentFile;
@@ -2344,6 +2346,7 @@ public partial class MainView : UserControl
 
     private void SelectTool(string tag)
     {
+        FinishTextEditing();
         RecordTool(tag);
         _currentToolTag = tag;
         foreach (var b in _toolButtons)
@@ -2431,57 +2434,20 @@ public partial class MainView : UserControl
 
     private void OnKeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
     {
+        // In-canvas dialogs share this event route with the editor, unlike owned windows.
+        if (_canvasDialogOverlay is not null) return;
+        if (_textEditor is not null)
+        {
+            // Let the native input own typing, navigation, clipboard, and its local undo stack.
+            if (e.Key == Key.S && (e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0)
+                FinishTextEditing();
+            else return;
+        }
+
         // Avalonia's MenuItem.InputGesture only *renders* the shortcut text - it never handles the
         // key - so every accelerator in the app is dispatched from here through the registry.
         bool inTextBox = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox;
         if (_commands.HandleKey(e, inTextBox)) e.Handled = true;
-    }
-
-    private async void OnTextRequested(int x, int y)
-    {
-        var layer = Canvas.ActiveLayer;
-        if (layer is null || _textPromptOpen) return;
-
-        // The typed string is dialog input, so it isn't in the demo file. Opening a modal prompt
-        // in the middle of a replay would also stall the player's clock behind it.
-        if (IsPlayingDemo)
-        {
-            StatusText.Text = "Demo: skipped Text (the typed string isn't recorded)";
-            return;
-        }
-        RecordSkipped("Text");
-
-        string text;
-        int size;
-        _textPromptOpen = true;
-        try
-        {
-            if (OwnerWindow is { } owner)
-            {
-                var dlg = new TextDialog();
-                if (!await dlg.ShowDialog<bool>(owner)) return;
-                (text, size) = (dlg.ResultText, dlg.ResultSize);
-            }
-            else
-            {
-                var values = await ShowCanvasTextAsync();
-                if (values is null) return;
-                (text, size) = (values.Text, values.Size);
-            }
-        }
-        finally { _textPromptOpen = false; }
-        if (string.IsNullOrEmpty(text)) return;
-
-        var snapshot = layer.Surface.Clone();
-        TextOps.DrawText(layer.Surface, text, x, y, size, Canvas.BrushColor);
-        if (Canvas.Selection is { IsActive: true }) Canvas.Selection.Clip(layer.Surface, snapshot);
-        Canvas.History.Push(TileDeltaMemento.Consume(layer, snapshot, "Text"));
-        Canvas.RenderComposite();
-        Canvas.InvalidateVisual();
-        Canvas.NotifyLayersChanged();
-        _scriptRecorder.NoteAction("text.draw", new double[] { x, y, size, Canvas.BrushColor.Bgra },
-            new[] { text });
-        StatusText.Text = "Added text";
     }
 
     private void OnColorPicked(ColorBgra c)

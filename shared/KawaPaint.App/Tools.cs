@@ -381,7 +381,7 @@ public sealed class GradientTool : ShapeToolBase
         => GradientOps.LinearGradient(c.Layer.Surface, x0, y0, x1, y1, c.PrimaryColor, c.SecondaryColor);
 }
 
-/// <summary>Text tool: a click asks the host to prompt for text and render it at that point.</summary>
+/// <summary>Text tool: a click starts an editable text block at that image point.</summary>
 public sealed class TextTool : ITool
 {
     public string Name => "Text";

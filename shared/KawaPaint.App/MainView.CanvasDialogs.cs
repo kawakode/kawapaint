@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -30,11 +32,12 @@ public partial class MainView
         if (_canvasDialogOverlay is not null) return Task.FromResult(cancelValue);
 
         var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var buttons = new StackPanel
+        var buttons = new WrapPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
-            Spacing = 8,
+            ItemSpacing = 8,
+            LineSpacing = 8,
             Margin = new Thickness(0, 16, 0, 0)
         };
         var content = new StackPanel { Spacing = 10 };
@@ -55,11 +58,11 @@ public partial class MainView
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(18),
-            MinWidth = 320,
             MaxWidth = 620,
+            Margin = new Thickness(12),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
-            Child = content
+            Child = ScrollableDialogContent(content)
         };
         var shade = new Border
         {
@@ -71,12 +74,11 @@ public partial class MainView
         };
         shade.ZIndex = int.MaxValue;
 
+        Action? dismiss = null;
         void Complete(T value)
         {
             if (!completion.TrySetResult(value)) return;
-            FloatingLayer.Children.Remove(shade);
-            _canvasDialogOverlay = null;
-            Canvas.Focus();
+            dismiss?.Invoke();
         }
 
         foreach (var choice in choices)
@@ -94,13 +96,7 @@ public partial class MainView
             Complete(cancelValue);
         };
 
-        _canvasDialogOverlay = shade;
-        FloatingLayer.Children.Add(shade);
-        Dispatcher.UIThread.Post(() =>
-        {
-            shade.Focus();
-            FindFocusable(body)?.Focus();
-        }, DispatcherPriority.Input);
+        dismiss = PresentCanvasDialog(shade, () => FindFocusable(body)?.Focus());
         return completion.Task;
     }
 
@@ -169,18 +165,18 @@ public partial class MainView
                 BorderBrush = new SolidColorBrush(Color.FromRgb(90, 90, 90)),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(6),
+                Margin = new Thickness(12),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                Child = content
+                Child = ScrollableDialogContent(content, allowHorizontalScrolling: true)
             }
         };
 
+        Action? dismiss = null;
         void Complete(bool result)
         {
             if (!completion.TrySetResult(result)) return;
-            FloatingLayer.Children.Remove(shade);
-            _canvasDialogOverlay = null;
-            Canvas.Focus();
+            dismiss?.Invoke();
         }
 
         connectClose(Complete);
@@ -192,15 +188,45 @@ public partial class MainView
             Complete(false);
         };
 
+        dismiss = PresentCanvasDialog(shade, opened);
+        return completion.Task;
+    }
+
+    private static ScrollViewer ScrollableDialogContent(Control content, bool allowHorizontalScrolling = false) => new()
+    {
+        HorizontalScrollBarVisibility = allowHorizontalScrolling ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled,
+        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        Content = content
+    };
+
+    private Action PresentCanvasDialog(Control shade, Action opened)
+    {
+        var previousFocus = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement();
+        var background = FloatingLayer.Children.Prepend<Control>(RootDock)
+            .Select(control => (Control: control, Enabled: control.IsEnabled)).ToArray();
+        foreach (var entry in background) entry.Control.IsEnabled = false;
+        KeyboardNavigation.SetTabNavigation(shade, KeyboardNavigationMode.Cycle);
         _canvasDialogOverlay = shade;
         FloatingLayer.Children.Add(shade);
-        Dispatcher.UIThread.Post(() => { shade.Focus(); opened(); }, DispatcherPriority.Input);
-        return completion.Task;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!ReferenceEquals(_canvasDialogOverlay, shade)) return;
+            shade.Focus();
+            opened();
+        }, DispatcherPriority.Input);
+
+        return () =>
+        {
+            FloatingLayer.Children.Remove(shade);
+            _canvasDialogOverlay = null;
+            foreach (var entry in background) entry.Control.IsEnabled = entry.Enabled;
+            if (previousFocus?.Focus() != true) Canvas.Focus();
+        };
     }
 
     private async Task<string?> ShowCanvasPromptAsync(string title, string initial)
     {
-        var input = new TextBox { Text = initial, MinWidth = 280 };
+        var input = new TextBox { Text = initial };
         var result = await ShowCanvasFormAsync(title, input, () => input.Text ?? "");
         return result.Accepted ? result.Value : null;
     }
@@ -272,7 +298,6 @@ public partial class MainView
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
             Height = 100,
-            MinWidth = 360,
             PlaceholderText = "Type text…"
         };
         var size = Number(48, 8, 240);

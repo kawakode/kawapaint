@@ -21,6 +21,16 @@ A modern, cross-platform image editor compatible with Paint.NET 3.36 file format
 
 Open `KawaPaint.slnx` to build any platform; all share the same engine and UI code.
 
+Run the engine smoke tests and the headless UI regression checks with:
+
+```text
+dotnet run --project shared/KawaPaint.Sandbox
+dotnet run --project shared/KawaPaint.Sandbox -- --ui
+```
+
+The UI checks use an in-memory settings store and require no display server. Set
+`KAWAPAINT_UI_SCREENSHOTS` to an output directory to also save rendered layout screenshots.
+
 ### Android on Apple Silicon
 
 Install the Android workload, JDK 21, command-line SDK, API 36 platform and an ARM64 system image.

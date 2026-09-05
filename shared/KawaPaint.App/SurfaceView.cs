@@ -153,6 +153,10 @@ public sealed class SurfaceView : Control
 
     private Document? Adopt(Document document)
     {
+        // A shortcut or replay can replace the document before pointer-up. Finalize while the
+        // old layer and composite still exist, then release capture before disposing them.
+        EndPointerGesture();
+
         Document? old = _document;
         _composite?.Dispose();
         _bitmap?.Dispose();
@@ -185,6 +189,7 @@ public sealed class SurfaceView : Control
     {
         if (_document is not null && _document.IndexOf(layer) >= 0)
         {
+            if (!ReferenceEquals(ActiveLayer, layer)) EndPointerGesture();
             ActiveLayer = layer;
             DocumentChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -285,12 +290,14 @@ public sealed class SurfaceView : Control
 
     public void Undo()
     {
+        EndPointerGesture();
         History.Undo();
         AfterHistoryChange();
     }
 
     public void Redo()
     {
+        EndPointerGesture();
         History.Redo();
         AfterHistoryChange();
     }
@@ -298,6 +305,7 @@ public sealed class SurfaceView : Control
     /// <summary>Moves the undo caret directly to a position - what clicking a History panel row does.</summary>
     public void JumpToHistory(int position)
     {
+        EndPointerGesture();
         History.JumpTo(position);
         AfterHistoryChange();
     }
@@ -554,6 +562,7 @@ public sealed class SurfaceView : Control
     {
         if (_document is null) return;
         bool changed = index != _document.ActiveFrameIndex;
+        if (changed) EndPointerGesture();
         _document.SetActiveFrame(index);
         ActiveLayer = _document.LayerCount > 0 ? _document.Layers[^1] : _document.AddLayer();
         if (changed)
@@ -1058,6 +1067,16 @@ public sealed class SurfaceView : Control
 
         _panning = false;
         _drawing = false;
+    }
+
+    /// <summary>Finish drawing before a command changes its layer, document or undo history.</summary>
+    private void EndPointerGesture()
+    {
+        bool wasDrawing = _drawing;
+        FinishGesture();
+        _capturedPointer?.Capture(null);
+        _capturedPointer = null;
+        if (wasDrawing) StrokeEnded?.Invoke();
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)

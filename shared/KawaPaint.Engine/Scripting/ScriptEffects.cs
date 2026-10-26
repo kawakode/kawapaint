@@ -49,7 +49,7 @@ public static class ScriptEffects
                 "bc" => new BrightnessContrastEffect((int)a[0], a[1]),
                 "hsl" => new HueSaturationEffect(a[0], a[1], a[2]),
                 "levels" => new LevelsEffect((int)a[0], (int)a[1], a[2]),
-                "blur" => new BoxBlurEffect((int)a[0]),
+                "blur" => new GaussianBlurEffect((int)a[0]),
                 "posterize" => new PosterizeEffect((int)a[0]),
                 "curves" when a.Count == 256 => new CurvesEffect(a.Select(value => (byte)Math.Clamp((int)value, 0, 255)).ToArray()),
                 "noise" => new NoiseEffect((int)a[0], a.Count > 1 ? (int)a[1] : 0),

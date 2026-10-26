@@ -725,7 +725,7 @@ public partial class MainView : UserControl
             "brighten" => new BrightnessContrastEffect(25, 1.0),
             "darken" => new BrightnessContrastEffect(-25, 1.0),
             "contrast" => new BrightnessContrastEffect(0, 1.3),
-            "blur" => new BoxBlurEffect(6),
+            "blur" => new GaussianBlurEffect(6),
             "sharpen" => new SharpenEffect(),
             "emboss" => new EmbossEffect(),
             "edge" => new EdgeDetectEffect(),
@@ -1117,7 +1117,7 @@ public partial class MainView : UserControl
             _ => new AdjustmentDialog(Canvas, "Gaussian Blur", new[]
             {
                 new AdjustmentDialog.SliderSpec("Radius", 1, 30, 5, "0")
-            }, v => new BoxBlurEffect((int)v[0]))
+            }, v => new GaussianBlurEffect((int)v[0]))
         };
 
         if (OwnerWindow is { } owner)

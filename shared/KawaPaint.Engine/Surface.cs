@@ -185,13 +185,64 @@ public sealed unsafe class Surface : IDisposable
     {
         ThrowIfDisposed();
         var dst = new Surface(newWidth, newHeight);
-        using var srcBmp = WrapSKBitmap();
-        using var dstBmp = dst.WrapSKBitmap();
-        using var canvas = new SKCanvas(dstBmp);
+
+        // Filter in premultiplied space and convert back only at the end. Handed our straight-alpha
+        // pixels, Skia filtered (and built mipmaps from) the stored channels directly, so the black
+        // held by transparent pixels bled into edges: dark halos on anything resized over
+        // transparency. The source is premultiplied by hand for the same reason.
+        using var source = Clone();
+        source.Premultiply();
+        using var srcBmp = new SKBitmap();
+        srcBmp.InstallPixels(new SKImageInfo(Width, Height, SKColorType.Bgra8888, SKAlphaType.Premul), source.scan0, source.Stride);
         using var image = SKImage.FromBitmap(srcBmp);
-        canvas.DrawImage(image, new SKRect(0, 0, newWidth, newHeight),
-            new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
+
+        var premulInfo = new SKImageInfo(newWidth, newHeight, SKColorType.Bgra8888, SKAlphaType.Premul);
+        using (var premul = new SKBitmap())
+        {
+            premul.InstallPixels(premulInfo, dst.scan0, dst.Stride);
+            using var canvas = new SKCanvas(premul);
+            canvas.Clear(SKColors.Transparent);
+            canvas.DrawImage(image, new SKRect(0, 0, newWidth, newHeight),
+                new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
+        }
+        dst.Unpremultiply();
         return dst;
+    }
+
+    private void Premultiply()
+    {
+        for (int y = 0; y < Height; y++)
+        {
+            ColorBgra* row = (ColorBgra*)GetRowPointer(y);
+            for (int x = 0; x < Width; x++)
+            {
+                ColorBgra c = row[x];
+                if (c.A == 255) continue;
+                row[x] = ColorBgra.FromBgra(
+                    (byte)((c.B * c.A + 127) / 255), (byte)((c.G * c.A + 127) / 255),
+                    (byte)((c.R * c.A + 127) / 255), c.A);
+            }
+        }
+    }
+
+    /// <summary>Converts pixels written as premultiplied (by Skia) back to this type's straight alpha.</summary>
+    private void Unpremultiply()
+    {
+        for (int y = 0; y < Height; y++)
+        {
+            ColorBgra* row = (ColorBgra*)GetRowPointer(y);
+            for (int x = 0; x < Width; x++)
+            {
+                ColorBgra c = row[x];
+                if (c.A is 0 or 255) continue;
+                int half = c.A / 2;
+                row[x] = ColorBgra.FromBgra(
+                    (byte)Math.Min(255, (c.B * 255 + half) / c.A),
+                    (byte)Math.Min(255, (c.G * 255 + half) / c.A),
+                    (byte)Math.Min(255, (c.R * 255 + half) / c.A),
+                    c.A);
+            }
+        }
     }
 
     /// <summary>Returns a new Surface with a copy of this one's pixels.</summary>
@@ -242,15 +293,22 @@ public sealed unsafe class Surface : IDisposable
         long w01 = (long)(65536 - wx) * wy;
         long w11 = (long)wx * wy;
 
-        static byte Mix(byte c00, byte c10, byte c01, byte c11,
-            long w00, long w10, long w01, long w11)
-            => (byte)((c00 * w00 + c10 * w10 + c01 * w01 + c11 * w11 + (1L << 31)) >> 32);
+        // Color is weighted by alpha as well as distance: a transparent neighbor contributes
+        // coverage but no color, so a shape's edge fades out instead of darkening toward the
+        // (meaningless) black that transparent pixels store.
+        long a00 = c00.A * w00, a10 = c10.A * w10, a01 = c01.A * w01, a11 = c11.A * w11;
+        long alpha = a00 + a10 + a01 + a11;
+        if (alpha == 0) return ColorBgra.Transparent;
+        long half = alpha >> 1;
+
+        byte Mix(byte v00, byte v10, byte v01, byte v11)
+            => (byte)((v00 * a00 + v10 * a10 + v01 * a01 + v11 * a11 + half) / alpha);
 
         return ColorBgra.FromBgra(
-            Mix(c00.B, c10.B, c01.B, c11.B, w00, w10, w01, w11),
-            Mix(c00.G, c10.G, c01.G, c11.G, w00, w10, w01, w11),
-            Mix(c00.R, c10.R, c01.R, c11.R, w00, w10, w01, w11),
-            Mix(c00.A, c10.A, c01.A, c11.A, w00, w10, w01, w11));
+            Mix(c00.B, c10.B, c01.B, c11.B),
+            Mix(c00.G, c10.G, c01.G, c11.G),
+            Mix(c00.R, c10.R, c01.R, c11.R),
+            (byte)((alpha + (1L << 31)) >> 32));
     }
 
     /// <summary>Returns a new Surface containing the (x,y,w,h) region of this one (out-of-bounds = transparent).</summary>

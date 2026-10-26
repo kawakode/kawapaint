@@ -61,6 +61,30 @@ public readonly record struct EffectBounds(int X, int Y, int Width, int Height)
     }
 }
 
+/// <summary>
+/// Averages colors the way compositing sees them: each color counts in proportion to its alpha,
+/// so transparent pixels add coverage but no color. A plain per-channel mean would pull the
+/// black stored in transparent pixels into the result and give shapes dark fringes.
+/// </summary>
+internal struct ColorAverage
+{
+    private double _b, _g, _r, _alpha, _weight;
+
+    public void Add(ColorBgra c, double weight = 1)
+    {
+        double wa = weight * c.A;
+        _b += c.B * wa; _g += c.G * wa; _r += c.R * wa;
+        _alpha += wa;
+        _weight += weight;
+    }
+
+    public readonly bool IsEmpty => _weight <= 0;
+
+    public readonly ColorBgra Result => _alpha <= 0
+        ? ColorBgra.Transparent
+        : ColorBgra.FromBgra(Clamp.B(_b / _alpha), Clamp.B(_g / _alpha), Clamp.B(_r / _alpha), Clamp.B(_alpha / _weight));
+}
+
 internal static class Clamp
 {
     public static byte B(int v) => (byte)(v < 0 ? 0 : v > 255 ? 255 : v);
@@ -397,7 +421,8 @@ public sealed class HueSaturationEffect : PerPixelEffect
     }
 }
 
-/// <summary>Separable box blur; a decent, fast stand-in for a Gaussian.</summary>
+/// <summary>Separable box blur: fast, but its square kernel leaves visible blocky streaks
+/// (<see cref="GaussianBlurEffect"/> is the smooth one).</summary>
 public sealed class BoxBlurEffect : IEffect
 {
     private readonly int _radius;
@@ -428,7 +453,9 @@ public sealed class BoxBlurEffect : IEffect
 
         for (int line = lineStart; line < lineEnd; line++)
         {
-            int sumB = 0, sumG = 0, sumR = 0, sumA = 0;
+            // Color sums are premultiplied (see ColorAverage); long because 255*255*window
+            // overflows int for the largest radii.
+            long sumB = 0, sumG = 0, sumR = 0, sumA = 0;
 
             ColorBgra Get(int i) => horizontal
                 ? ((ColorBgra*)src.GetRowPointer(line))[i]
@@ -443,22 +470,98 @@ public sealed class BoxBlurEffect : IEffect
             for (int k = -radius; k <= radius; k++)
             {
                 var c = Get(Math.Clamp(itemStart + k, 0, len - 1));
-                sumB += c.B; sumG += c.G; sumR += c.R; sumA += c.A;
+                sumB += c.B * c.A; sumG += c.G * c.A; sumR += c.R * c.A; sumA += c.A;
             }
 
             for (int i = itemStart; i < itemEnd; i++)
             {
-                Set(i, ColorBgra.FromBgra((byte)(sumB / window), (byte)(sumG / window),
-                                          (byte)(sumR / window), (byte)(sumA / window)));
+                long half = sumA / 2;
+                Set(i, sumA == 0 ? ColorBgra.Transparent : ColorBgra.FromBgra(
+                    (byte)((sumB + half) / sumA), (byte)((sumG + half) / sumA),
+                    (byte)((sumR + half) / sumA), (byte)(sumA / window)));
 
                 var outC = Get(Math.Clamp(i - radius, 0, len - 1));
                 var inC = Get(Math.Clamp(i + radius + 1, 0, len - 1));
-                sumB += inC.B - outC.B;
-                sumG += inC.G - outC.G;
-                sumR += inC.R - outC.R;
+                sumB += inC.B * inC.A - outC.B * outC.A;
+                sumG += inC.G * inC.A - outC.G * outC.A;
+                sumR += inC.R * inC.A - outC.R * outC.A;
                 sumA += inC.A - outC.A;
             }
         }
+    }
+}
+
+/// <summary>
+/// Separable Gaussian blur. The kernel is cut off at <c>radius</c> pixels, which is three
+/// standard deviations, so the visible spread matches the radius the user picked.
+/// </summary>
+public sealed class GaussianBlurEffect : IEffect
+{
+    private readonly int _radius;
+    private readonly int[] _kernel;   // integer weights for offsets -radius..radius
+
+    public GaussianBlurEffect(int radius)
+    {
+        _radius = Math.Max(1, radius);
+        double sigma = _radius / 3.0;
+        _kernel = new int[_radius * 2 + 1];
+        for (int k = -_radius; k <= _radius; k++)
+            _kernel[k + _radius] = Math.Max(1, (int)Math.Round(1024 * Math.Exp(-(k * k) / (2 * sigma * sigma))));
+    }
+
+    public string Name => "Gaussian Blur";
+
+    public unsafe void Apply(Surface s)
+        => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
+    {
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
+        using var tmp = s.Clone();
+        BlurPass(s, tmp, horizontal: true, bounds.Inflate(_radius, s));
+        BlurPass(tmp, s, horizontal: false, bounds);
+    }
+
+    private unsafe void BlurPass(Surface src, Surface dst, bool horizontal, EffectBounds bounds)
+    {
+        int len = horizontal ? src.Width : src.Height;
+        int lineStart = horizontal ? bounds.Y : bounds.X;
+        int lineEnd = horizontal ? bounds.Bottom : bounds.Right;
+        int itemStart = horizontal ? bounds.X : bounds.Y;
+        int itemEnd = horizontal ? bounds.Right : bounds.Bottom;
+        int radius = _radius;
+        int[] kernel = _kernel;
+        long kernelSum = 0;
+        foreach (int weight in kernel) kernelSum += weight;
+
+        System.Threading.Tasks.Parallel.For(lineStart, lineEnd, line =>
+        {
+            for (int i = itemStart; i < itemEnd; i++)
+            {
+                // Premultiplied sums, as in ColorAverage, with the kernel as the weight.
+                long sumB = 0, sumG = 0, sumR = 0, sumA = 0;
+                for (int k = -radius; k <= radius; k++)
+                {
+                    int j = Math.Clamp(i + k, 0, len - 1);
+                    ColorBgra c = horizontal
+                        ? ((ColorBgra*)src.GetRowPointer(line))[j]
+                        : *(ColorBgra*)src.GetPointPointer(line, j);
+                    long wa = (long)kernel[k + radius] * c.A;
+                    sumB += c.B * wa; sumG += c.G * wa; sumR += c.R * wa; sumA += wa;
+                }
+
+                ColorBgra result = ColorBgra.Transparent;
+                if (sumA > 0)
+                {
+                    long half = sumA / 2;
+                    result = ColorBgra.FromBgra((byte)((sumB + half) / sumA), (byte)((sumG + half) / sumA),
+                        (byte)((sumR + half) / sumA), (byte)((sumA + kernelSum / 2) / kernelSum));
+                }
+                if (horizontal) ((ColorBgra*)dst.GetRowPointer(line))[i] = result;
+                else *(ColorBgra*)dst.GetPointPointer(line, i) = result;
+            }
+        });
     }
 }
 

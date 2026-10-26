@@ -103,4 +103,39 @@ public static class SurfaceOps
             }
         }
     }
+
+    /// <summary>
+    /// Writes into <paramref name="dst"/> the result of dragging the pixels <paramref name="selection"/>
+    /// covers in <paramref name="original"/> by (dx,dy): the area they leave becomes transparent and
+    /// they land, by their coverage, on top of whatever was there. <paramref name="selection"/> is
+    /// the selection where the drag began, not the moved one.
+    /// </summary>
+    public static unsafe void MoveSelectedPixels(Surface dst, Surface original, Selection selection, int dx, int dy)
+    {
+        int w = original.Width, h = original.Height;
+        if (dst.Width != w || dst.Height != h || selection.Width != w || selection.Height != h)
+            throw new ArgumentException("Surfaces and selection must have the same size.");
+
+        for (int y = 0; y < h; y++)
+        {
+            ColorBgra* src = (ColorBgra*)original.GetRowPointer(y);
+            ColorBgra* outRow = (ColorBgra*)dst.GetRowPointer(y);
+            int sy = y - dy;
+            for (int x = 0; x < w; x++)
+            {
+                // What stays behind: the original, emptied where the selection lifted pixels out.
+                ColorBgra under = src[x];
+                byte lifted = selection.CoverageAt(x, y);
+                if (lifted != 0)
+                    under.A = (byte)((under.A * (255 - lifted) + 127) / 255);
+
+                // What lands here: the selected pixel that was (dx,dy) away, by its coverage.
+                int sx = x - dx;
+                byte landed = (uint)sx < (uint)w && (uint)sy < (uint)h ? selection.CoverageAt(sx, sy) : (byte)0;
+                outRow[x] = landed == 0
+                    ? under
+                    : Blending.Composite(BlendMode.Normal, under, *(ColorBgra*)original.GetPointPointer(sx, sy), landed);
+            }
+        }
+    }
 }

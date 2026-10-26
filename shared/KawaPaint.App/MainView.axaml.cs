@@ -753,8 +753,14 @@ public partial class MainView : UserControl
         var doc = Canvas.Document;
         if (doc is null) return;
 
+        int activeIndex = Canvas.ActiveLayer is { } active ? doc.IndexOf(active) : -1;
         var replaced = SwapDocument(transform(doc));
         if (replaced is null) return;
+        // A new document starts on its top layer; stay on the layer the user was working on when
+        // the operation kept the layer stack (everything but Flatten).
+        if (Canvas.Document is { } current && activeIndex >= 0 && activeIndex < current.LayerCount
+            && current.LayerCount == replaced.LayerCount)
+            Canvas.SetActiveLayer(current.Layers[activeIndex]);
         Canvas.History.Push(new DocumentSwapMemento(name, replaced, SwapDocument));
     }
 
@@ -3271,14 +3277,7 @@ public partial class MainView : UserControl
 
         if (placement == PastePlacement.GrowCanvas)
         {
-            int w = Math.Max(doc.Width, pasted.Width), h = Math.Max(doc.Height, pasted.Height);
-            ApplyDocumentOp("Paste (Grow Canvas)", d =>
-            {
-                var grown = DocumentOps.ResizeCanvas(d, w, h, CanvasAnchor.TopLeft);
-                SurfaceOps.CompositeOver(grown.Layers[^1].Surface, pasted, 0, 0);
-                return grown;
-            });
-            StatusText.Text = $"Canvas grown to {w}×{h} and pasted {pasted.Width}×{pasted.Height}";
+            PasteGrowingCanvas(pasted);
             return;
         }
 
@@ -3292,6 +3291,23 @@ public partial class MainView : UserControl
         Canvas.History.Push(TileDeltaMemento.Consume(layer, snapshot, "Paste"));
         RefreshDocument();
         StatusText.Text = $"Pasted {pasted.Width}×{pasted.Height}";
+    }
+
+    /// <summary>Grows the canvas to fit <paramref name="pasted"/> and pastes it at the top-left of
+    /// the active layer (as one undo step).</summary>
+    private void PasteGrowingCanvas(Surface pasted)
+    {
+        var doc = Canvas.Document;
+        if (doc is null || Canvas.ActiveLayer is not { } layer) return;
+        int target = doc.IndexOf(layer);
+        int w = Math.Max(doc.Width, pasted.Width), h = Math.Max(doc.Height, pasted.Height);
+        ApplyDocumentOp("Paste (Grow Canvas)", d =>
+        {
+            var grown = DocumentOps.ResizeCanvas(d, w, h, CanvasAnchor.TopLeft);
+            SurfaceOps.CompositeOver(grown.Layers[target].Surface, pasted, 0, 0);
+            return grown;
+        });
+        StatusText.Text = $"Canvas grown to {w}×{h} and pasted {pasted.Width}×{pasted.Height}";
     }
 
     private async void OnPasteIntoNewLayer(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

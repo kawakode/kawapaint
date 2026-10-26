@@ -109,6 +109,29 @@ public sealed class Selection
         return copy;
     }
 
+    /// <summary>Makes this selection a copy of <paramref name="source"/> moved by (dx,dy); whatever
+    /// moves off the canvas is dropped.</summary>
+    public void CopyShifted(Selection source, int dx, int dy)
+    {
+        if (source.Width != Width || source.Height != Height)
+            throw new ArgumentException("Source selection must match this selection's dimensions.", nameof(source));
+        if (ReferenceEquals(source, this)) throw new ArgumentException("Cannot shift a selection into itself.", nameof(source));
+
+        Array.Clear(_mask);
+        int copyWidth = Width - Math.Abs(dx);
+        if (copyWidth > 0)
+        {
+            for (int y = 0; y < Height; y++)
+            {
+                int sy = y - dy;
+                if ((uint)sy >= (uint)Height) continue;
+                Array.Copy(source._mask, sy * Width + Math.Max(0, -dx), _mask, y * Width + Math.Max(0, dx), copyWidth);
+            }
+        }
+        IsActive = source.IsActive;
+        _boundsValid = false;
+    }
+
     public void CopyFrom(Selection other)
     {
         if (other.Width != Width || other.Height != Height)

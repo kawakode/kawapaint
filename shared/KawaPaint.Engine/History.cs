@@ -63,7 +63,8 @@ public sealed class DelegateMemento : HistoryMemento
     /// /delete/duplicate layer, merge down) rather than just scalars - a live query, not a captured
     /// value, since which side (undo or redo) currently owns the detached object flips with every
     /// toggle. Typically written as "0 while the document owns it, real bytes while only this
-    /// memento does" (e.g. via <c>Document.IndexOf</c>). Omitted for the common case (toggle
+    /// memento does" (e.g. via <c>Document.OwnsLayer</c>, which also sees other frames). Omitted
+    /// for the common case (toggle
     /// visibility, blend mode, opacity, reorder) where the closures only capture scalars.
     /// </param>
     /// <param name="dispose">
@@ -406,6 +407,7 @@ public readonly record struct HistoryStep(int Index, string Name, bool IsApplied
 public sealed class HistoryStack
 {
     private readonly List<HistoryMemento> _steps = new();
+    private readonly List<object?> _scopes = new();   // parallel to _steps: see CaptureScope
     private int _position;
     private long _residentBytes;
 
@@ -421,6 +423,17 @@ public sealed class HistoryStack
     private const int ResidentWindow = 4;
 
     public event EventHandler? Changed;
+
+    /// <summary>
+    /// Records where an edit happened (the editor uses the active animation frame) when it is
+    /// pushed. Before a step is undone or redone, <see cref="EnterScope"/> is handed that value
+    /// back so the editor can return there first: structural steps act on "the current layer
+    /// stack", which is only the right one if it is the stack they were recorded against.
+    /// </summary>
+    public Func<object?>? CaptureScope { get; set; }
+
+    /// <summary>See <see cref="CaptureScope"/>.</summary>
+    public Action<object?>? EnterScope { get; set; }
 
     /// <summary>Zero means unlimited - the memory budget is then the only bound.</summary>
     public int MaxSteps { get; set; }
@@ -464,6 +477,7 @@ public sealed class HistoryStack
 
         DiscardFrom(_position);   // a new edit invalidates the redo branch
         _steps.Add(memento);
+        _scopes.Add(CaptureScope?.Invoke());
         _residentBytes += GetResidentBytes(memento);
         _position = _steps.Count;
 
@@ -555,6 +569,7 @@ public sealed class HistoryStack
     private void StepBackward()
     {
         var memento = _steps[_position - 1];
+        EnterScope?.Invoke(_scopes[_position - 1]);
         long before = GetResidentBytes(memento);
         (memento as ISpillableMemento)?.Restore();
         var replacement = memento.Undo();
@@ -566,6 +581,7 @@ public sealed class HistoryStack
     private void StepForward()
     {
         var memento = _steps[_position];
+        EnterScope?.Invoke(_scopes[_position]);
         long before = GetResidentBytes(memento);
         (memento as ISpillableMemento)?.Restore();
         var replacement = memento.Undo();
@@ -581,6 +597,7 @@ public sealed class HistoryStack
             _residentBytes -= GetResidentBytes(_steps[i]);
             _steps[i].Dispose();
             _steps.RemoveAt(i);
+            _scopes.RemoveAt(i);
         }
         if (_position > _steps.Count) _position = _steps.Count;
     }
@@ -660,6 +677,7 @@ public sealed class HistoryStack
         _residentBytes -= GetResidentBytes(_steps[0]);
         _steps[0].Dispose();
         _steps.RemoveAt(0);
+        _scopes.RemoveAt(0);
         _dropCount++;   // lets TruncateFrom rebase a caller-supplied index across this renumbering
         // Only undoable steps (index < position) sit before the caret, so only removing one of
         // those needs the caret's absolute index shifted down to keep pointing at the same logical

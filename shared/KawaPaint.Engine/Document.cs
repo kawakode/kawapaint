@@ -10,6 +10,11 @@ public sealed class Document : IDisposable
 {
     private List<Layer> _layers;
     private readonly List<DocumentFrame> _frames = new();
+
+    /// <summary>Frames taken out of the timeline that undo can still put back. The document keeps
+    /// owning them (and their layers) until history lets go via <see cref="ReleaseDetachedFrame"/>,
+    /// so nothing a memento still references is ever disposed under it.</summary>
+    private readonly List<DocumentFrame> _detachedFrames = new();
     private readonly List<DynamicTextZone> _dynamicTextZones = new();
 
     public int Width { get; }
@@ -73,7 +78,16 @@ public sealed class Document : IDisposable
         _layers = _frames[index].MutableLayers;
     }
 
-    public void RemoveFrameAt(int index)
+    public int IndexOfFrame(DocumentFrame frame) => _frames.IndexOf(frame);
+
+    /// <summary>Deletes a frame for good, disposing its layers. Only safe when no undo step can
+    /// refer to it; editor commands use <see cref="DetachFrameAt"/> instead.</summary>
+    public void RemoveFrameAt(int index) => ReleaseDetachedFrame(DetachFrameAt(index));
+
+    /// <summary>Takes a frame out of the timeline without disposing it, so an undo step can
+    /// reinsert it with <see cref="InsertFrame"/>. The document still owns it until
+    /// <see cref="ReleaseDetachedFrame"/>.</summary>
+    public DocumentFrame DetachFrameAt(int index)
     {
         if (_frames.Count == 1) throw new InvalidOperationException("A document must keep at least one frame.");
         DocumentFrame removed = _frames[index];
@@ -81,7 +95,43 @@ public sealed class Document : IDisposable
         if (ActiveFrameIndex >= _frames.Count) ActiveFrameIndex = _frames.Count - 1;
         else if (index < ActiveFrameIndex) ActiveFrameIndex--;
         _layers = _frames[ActiveFrameIndex].MutableLayers;
-        removed.Dispose();
+        _detachedFrames.Add(removed);
+        return removed;
+    }
+
+    /// <summary>Puts a frame (new, or one returned by <see cref="DetachFrameAt"/>) back at
+    /// <paramref name="index"/>.</summary>
+    public void InsertFrame(int index, DocumentFrame frame, bool makeActive = true)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        if ((uint)index > (uint)_frames.Count) throw new ArgumentOutOfRangeException(nameof(index));
+        if (_frames.Contains(frame)) throw new InvalidOperationException("frame is already in the document");
+        if (frame.Layers.Any(layer => layer.Width != Width || layer.Height != Height))
+            throw new ArgumentException("frame layer size does not match document", nameof(frame));
+        _detachedFrames.Remove(frame);
+        _frames.Insert(index, frame);
+        if (makeActive) SetActiveFrame(index);
+        else if (index <= ActiveFrameIndex) ActiveFrameIndex++;
+    }
+
+    /// <summary>Disposes a detached frame once no undo step can bring it back. A no-op for a frame
+    /// that is back in the timeline (or was never detached from this document).</summary>
+    public void ReleaseDetachedFrame(DocumentFrame frame)
+    {
+        if (_detachedFrames.Remove(frame)) frame.Dispose();
+    }
+
+    /// <summary>True while this document owns <paramref name="layer"/>: it sits in any frame,
+    /// active or not, including frames detached but still restorable by undo. Undo steps use it
+    /// to decide whether a layer they hold is theirs to free; checking only the active frame
+    /// would free a live layer of another frame.</summary>
+    public bool OwnsLayer(Layer layer)
+    {
+        foreach (DocumentFrame frame in _frames)
+            if (frame.MutableLayers.Contains(layer)) return true;
+        foreach (DocumentFrame frame in _detachedFrames)
+            if (frame.MutableLayers.Contains(layer)) return true;
+        return false;
     }
 
     public Layer AddLayer(string? name = null)
@@ -201,7 +251,9 @@ public sealed class Document : IDisposable
     public void Dispose()
     {
         foreach (DocumentFrame frame in _frames) frame.Dispose();
+        foreach (DocumentFrame frame in _detachedFrames) frame.Dispose();
         _frames.Clear();
+        _detachedFrames.Clear();
         _layers = new List<Layer>();
     }
 }

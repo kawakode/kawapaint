@@ -74,8 +74,8 @@ public partial class MainView
             Canvas.History.Push(new DelegateMemento("Import 3D Reference",
                 undo: () => { doc.RemoveLayer(layer); Canvas.SetActiveLayer(doc.Layers[^1]); },
                 redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); },
-                approximateBytes: () => doc.IndexOf(layer) < 0 ? SurfaceBytes(layer.Surface) : 0,
-                dispose: () => { if (doc.IndexOf(layer) < 0) layer.Dispose(); }));
+                approximateBytes: () => !doc.OwnsLayer(layer) ? SurfaceBytes(layer.Surface) : 0,
+                dispose: () => { if (!doc.OwnsLayer(layer)) layer.Dispose(); }));
             RefreshDocument();
             StatusText.Text = $"Rasterized {mesh.Vertices.Count:N0} vertices / {mesh.Triangles.Count:N0} triangles";
         }

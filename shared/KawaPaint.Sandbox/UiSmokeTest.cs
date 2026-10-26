@@ -31,6 +31,7 @@ internal static class UiSmokeTest
         Check("project save is atomic", ProjectSaveIsAtomic);
         Check("unhandled UI exceptions", UnhandledUiException);
         Check("paste growing the canvas", PasteGrowingCanvas);
+        Check("layout preset rename", LayoutPresetRename);
         Check("modal shortcuts and focus", ModalInput);
         Check("inline text editing", InlineTextEditing);
         Check("adjustment cancellation", AdjustmentCancellation);
@@ -392,6 +393,31 @@ internal static class UiSmokeTest
             Assert(grown.Layers[0].Surface[pasted.Width - 1, 0] == ColorBgra.Black, "image was not pasted into the active layer");
             Assert(grown.Layers[^1].Surface[pasted.Width - 1, 0].A == 0, "image was pasted into the top layer");
             Assert(canvas.ActiveLayer == grown.Layers[0], "active layer changed");
+        });
+    }
+
+    /// <summary>Issue #14: renaming a layout onto another layout's name must not replace it.</summary>
+    private static void LayoutPresetRename()
+    {
+        WithView(1100, 760, (view, _) =>
+        {
+            var workspace = SettingsService.Instance.Settings.Workspace;
+            string original = workspace.ActiveLayout;
+            var other = new WorkspaceLayout();
+            workspace.Layouts["Other"] = other;
+            try
+            {
+                Invoke(view, "RenameLayoutPreset", original, "Other");
+                Assert(workspace.Layouts["Other"] == other, "rename replaced the existing layout");
+                Assert(workspace.Layouts.ContainsKey(original) && workspace.ActiveLayout == original,
+                    "refused rename still changed the layouts");
+
+                Invoke(view, "RenameLayoutPreset", original, "Renamed");
+                Assert(workspace.Layouts.ContainsKey("Renamed") && !workspace.Layouts.ContainsKey(original)
+                    && workspace.ActiveLayout == "Renamed", "a free name could not be used");
+                Invoke(view, "RenameLayoutPreset", "Renamed", original);
+            }
+            finally { workspace.Layouts.Remove("Other"); }
         });
     }
 

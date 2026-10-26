@@ -1921,6 +1921,11 @@ public partial class MainView : UserControl
 
         string name = dlg.ResultText.Trim();
         if (name.Length == 0) return;
+        if (name != workspace.ActiveLayout && workspace.Layouts.ContainsKey(name)
+            && !await ConfirmAsync("Replace Layout",
+                $"A layout named \"{name}\" already exists. Replace it with the current arrangement?",
+                confirmLabel: "Replace"))
+            return;
 
         workspace.Layouts[name] = _panels.Layout.Clone();
         workspace.ActiveLayout = name;
@@ -1939,9 +1944,20 @@ public partial class MainView : UserControl
         var dlg = new PromptDialog("Rename Layout", oldName);
         if (!await dlg.ShowDialog<bool>(owner)) return;
 
-        string newName = dlg.ResultText.Trim();
+        RenameLayoutPreset(oldName, dlg.ResultText.Trim());
+    }
+
+    private void RenameLayoutPreset(string oldName, string newName)
+    {
+        var workspace = _settings.Settings.Workspace;
         if (newName.Length == 0 || newName == oldName) return;
         if (!workspace.Layouts.TryGetValue(oldName, out var layout)) return;
+        if (workspace.Layouts.ContainsKey(newName))
+        {
+            // Renaming onto an existing name used to replace that layout without a word.
+            StatusText.Text = $"A layout named \"{newName}\" already exists; choose another name";
+            return;
+        }
 
         workspace.Layouts.Remove(oldName);
         workspace.Layouts[newName] = layout;

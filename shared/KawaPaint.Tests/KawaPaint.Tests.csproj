@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\KawaPaint.Sandbox\KawaPaint.Sandbox.csproj" />
+    <!-- Same build-order-only references as Sandbox: the plugin smoke test loads these DLLs
+         from their own bin folders, using this project's configuration and TFM. -->
+    <ProjectReference Include="..\..\plugins\KawaPaint.Plugins.Sample\KawaPaint.Plugins.Sample.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\plugins\KawaPaint.Plugins.ThrowingFixture\KawaPaint.Plugins.ThrowingFixture.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" Version="4.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>

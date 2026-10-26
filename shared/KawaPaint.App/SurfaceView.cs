@@ -107,6 +107,20 @@ public sealed class SurfaceView : Control
         ClipToBounds = true;
         Focusable = true;
         RenderOptions.SetBitmapInterpolationMode(this, BitmapInterpolationMode.None);
+
+        // Each step remembers the animation frame it was recorded in, and undo/redo return to
+        // that frame first: layer add/delete/reorder steps act on the current layer stack, so
+        // replaying them from another frame would edit the wrong one (and a pixel step replayed
+        // off-screen would change a frame the user isn't looking at). A frame that isn't in the
+        // current document belongs to one a canvas operation swapped out; that step's own
+        // document swap brings it back before it matters.
+        History.CaptureScope = () => _document?.ActiveFrame;
+        History.EnterScope = scope =>
+        {
+            if (scope is not DocumentFrame frame || _document is null) return;
+            int index = _document.IndexOfFrame(frame);
+            if (index >= 0 && index != _document.ActiveFrameIndex) SetActiveFrame(index);
+        };
     }
 
     public double Zoom => _zoom;

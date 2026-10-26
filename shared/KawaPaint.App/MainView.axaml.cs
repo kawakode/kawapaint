@@ -3278,8 +3278,8 @@ public partial class MainView : UserControl
         Canvas.History.Push(new DelegateMemento("Paste Into New Layer",
             undo: () => { doc.RemoveLayer(layer); Canvas.SetActiveLayer(doc.Layers[^1]); },
             redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); },
-            approximateBytes: () => doc.IndexOf(layer) < 0 ? SurfaceBytes(layer.Surface) : 0,
-            dispose: () => { if (doc.IndexOf(layer) < 0) layer.Dispose(); }));
+            approximateBytes: () => !doc.OwnsLayer(layer) ? SurfaceBytes(layer.Surface) : 0,
+            dispose: () => { if (!doc.OwnsLayer(layer)) layer.Dispose(); }));
 
         RefreshDocument();
         StatusText.Text = $"Pasted {pasted.Width}×{pasted.Height} into a new layer";
@@ -3313,8 +3313,8 @@ public partial class MainView : UserControl
             Canvas.History.Push(new DelegateMemento("Import Layer",
                 undo: () => { doc.RemoveLayer(layer); Canvas.SetActiveLayer(doc.Layers[^1]); },
                 redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); },
-                approximateBytes: () => doc.IndexOf(layer) < 0 ? SurfaceBytes(layer.Surface) : 0,
-                dispose: () => { if (doc.IndexOf(layer) < 0) layer.Dispose(); }));
+                approximateBytes: () => !doc.OwnsLayer(layer) ? SurfaceBytes(layer.Surface) : 0,
+                dispose: () => { if (!doc.OwnsLayer(layer)) layer.Dispose(); }));
 
             RefreshDocument();
             StatusText.Text = $"Imported {imported.Width}×{imported.Height} as a new layer";
@@ -3392,14 +3392,14 @@ public partial class MainView : UserControl
         var layer = doc.AddLayer();
         Canvas.SetActiveLayer(layer);
 
-        // approximateBytes/dispose are live queries against doc.IndexOf, not captured values: which
+        // approximateBytes/dispose are live queries against doc.OwnsLayer, not captured values: which
         // side (undo or redo) currently holds `layer` detached from the document flips with every
         // toggle, and Dispose() must never free a Surface the Document still owns.
         Canvas.History.Push(new DelegateMemento("Add Layer",
             undo: () => { doc.RemoveLayer(layer); Canvas.SetActiveLayer(doc.Layers[^1]); },
             redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); },
-            approximateBytes: () => doc.IndexOf(layer) < 0 ? SurfaceBytes(layer.Surface) : 0,
-            dispose: () => { if (doc.IndexOf(layer) < 0) layer.Dispose(); }));
+            approximateBytes: () => !doc.OwnsLayer(layer) ? SurfaceBytes(layer.Surface) : 0,
+            dispose: () => { if (!doc.OwnsLayer(layer)) layer.Dispose(); }));
 
         RefreshDocument();
     }
@@ -3418,8 +3418,8 @@ public partial class MainView : UserControl
         Canvas.History.Push(new DelegateMemento("Delete Layer",
             undo: () => { doc.InsertLayer(idx, active); Canvas.SetActiveLayer(active); },
             redo: () => { doc.RemoveLayer(active); Canvas.SetActiveLayer(doc.Layers[Math.Clamp(idx, 0, doc.LayerCount - 1)]); },
-            approximateBytes: () => doc.IndexOf(active) < 0 ? SurfaceBytes(active.Surface) : 0,
-            dispose: () => { if (doc.IndexOf(active) < 0) active.Dispose(); }));
+            approximateBytes: () => !doc.OwnsLayer(active) ? SurfaceBytes(active.Surface) : 0,
+            dispose: () => { if (!doc.OwnsLayer(active)) active.Dispose(); }));
 
         RefreshDocument();
     }
@@ -3439,8 +3439,8 @@ public partial class MainView : UserControl
         Canvas.History.Push(new DelegateMemento("Duplicate Layer",
             undo: () => { doc.RemoveLayer(dup); Canvas.SetActiveLayer(active); },
             redo: () => { doc.InsertLayer(idx + 1, dup); Canvas.SetActiveLayer(dup); },
-            approximateBytes: () => doc.IndexOf(dup) < 0 ? SurfaceBytes(dup.Surface) : 0,
-            dispose: () => { if (doc.IndexOf(dup) < 0) dup.Dispose(); }));
+            approximateBytes: () => !doc.OwnsLayer(dup) ? SurfaceBytes(dup.Surface) : 0,
+            dispose: () => { if (!doc.OwnsLayer(dup)) dup.Dispose(); }));
 
         RefreshDocument();
     }
@@ -3467,8 +3467,8 @@ public partial class MainView : UserControl
         Canvas.History.Push(new DelegateMemento("Merge Down",
             undo: () => { below.Surface.CopyFrom(belowBefore); doc.InsertLayer(idx, active); Canvas.SetActiveLayer(active); },
             redo: () => { LayerOps.MergeInto(below, active); doc.RemoveLayer(active); Canvas.SetActiveLayer(below); },
-            approximateBytes: () => SurfaceBytes(belowBefore) + (doc.IndexOf(active) < 0 ? SurfaceBytes(active.Surface) : 0),
-            dispose: () => { belowBefore.Dispose(); if (doc.IndexOf(active) < 0) active.Dispose(); }));
+            approximateBytes: () => SurfaceBytes(belowBefore) + (!doc.OwnsLayer(active) ? SurfaceBytes(active.Surface) : 0),
+            dispose: () => { belowBefore.Dispose(); if (!doc.OwnsLayer(active)) active.Dispose(); }));
 
         RefreshDocument();
     }

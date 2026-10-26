@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using KawaPaint.App;
@@ -25,6 +26,7 @@ internal static class UiSmokeTest
         Check("document replacement during a stroke", DocumentReplacement);
         Check("undo during a stroke", UndoStroke);
         Check("layer and frame changes during a stroke", StrokeTargetChanges);
+        Check("undo across animation frames", FrameHistory);
         Check("modal shortcuts and focus", ModalInput);
         Check("inline text editing", InlineTextEditing);
         Check("adjustment cancellation", AdjustmentCancellation);
@@ -229,6 +231,72 @@ internal static class UiSmokeTest
         Assert(second.Surface[8, 8].A > 0 && second.Surface[20, 20].A == 0 && frameLayer.Surface[20, 20].A == 0,
             "stroke continued after changing frames");
         canvas.History.Clear();
+    }
+
+    /// <summary>Issues #3, #6 and #13: frame edits are undoable, deleting a frame keeps undo of
+    /// its earlier strokes working, and layer steps undo in the frame they were recorded in.</summary>
+    private static void FrameHistory()
+    {
+        WithView(1100, 760, (view, _) =>
+        {
+            var canvas = view.FindControl<SurfaceView>("Canvas")!;
+            var document = canvas.Document!;
+            var args = new RoutedEventArgs();
+            int baseLayers = document.LayerCount;
+
+            // Delete a frame that has a stroke, then undo past the deletion into the stroke (#3).
+            Invoke(view, "OnAddFrame", null!, args);
+            Assert(document.FrameCount == 2 && document.ActiveFrameIndex == 1, "Add Frame did not add an active frame");
+            var strokeLayer = canvas.ActiveLayer!;
+            canvas.BeginStroke(4, 4, false);
+            canvas.EndStroke();
+            Assert(strokeLayer.Surface[4, 4].A > 0, "stroke did not paint the new frame");
+            Invoke(view, "OnDeleteFrame", null!, args);
+            Assert(document.FrameCount == 1, "Delete Frame did not remove the frame");
+            canvas.Undo();
+            Assert(document.FrameCount == 2 && document.ActiveFrameIndex == 1, "undo did not restore the deleted frame");
+            canvas.Undo();
+            Assert(strokeLayer.Surface[4, 4].A == 0, "undo did not remove the stroke from the restored frame");
+            canvas.Undo();
+            Assert(document.FrameCount == 1, "Add Frame could not be undone");
+            canvas.Redo();
+            canvas.Redo();
+            Assert(document.FrameCount == 2 && strokeLayer.Surface[4, 4].A > 0, "redo did not bring back the frame and stroke");
+
+            // A layer added in frame 1 must be removed from frame 1, even when undone from frame 2 (#6).
+            canvas.SetActiveFrame(0);
+            Invoke(view, "OnAddLayer", null!, args);
+            var added = canvas.ActiveLayer!;
+            Assert(document.LayerCount == baseLayers + 1, "Add Layer did not add a layer");
+            canvas.SetActiveFrame(1);
+            int otherLayers = document.LayerCount;
+            canvas.Undo();
+            Assert(document.ActiveFrameIndex == 0 && document.LayerCount == baseLayers,
+                "layer undo did not act on the frame it was recorded in");
+            Assert(document.Frames[1].Layers.Count == otherLayers, "layer undo changed another frame");
+            canvas.SetActiveFrame(1);
+            canvas.Redo();
+            Assert(document.ActiveFrameIndex == 0 && document.LayerCount == baseLayers + 1 && document.Layers[^1] == added,
+                "layer redo did not act on the frame it was recorded in");
+            Assert(document.Frames[1].Layers.Count == otherLayers, "layer redo changed another frame");
+
+            // Trimming history from another frame must not free a layer that frame 1 still uses.
+            canvas.SetActiveFrame(1);
+            canvas.History.MaxSteps = 1;
+            canvas.BeginStroke(6, 6, false);
+            canvas.EndStroke();
+            canvas.History.MaxSteps = 0;
+            GC.KeepAlive(added.Surface[0, 0]);   // throws if the layer was freed
+
+            // Frame duration is an undoable step (#13).
+            var duration = view.FindControl<NumericUpDown>("FrameDurationBox")!;
+            int before = document.ActiveFrame.DurationMs;
+            duration.Value = before + 150;
+            Pump();
+            Assert(document.ActiveFrame.DurationMs == before + 150, "duration box did not change the frame");
+            canvas.Undo();
+            Assert(document.ActiveFrame.DurationMs == before, "frame duration change could not be undone");
+        });
     }
 
     private static void DialogLayout()

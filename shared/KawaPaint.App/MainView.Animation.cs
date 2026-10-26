@@ -192,8 +192,10 @@ public partial class MainView
     private void OnAddFrame(object? sender, RoutedEventArgs e)
     {
         if (Canvas.Document is not { } document) return;
-        document.AddFrame(durationMs: document.ActiveFrame.DurationMs);
+        int previous = document.ActiveFrameIndex;
+        DocumentFrame frame = document.AddFrame(durationMs: document.ActiveFrame.DurationMs);
         Canvas.SetActiveFrame(document.ActiveFrameIndex);
+        PushFrameInsertion(document, frame, previous, "Add Frame");
         MarkDirty();
         StatusText.Text = $"Added frame {document.ActiveFrameIndex + 1}";
     }
@@ -201,10 +203,28 @@ public partial class MainView
     private void OnDuplicateFrame(object? sender, RoutedEventArgs e)
     {
         if (Canvas.Document is not { } document) return;
-        document.AddFrame(durationMs: document.ActiveFrame.DurationMs, cloneCurrent: true);
+        int previous = document.ActiveFrameIndex;
+        DocumentFrame frame = document.AddFrame(durationMs: document.ActiveFrame.DurationMs, cloneCurrent: true);
         Canvas.SetActiveFrame(document.ActiveFrameIndex);
+        PushFrameInsertion(document, frame, previous, "Duplicate Frame");
         MarkDirty();
         StatusText.Text = $"Duplicated as frame {document.ActiveFrameIndex + 1}";
+    }
+
+    /// <summary>Records a frame that was just added at its current index. Undo detaches it rather
+    /// than disposing it, so redo (and any pixel steps recorded in it) still find it intact.</summary>
+    private void PushFrameInsertion(Document document, DocumentFrame frame, int previousActive, string name)
+    {
+        int index = document.IndexOfFrame(frame);
+        Canvas.History.Push(new DelegateMemento(name,
+            undo: () =>
+            {
+                document.DetachFrameAt(document.IndexOfFrame(frame));
+                Canvas.SetActiveFrame(Math.Min(previousActive, document.FrameCount - 1));
+            },
+            redo: () => { document.InsertFrame(index, frame); Canvas.SetActiveFrame(index); },
+            approximateBytes: () => document.IndexOfFrame(frame) < 0 ? FrameBytes(frame) : 0,
+            dispose: () => document.ReleaseDetachedFrame(frame)));
     }
 
     private void OnDeleteFrame(object? sender, RoutedEventArgs e)
@@ -216,18 +236,41 @@ public partial class MainView
             return;
         }
         int removed = document.ActiveFrameIndex;
-        document.RemoveFrameAt(removed);
+        // Detached, not disposed: undo puts it back, and earlier steps recorded in this frame
+        // still point at its layers (disposing them here made undoing those steps crash).
+        DocumentFrame frame = document.DetachFrameAt(removed);
         Canvas.SetActiveFrame(document.ActiveFrameIndex);
+        Canvas.History.Push(new DelegateMemento("Delete Frame",
+            undo: () => { document.InsertFrame(removed, frame); Canvas.SetActiveFrame(removed); },
+            redo: () =>
+            {
+                document.DetachFrameAt(document.IndexOfFrame(frame));
+                Canvas.SetActiveFrame(document.ActiveFrameIndex);
+            },
+            approximateBytes: () => document.IndexOfFrame(frame) < 0 ? FrameBytes(frame) : 0,
+            dispose: () => document.ReleaseDetachedFrame(frame)));
         MarkDirty();
         StatusText.Text = $"Deleted frame {removed + 1}";
+    }
+
+    private static long FrameBytes(DocumentFrame frame)
+    {
+        long total = 0;
+        foreach (Layer layer in frame.Layers) total += SurfaceBytes(layer.Surface);
+        return total;
     }
 
     private void OnFrameDurationChanged(object? sender, NumericUpDownValueChangedEventArgs e)
     {
         if (_suppressFrames || Canvas.Document is not { } document || FrameDurationBox.Value is not { } value) return;
         int duration = Math.Clamp((int)value, 10, 600_000);
-        if (document.ActiveFrame.DurationMs == duration) return;
-        document.ActiveFrame.DurationMs = duration;
+        DocumentFrame frame = document.ActiveFrame;
+        int previous = frame.DurationMs;
+        if (previous == duration) return;
+        frame.DurationMs = duration;
+        Canvas.History.Push(new DelegateMemento("Frame Duration",
+            undo: () => { frame.DurationMs = previous; RebuildTimeline(); },
+            redo: () => { frame.DurationMs = duration; RebuildTimeline(); }));
         MarkDirty();
         RebuildTimeline();
     }

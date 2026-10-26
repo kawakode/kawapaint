@@ -64,8 +64,8 @@ public sealed class DelegateMemento : HistoryMemento
     /// value, since which side (undo or redo) currently owns the detached object flips with every
     /// toggle. Typically written as "0 while the document owns it, real bytes while only this
     /// memento does" (e.g. via <c>Document.OwnsLayer</c>, which also sees other frames). Omitted
-    /// for the common case (toggle
-    /// visibility, blend mode, opacity, reorder) where the closures only capture scalars.
+    /// for the common case (toggle visibility, blend mode, opacity, reorder) where the closures
+    /// only capture scalars.
     /// </param>
     /// <param name="dispose">
     /// Frees whatever <paramref name="approximateBytes"/> is reporting, once this step is dropped

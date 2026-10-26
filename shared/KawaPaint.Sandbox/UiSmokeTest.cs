@@ -27,6 +27,9 @@ internal static class UiSmokeTest
         Check("undo during a stroke", UndoStroke);
         Check("layer and frame changes during a stroke", StrokeTargetChanges);
         Check("undo across animation frames", FrameHistory);
+        Check("session follows canvas operations", SessionFollowsDocumentSwaps);
+        Check("project save is atomic", ProjectSaveIsAtomic);
+        Check("unhandled UI exceptions", UnhandledUiException);
         Check("modal shortcuts and focus", ModalInput);
         Check("inline text editing", InlineTextEditing);
         Check("adjustment cancellation", AdjustmentCancellation);
@@ -299,6 +302,75 @@ internal static class UiSmokeTest
         });
     }
 
+    /// <summary>Issue #4: autosave and saving must follow the document a canvas operation
+    /// (crop, resize, flatten...) swaps in, and its undo.</summary>
+    private static void SessionFollowsDocumentSwaps()
+    {
+        WithView(1100, 760, (view, _) =>
+        {
+            var canvas = view.FindControl<SurfaceView>("Canvas")!;
+            var session = Field<DocumentSession>(view, "_session");
+            session.SetGitProjectDirectory("/tmp/kawa-git-link");
+
+            Invoke(view, "ApplyDocumentOp", "Flatten Image", (Func<Document, Document>)DocumentOps.Flatten);
+            Assert(ReferenceEquals(session.Document, canvas.Document), "session kept the pre-flatten document");
+            canvas.Undo();
+            Assert(ReferenceEquals(session.Document, canvas.Document), "session did not follow undo of flatten");
+            canvas.Redo();
+            Assert(ReferenceEquals(session.Document, canvas.Document), "session did not follow redo of flatten");
+
+            Invoke(view, "SetClean", new object?[] { null });
+            Assert(ReferenceEquals(Field<DocumentSession>(view, "_session"), session),
+                "saving after a canvas operation started a new session");
+            Assert(session.GitProjectDirectory == "/tmp/kawa-git-link", "saving dropped the git project link");
+        });
+    }
+
+    /// <summary>Issue #5: a project with a real path is written via temp file + move, never through
+    /// the picker's (already truncated) stream; without one, the stream is only opened once the
+    /// whole project is encoded.</summary>
+    private static void ProjectSaveIsAtomic()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "kawa_save_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        string path = Path.Combine(dir, "project" + DocumentFile.Extension);
+        try
+        {
+            using var document = new Document(16, 16);
+            document.AddLayer().Surface[3, 3] = ColorBgra.Black;
+            var write = typeof(MainView).GetMethod("WriteProjectAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
+
+            File.WriteAllText(path, "previous project");
+            bool streamOpened = false;
+            Func<Task<Stream>> picker = () => { streamOpened = true; return Task.FromResult<Stream>(new MemoryStream()); };
+            Wait((Task)write.Invoke(null, [document, path, picker])!);
+            Assert(!streamOpened, "project save with a real path wrote through the picker stream");
+            using (var loaded = DocumentFile.Load(path))
+                Assert(loaded.Layers[0].Surface[3, 3] == ColorBgra.Black, "saved project does not match the document");
+            Assert(Directory.GetFiles(dir).Length == 1, "save left a temp file behind");
+
+            var browserStream = new MemoryStream();
+            Func<Task<Stream>> browser = () => Task.FromResult<Stream>(browserStream);
+            Wait((Task)write.Invoke(null, [document, null, browser])!);
+            using (var loaded = DocumentFile.Load(new MemoryStream(browserStream.ToArray())))   // closed by the save
+                Assert(loaded.Layers[0].Surface[3, 3] == ColorBgra.Black, "browser-style save is not a valid project");
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    /// <summary>Issue #7: an exception escaping a UI handler is reported, not fatal.</summary>
+    private static void UnhandledUiException()
+    {
+        CrashGuard.Install();
+        WithView(1100, 760, (view, _) =>
+        {
+            Dispatcher.UIThread.Post(() => throw new InvalidOperationException("boom from a handler"));
+            Pump();
+            var status = view.FindControl<TextBlock>("StatusText")!;
+            Assert(status.Text?.Contains("boom from a handler") == true, "unhandled exception was not reported");
+        });
+    }
+
     private static void DialogLayout()
     {
         WithView(320, 240, (view, window) =>
@@ -409,6 +481,16 @@ internal static class UiSmokeTest
     }
 
     private static void Pump() => Dispatcher.UIThread.RunJobs();
+
+    /// <summary>Runs the dispatcher until <paramref name="task"/> finishes: its continuations are
+    /// posted back to this (UI) thread, so blocking on it would deadlock.</summary>
+    private static void Wait(Task task)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (!task.IsCompleted && DateTime.UtcNow < deadline) { Pump(); Thread.Sleep(5); }
+        Assert(task.IsCompleted, "task did not finish");
+        task.GetAwaiter().GetResult();
+    }
     private static Control Overlay(MainView view) => Field<Control>(view, "_canvasDialogOverlay");
     private static T Field<T>(object target, string name) =>
         (T)target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(target)!;

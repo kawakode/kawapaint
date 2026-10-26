@@ -26,8 +26,16 @@ public sealed class SettingsService
     public SettingsService(ISettingsStore store)
     {
         _store = store;
-        Settings = Load(store);
+        Settings = Load(store, out string? backup);
+        CorruptSettingsBackup = backup;
     }
+
+    /// <summary>
+    /// Store key the previous settings file was copied to because it could not be read, or null
+    /// when it loaded fine (or did not exist). The app starts on defaults in that case and will
+    /// overwrite settings.json on the next save, so the original is kept aside for the user.
+    /// </summary>
+    public string? CorruptSettingsBackup { get; }
 
     /// <summary>The shared instance. Heads may set <see cref="SettingsStore.Current"/> first.</summary>
     public static SettingsService Instance { get; } = new(SettingsStore.Current);
@@ -37,17 +45,30 @@ public sealed class SettingsService
     /// <summary>Raised after any successful save, so open views can re-read what changed.</summary>
     public event EventHandler? Changed;
 
-    private static AppSettings Load(ISettingsStore store)
+    private static AppSettings Load(ISettingsStore store, out string? backup)
     {
+        backup = null;
+        string? json = null;
         try
         {
-            if (store.TryRead(Key, out string json))
-            {
-                var loaded = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions);
-                if (loaded is not null) return Migrate(loaded);
-            }
+            if (!store.TryRead(Key, out json)) return new AppSettings();
+            var loaded = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions);
+            if (loaded is not null) return Migrate(loaded);
         }
         catch { /* a corrupt settings file must not stop the app from starting */ }
+
+        // Read but unusable: keep a copy before the first save replaces it with defaults, so a
+        // hand-edit gone wrong (or a bad write) costs the user nothing they can't get back.
+        if (!string.IsNullOrWhiteSpace(json))
+        {
+            string key = $"settings.corrupt-{DateTime.Now:yyyyMMdd-HHmmss}.json";
+            try
+            {
+                store.Write(key, json);
+                if (store.TryRead(key, out _)) backup = key;
+            }
+            catch { /* best-effort, like every other settings write */ }
+        }
         return new AppSettings();
     }
 

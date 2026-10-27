@@ -1341,6 +1341,10 @@ public partial class MainView : UserControl
         Add("view.zoomOutNumpad", "Zoom Out", "View", () => Canvas.ZoomOut(), Ctrl(Key.Subtract));
         Add("view.zoomFit", "Fit to Window", "View", () => Canvas.ZoomToFit(), Ctrl(Key.D0));
         Add("view.zoomActual", "Actual Size", "View", () => Canvas.ZoomActual(), Ctrl(Key.D1));
+        Add("view.pixelGrid", "Toggle Pixel Grid", "View", () => OnTogglePixelGrid(this, empty));
+        Add("view.guides", "Toggle Guides", "View", () => OnToggleGuides(this, empty), Ctrl(Key.OemSemicolon));
+        Add("view.snapGuides", "Toggle Snap to Guides", "View", () => OnToggleSnapGuides(this, empty));
+        Add("view.clearGuides", "Clear Guides", "View", () => OnClearGuides(this, empty));
 
         // Panels
         foreach (var panel in _panels.Panels)
@@ -1629,6 +1633,22 @@ public partial class MainView : UserControl
         var workspace = _settings.Settings.Workspace;
         ApplyRulerUnit(workspace.RulerUnit);
         ApplyRulerVisibility(workspace.ShowRulers);
+        Canvas.ShowPixelGrid = workspace.ShowPixelGrid;
+        Canvas.ShowGuides = workspace.ShowGuides;
+        Canvas.SnapToGuides = workspace.SnapToGuides;
+        SyncGuideMenu();
+        Canvas.GuidesChanged += () =>
+        {
+            // Dragging a guide out of a ruler turns guides back on; keep the setting in step.
+            if (workspace.ShowGuides != Canvas.ShowGuides)
+            {
+                workspace.ShowGuides = Canvas.ShowGuides;
+                _settings.Save();
+            }
+            SyncGuideMenu();
+            HRuler.InvalidateVisual();
+            VRuler.InvalidateVisual();
+        };
 
         Canvas.ViewChanged += () => { HRuler.InvalidateVisual(); VRuler.InvalidateVisual(); };
         Canvas.DocumentChanged += (_, _) => { HRuler.InvalidateVisual(); VRuler.InvalidateVisual(); };
@@ -1678,6 +1698,45 @@ public partial class MainView : UserControl
         _settings.Settings.Workspace.RulerUnit = unit;
         ApplyRulerUnit(unit);
         _settings.Save();
+    }
+
+    private void SyncGuideMenu()
+    {
+        TogglePixelGridItem.IsChecked = Canvas.ShowPixelGrid;
+        ToggleGuidesItem.IsChecked = Canvas.ShowGuides;
+        ToggleSnapGuidesItem.IsChecked = Canvas.SnapToGuides;
+    }
+
+    private void OnTogglePixelGrid(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var workspace = _settings.Settings.Workspace;
+        workspace.ShowPixelGrid = Canvas.ShowPixelGrid = !Canvas.ShowPixelGrid;
+        SyncGuideMenu();
+        _settings.Save();
+        StatusText.Text = Canvas.ShowPixelGrid
+            ? $"Pixel grid on (shows from {SurfaceView.PixelGridMinZoom * 100:0}% zoom)"
+            : "Pixel grid off";
+    }
+
+    private void OnToggleGuides(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Canvas.ShowGuides = !Canvas.ShowGuides;   // GuidesChanged saves the setting and syncs the menu
+        SyncGuideMenu();
+    }
+
+    private void OnToggleSnapGuides(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var workspace = _settings.Settings.Workspace;
+        workspace.SnapToGuides = Canvas.SnapToGuides = !Canvas.SnapToGuides;
+        SyncGuideMenu();
+        _settings.Save();
+    }
+
+    private void OnClearGuides(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        int count = Canvas.Guides.Count;
+        Canvas.ClearGuides();
+        StatusText.Text = count == 0 ? "No guides to clear" : $"Cleared {count} guide{(count == 1 ? "" : "s")}";
     }
 
     private void OnToggleRulers(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

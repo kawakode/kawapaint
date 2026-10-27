@@ -716,6 +716,8 @@ internal static class UiSmokeTest
         });
     }
 
+    private static double Distance(Point a, Point b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
+
     private static void WithInterface(string choice, int width, int height, Action<MainView, Window> test)
     {
         // SettingsService.Instance can be file-backed when another test class created it first,
@@ -832,14 +834,40 @@ internal static class UiSmokeTest
             // The headless dispatcher does not run timers on its own; fire the long-press one.
             Invoke(canvas, "CompleteLongPress");
             Pump();
-            var quick = view.GetVisualDescendants().OfType<Border>().SingleOrDefault(b => b.Name == "QuickMenu");
-            Assert(quick is not null, "a long press did not open the quick menu");
-            var size = quick!.GetVisualDescendants().OfType<Slider>().Single(sl => sl.Name == "QuickSize");
-            Assert(quick.GetVisualDescendants().OfType<Slider>().Any(sl => sl.Name == "QuickHardness"), "the brush's quick menu has no hardness");
+            var quick = view.GetVisualDescendants().OfType<Canvas>().SingleOrDefault(c => c.Name == "QuickMenu");
+            Assert(quick is not null, "a long press did not open the radial menu");
+            Button Radial(string name) => quick!.Children.OfType<Button>().Single(b => b.Name == "Radial" + name);
+            var hub = Radial("Hub");
+            var hubCentre = new Point(Canvas.GetLeft(hub) + hub.Width / 2, Canvas.GetTop(hub) + hub.Width / 2);
+            Assert(Distance(hubCentre, view.TranslatePoint(at, view)!.Value) < 2 && quick.Children.OfType<Button>().Count() >= 6,
+                "the radial menu is not around the finger");
+            foreach (var button in quick.Children.OfType<Button>().Where(b => b != hub))
+            {
+                var c = new Point(Canvas.GetLeft(button) + button.Width / 2, Canvas.GetTop(button) + button.Height / 2);
+                double d = Distance(c, hubCentre);
+                Assert(d >= 79 && c.X >= 0 && c.X <= 412 && c.Y >= 0, $"{button.Name} is not on the ring: {c} at {d:0}");
+            }
+            Assert(quick.Children.OfType<Button>().Any(b => b.Name == "RadialHardness"), "the brush's radial menu has no hardness");
             Screenshot(window, "phone-quick-menu");
+            Radial("Size").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump();
+            var size = quick.GetVisualDescendants().OfType<Slider>().Single(sl => sl.Name == "QuickSize");
             size.Value = 25;
             Pump();
-            Assert(canvas.BrushWidth == 25, "the quick menu's size slider did not set the brush size: " + canvas.BrushWidth);
+            Screenshot(window, "phone-quick-size");
+            Assert(canvas.BrushWidth == 25, "the radial menu's size slider did not set the brush size: " + canvas.BrushWidth);
+            Radial("Color").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump();
+            Screenshot(window, "phone-quick-colors");
+            var swatch = quick.Children.OfType<Button>().First(b => b.Name == "RadialSwatch" && b.Background is Avalonia.Media.SolidColorBrush { Color.R: > 200, Color.G: < 50 });
+            swatch.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump();
+            Assert(!view.IsTouchOverlayOpen && canvas.BrushColor.R > 200 && canvas.BrushColor.G < 50, "picking a colour from the ring did not set it");
+
+            // Near the right edge the ring becomes an arc that opens to the left.
+            var arc = MainView.RingPositions(9, new Point(400, 450), 412, 915);
+            Assert(arc.All(p => p.X <= 412 - 30 && p.X >= 30), "the arc runs off the screen near the edge");
+            Assert(arc.All(p => p.X < 400), "the arc does not open away from the edge");
             canvas.RaiseEvent(new PointerReleasedEventArgs(canvas, finger, window, at, 2,
                 new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased), KeyModifiers.None, MouseButton.Left));
             Pump();

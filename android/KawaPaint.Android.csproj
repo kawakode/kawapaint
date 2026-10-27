@@ -24,6 +24,14 @@
     </AndroidResource>
   </ItemGroup>
 
+  <!-- JPEG XL and JPEG 2000 codec libraries per ABI, built by natives/build-natives.sh (see the
+       android-natives workflow). Packaged into lib/<abi>/ so JxlCodec/Jp2Codec load them by their
+       plain names; when a directory is absent both codecs simply report themselves unavailable. -->
+  <ItemGroup>
+    <AndroidNativeLibrary Include="natives\arm64-v8a\*.so" Abi="arm64-v8a" />
+    <AndroidNativeLibrary Include="natives\x86_64\*.so" Abi="x86_64" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Avalonia.Android" Version="12.1.1" />
     <PackageReference Include="Xamarin.AndroidX.Core.SplashScreen" Version="1.0.1.15" />

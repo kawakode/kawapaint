@@ -1,0 +1,104 @@
+name: Android codec libraries
+
+# Builds libjxl and OpenJPEG for the Android head (android/natives/build-natives.sh), checks that
+# every library only needs system libraries or ones shipped beside it, and packages an APK to prove
+# they land in lib/<abi>/. When a branch changes the build and has no libraries committed yet, the
+# job commits the fresh set back to that branch, so nobody needs a local NDK.
+on:
+  push:
+    paths:
+      - android/natives/build-natives.sh
+      - android/KawaPaint.Android.csproj
+      - .github/workflows/android-natives.yml
+  workflow_dispatch:
+
+concurrency:
+  group: android-natives-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  natives:
+    name: Android codecs
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+
+      - name: Build libraries
+        id: build
+        run: |
+          if [ -f android/natives/arm64-v8a/libjxl.so ]; then
+            echo "committed=true" >> "$GITHUB_OUTPUT"
+            out="$RUNNER_TEMP/natives"     # verify a fresh build, keep the committed set
+          else
+            echo "committed=false" >> "$GITHUB_OUTPUT"
+            out="android/natives"
+          fi
+          android/natives/build-natives.sh "$out"
+          echo "out=$out" >> "$GITHUB_OUTPUT"
+
+      - name: Check dependencies and exports
+        run: |
+          readelf="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          system="libc.so libm.so libdl.so liblog.so"
+          for abi in arm64-v8a x86_64; do
+            dir="${{ steps.build.outputs.out }}/$abi"
+            shipped=$(ls "$dir")
+            for lib in "$dir"/*.so; do
+              for needed in $("$readelf" -d "$lib" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p'); do
+                if ! grep -qx "$needed" <<< "$shipped" && [[ " $system " != *" $needed "* ]]; then
+                  echo "$abi/$(basename "$lib") needs $needed, which is neither shipped nor a system library" >&2
+                  exit 1
+                fi
+              done
+              # 16 KB page alignment (Android 15+): every LOAD segment aligned to 0x4000 or more.
+              if "$readelf" -lW "$lib" | awk '$1 == "LOAD" { print $NF }' | grep -qvE '^0x(4000|8000|10000)$'; then
+                echo "$abi/$(basename "$lib") is not 16 KB aligned" >&2
+                exit 1
+              fi
+            done
+            for symbol in JxlDecoderVersion JxlEncoderCreate JxlDecoderCreate; do
+              "$readelf" --dyn-syms "$dir/libjxl.so" | grep -qw "$symbol" || { echo "libjxl.so lacks $symbol" >&2; exit 1; }
+            done
+            "$readelf" --dyn-syms "$dir/libopenjp2.so" | grep -qw opj_version || { echo "libopenjp2.so lacks opj_version" >&2; exit 1; }
+            ls -l "$dir"
+          done
+
+      - name: Commit libraries to the branch
+        if: steps.build.outputs.committed == 'false' && github.ref != 'refs/heads/master'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add android/natives
+          git commit -m "Add Android JXL/JP2 codec libraries built by CI"
+          git push
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Package the Android app
+        run: |
+          dotnet workload install android
+          dotnet build android/KawaPaint.Android.csproj -c Release -p:AndroidSdkDirectory="$ANDROID_SDK_ROOT"
+
+      - name: Check the APK carries the libraries
+        run: |
+          apk=$(find android/bin/Release -name '*-Signed.apk' | head -n 1)
+          test -n "$apk"
+          listing=$(unzip -l "$apk")
+          for abi in arm64-v8a x86_64; do
+            for path in android/natives/$abi/*.so; do
+              lib=$(basename "$path")
+              grep -q "lib/$abi/$lib" <<< "$listing" || { echo "$apk lacks lib/$abi/$lib" >&2; exit 1; }
+            done
+          done

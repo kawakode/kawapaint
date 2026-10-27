@@ -23,8 +23,9 @@ The remaining entries require hardware, registered API applications, or an expli
 
 - **Physical-device validation:** test pressure/tilt/eraser delivery and feel on a real drawing
   tablet, then repeat the Android input/rotation checks on a physical tablet or foldable.
-- **Optional platform packaging:** build and ship Android ABI packs for JXL/JP2 if those codecs are
-  wanted on mobile. Desktop Windows and Apple Silicon macOS packaging is complete.
+- **Optional platform packaging:** Android ABI packs for JXL/JP2 (arm64-v8a, x86_64) are built in CI
+  by `android/natives/build-natives.sh` (android-natives workflow, 2026-10-27); a physical-device
+  load test is still pending. Desktop Windows and Apple Silicon macOS packaging is complete.
 - **Other external-service integrations (gated):** forge hosting (GitHub/GitLab/Gitea) remains
   deferred. Local git history is complete.
 - **Publishing live validation:** register Tumblr, DeviantArt and Meta applications, approve the

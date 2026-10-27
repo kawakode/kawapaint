@@ -27,6 +27,13 @@ public abstract class HistoryMemento : IDisposable
     /// </summary>
     public virtual long ApproximateBytes => 0;
 
+    /// <summary>
+    /// The canvas rectangle whose pixels undoing or redoing this step can change, so the editor
+    /// recomposites just that. Null means it may change anything - layer structure, several
+    /// layers, or simply unknown - and the whole canvas is redrawn.
+    /// </summary>
+    public virtual (int X, int Y, int Width, int Height)? ChangedArea => null;
+
     public abstract HistoryMemento Undo();
     public virtual void Dispose() { }
 }
@@ -114,11 +121,24 @@ public sealed class TileDeltaMemento : HistoryMemento, ISpillableMemento
     private readonly List<Tile> _tiles;
     private string? _spillPath;
 
+    private readonly (int X, int Y, int Width, int Height) _area;
+
     private TileDeltaMemento(Layer layer, List<Tile> tiles, string name) : base(name)
     {
         _layer = layer;
         _tiles = tiles;
+        int left = int.MaxValue, top = int.MaxValue, right = 0, bottom = 0;
+        foreach (var tile in tiles)
+        {
+            left = Math.Min(left, tile.X);
+            top = Math.Min(top, tile.Y);
+            right = Math.Max(right, tile.X + tile.Width);
+            bottom = Math.Max(bottom, tile.Y + tile.Height);
+        }
+        _area = (left, top, right - left, bottom - top);
     }
+
+    public override (int X, int Y, int Width, int Height)? ChangedArea => _area;
 
     public int TileCount => _tiles.Count;
 
@@ -458,6 +478,13 @@ public sealed class HistoryStack
 
     public long ResidentBytes => _residentBytes;
 
+    /// <summary>
+    /// Union of <see cref="HistoryMemento.ChangedArea"/> over the steps the last Undo, Redo or
+    /// JumpTo crossed; null when any of them could have changed anything.
+    /// </summary>
+    public (int X, int Y, int Width, int Height)? LastChangedArea { get; private set; }
+    private bool _lastAreaUnknown;
+
     /// <summary>Snapshot of the timeline for the History panel, oldest first.</summary>
     public IReadOnlyList<HistoryStep> Steps()
     {
@@ -488,6 +515,7 @@ public sealed class HistoryStack
     public void Undo()
     {
         if (!CanUndo) return;
+        StartChangedArea();
         StepBackward();
         // Undo un-spills whatever step it crosses (see StepBackward), which can pull an
         // arbitrarily long spilled history back into memory one step at a time with nothing ever
@@ -500,6 +528,7 @@ public sealed class HistoryStack
     public void Redo()
     {
         if (!CanRedo) return;
+        StartChangedArea();
         StepForward();
         Trim();   // see Undo()
         Changed?.Invoke(this, EventArgs.Empty);
@@ -514,6 +543,7 @@ public sealed class HistoryStack
         position = Math.Clamp(position, 0, _steps.Count);
         if (position == _position) return;
 
+        StartChangedArea();
         while (_position > position) StepBackward();
         while (_position < position) StepForward();
         Trim();   // see Undo() - one pass at the end, not per step, so a long jump stays O(n)
@@ -531,6 +561,7 @@ public sealed class HistoryStack
     public void TruncateFrom(int index)
     {
         if (index < 0 || index >= _steps.Count) return;
+        StartChangedArea();
 
         if (_position > index)
         {
@@ -566,9 +597,35 @@ public sealed class HistoryStack
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
+    private void StartChangedArea()
+    {
+        LastChangedArea = null;
+        _lastAreaUnknown = false;
+    }
+
+    private void AddChangedArea(HistoryMemento memento)
+    {
+        if (_lastAreaUnknown) return;
+        if (memento.ChangedArea is not { } area)
+        {
+            _lastAreaUnknown = true;
+            LastChangedArea = null;
+            return;
+        }
+        if (LastChangedArea is { } sofar)
+        {
+            int left = Math.Min(sofar.X, area.X), top = Math.Min(sofar.Y, area.Y);
+            int right = Math.Max(sofar.X + sofar.Width, area.X + area.Width);
+            int bottom = Math.Max(sofar.Y + sofar.Height, area.Y + area.Height);
+            area = (left, top, right - left, bottom - top);
+        }
+        LastChangedArea = area;
+    }
+
     private void StepBackward()
     {
         var memento = _steps[_position - 1];
+        AddChangedArea(memento);
         EnterScope?.Invoke(_scopes[_position - 1]);
         long before = GetResidentBytes(memento);
         (memento as ISpillableMemento)?.Restore();
@@ -581,6 +638,7 @@ public sealed class HistoryStack
     private void StepForward()
     {
         var memento = _steps[_position];
+        AddChangedArea(memento);
         EnterScope?.Invoke(_scopes[_position]);
         long before = GetResidentBytes(memento);
         (memento as ISpillableMemento)?.Restore();

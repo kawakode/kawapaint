@@ -318,14 +318,14 @@ public sealed class SurfaceView : Control
     {
         EndPointerGesture();
         History.Undo();
-        AfterHistoryChange();
+        AfterHistoryChange(History.LastChangedArea);
     }
 
     public void Redo()
     {
         EndPointerGesture();
         History.Redo();
-        AfterHistoryChange();
+        AfterHistoryChange(History.LastChangedArea);
     }
 
     /// <summary>Moves the undo caret directly to a position - what clicking a History panel row does.</summary>
@@ -333,7 +333,7 @@ public sealed class SurfaceView : Control
     {
         EndPointerGesture();
         History.JumpTo(position);
-        AfterHistoryChange();
+        AfterHistoryChange(History.LastChangedArea);
     }
 
     /// <summary>
@@ -352,13 +352,18 @@ public sealed class SurfaceView : Control
         AfterHistoryChange();
     }
 
-    private void AfterHistoryChange()
+    private void AfterHistoryChange((int X, int Y, int Width, int Height)? changedArea = null)
     {
         // A structural memento may have added/removed/reordered layers, so re-sync the
         // active layer and the panel in addition to recompositing.
         if (_document is not null && (ActiveLayer is null || _document.IndexOf(ActiveLayer) < 0))
             ActiveLayer = _document.LayerCount > 0 ? _document.Layers[^1] : null;
-        RenderComposite();
+        // A pixel-only step reports the rectangle it touched; recompositing just that keeps undo
+        // of a brush stroke on a large canvas as cheap as the stroke itself.
+        if (changedArea is { } area)
+            RenderComposite(area.X, area.Y, area.Width, area.Height);
+        else
+            RenderComposite();
         InvalidateVisual();
         DocumentChanged?.Invoke(this, EventArgs.Empty);
     }

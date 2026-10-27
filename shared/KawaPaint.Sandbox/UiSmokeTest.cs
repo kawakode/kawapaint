@@ -33,6 +33,7 @@ internal static class UiSmokeTest
         Check("paste growing the canvas", PasteGrowingCanvas);
         Check("layout preset rename", LayoutPresetRename);
         Check("marching ants", MarchingAnts);
+        Check("undo recomposites the changed area", PartialUndoComposite);
         Check("modal shortcuts and focus", ModalInput);
         Check("inline text editing", InlineTextEditing);
         Check("adjustment cancellation", AdjustmentCancellation);
@@ -483,6 +484,45 @@ internal static class UiSmokeTest
             }
             Screenshot(window, "editor-narrow");
         });
+    }
+
+    /// <summary>Undo and redo of a stroke recomposite only its tiles; the result must still match
+    /// a full flatten, layers above and below included.</summary>
+    private static void PartialUndoComposite()
+    {
+        var canvas = new SurfaceView();
+        var document = new Document(300, 200);
+        document.AddLayer().Surface.Clear(ColorBgra.FromBgra(40, 120, 200, 255));
+        Layer painted = document.AddLayer();
+        Layer above = document.AddLayer();
+        above.Surface.ClearRect(0, 0, 300, 100, ColorBgra.FromBgra(0, 200, 0, 120));
+        above.BlendMode = BlendMode.Multiply;
+        canvas.SetDocument(document);
+        canvas.SetActiveLayer(painted);
+        canvas.CurrentTool = new PaintbrushTool();
+        canvas.BrushWidth = 12;
+        canvas.BeginStroke(20, 20, false);
+        canvas.ExtendStroke(260, 170);
+        canvas.EndStroke();
+
+        AssertMatchesFlatten("after the stroke");
+        canvas.Undo();
+        AssertMatchesFlatten("after undo");
+        canvas.Redo();
+        AssertMatchesFlatten("after redo");
+        canvas.History.Clear();
+        document.Dispose();
+
+        void AssertMatchesFlatten(string when)
+        {
+            var composite = Field<Surface>(canvas, "_composite");
+            using Surface expected = document.Flatten();
+            int differing = 0;
+            for (int y = 0; y < expected.Height; y++)
+                for (int x = 0; x < expected.Width; x++)
+                    if (composite[x, y] != expected[x, y]) differing++;
+            Assert(differing == 0, $"{differing} pixels differ from a full flatten {when}");
+        }
     }
 
     /// <summary>The ants are 1px lines on the selection's edge, at any zoom, and they move.</summary>

@@ -91,7 +91,11 @@ public static class Blending
                     ColorBgra src = source[x];
                     int alpha = src.A * layerOpacity / 255;
                     if (alpha == 0) continue;
-                    destination[x] = alpha == 255 ? src : CompositeNormal(destination[x], src, alpha);
+                    if (alpha == 255) { destination[x] = src; continue; }
+                    ColorBgra backdrop = destination[x];
+                    destination[x] = backdrop.A == 255
+                        ? OverOpaque(backdrop, src.B, src.G, src.R, alpha)
+                        : CompositeNormal(backdrop, src, alpha);
                 }
                 break;
             case BlendMode.Multiply: CompositeSpan<MultiplyBlend>(destination, source, count, layerOpacity); break;
@@ -120,6 +124,13 @@ public static class Blending
             if (effectiveAlpha == 0) continue;
 
             ColorBgra dst = destination[x];
+            if (dst.A == 255)
+            {
+                destination[x] = OverOpaque(dst, T.Apply(dst.B, src.B), T.Apply(dst.G, src.G),
+                    T.Apply(dst.R, src.R), effectiveAlpha);
+                continue;
+            }
+
             double sourceAlpha = effectiveAlpha / 255.0;
             double backdropAlpha = dst.A / 255.0;
             double outputAlpha = sourceAlpha + backdropAlpha * (1 - sourceAlpha);
@@ -138,6 +149,23 @@ public static class Blending
             destination[x] = ColorBgra.FromBgra(Mix(src.B, dst.B), Mix(src.G, dst.G),
                 Mix(src.R, dst.R), (byte)(outputAlpha * 255 + 0.5));
         }
+    }
+
+    /// <summary>
+    /// The SVG formulas above over a fully opaque backdrop, which is most pixels of most documents.
+    /// With backdrop alpha 1 they reduce to a straight lerp, Co = as*B + (1-as)*Cb, and the output
+    /// stays opaque. In integers, round(n/255) is (n + 127)/255: n/255 can never land exactly on a
+    /// half, so this matches the floating-point path bit for bit - unlike the general case below,
+    /// where the backdrop's own alpha brings in values that can.
+    /// </summary>
+    private static ColorBgra OverOpaque(ColorBgra backdrop, int b, int g, int r, int alpha)
+    {
+        int inverse = 255 - alpha;
+        return ColorBgra.FromBgra(
+            (byte)((b * alpha + backdrop.B * inverse + 127) / 255),
+            (byte)((g * alpha + backdrop.G * inverse + 127) / 255),
+            (byte)((r * alpha + backdrop.R * inverse + 127) / 255),
+            255);
     }
 
     /// <summary>Specialized source-over path for the overwhelmingly common Normal blend mode. It

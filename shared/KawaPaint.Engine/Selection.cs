@@ -132,6 +132,16 @@ public sealed class Selection
         _boundsValid = false;
     }
 
+    /// <summary>Overwrites the whole mask, e.g. when undo puts back an earlier selection.</summary>
+    public void Restore(ReadOnlySpan<byte> mask, bool active)
+    {
+        if (mask.Length != _mask.Length)
+            throw new ArgumentException("Mask must match this selection's dimensions.", nameof(mask));
+        mask.CopyTo(_mask);
+        IsActive = active;
+        _boundsValid = false;
+    }
+
     public void CopyFrom(Selection other)
     {
         if (other.Width != Width || other.Height != Height)

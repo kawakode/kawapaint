@@ -612,7 +612,13 @@ public sealed class HistoryStack
             LastChangedArea = null;
             return;
         }
-        if (LastChangedArea is { } sofar)
+        // An empty area (a selection-only step) changes no pixels and must not stretch the union.
+        if (area.Width == 0 || area.Height == 0)
+        {
+            LastChangedArea ??= (0, 0, 0, 0);
+            return;
+        }
+        if (LastChangedArea is { } sofar && sofar.Width > 0 && sofar.Height > 0)
         {
             int left = Math.Min(sofar.X, area.X), top = Math.Min(sofar.Y, area.Y);
             int right = Math.Max(sofar.X + sofar.Width, area.X + area.Width);

@@ -39,6 +39,7 @@ internal static class UiSmokeTest
         Check("batch overwrite keeps the original on failure", BatchOverwriteFailure);
         Check("batch progress cancel and size memory warning", BatchProgressAndMemory);
         Check("resize by percentage and keep proportions", ResizeProportions);
+        Check("selection changes are undoable", UndoableSelection);
         Check("modal shortcuts and focus", ModalInput);
         Check("inline text editing", InlineTextEditing);
         Check("adjustment cancellation", AdjustmentCancellation);
@@ -579,6 +580,58 @@ internal static class UiSmokeTest
 
     /// <summary>Issue #26: a batch result that cannot be encoded must leave the file it was going to
     /// overwrite exactly as it was, and a successful one must replace it completely.</summary>
+    private static void UndoableSelection()
+    {
+        var canvas = new SurfaceView();
+        var document = new Document(100, 80);
+        Layer layer = document.AddLayer();
+        layer.Surface.ClearRect(10, 10, 20, 20, ColorBgra.FromBgra(0, 0, 255, 255));
+        canvas.SetDocument(document);
+        canvas.SetActiveLayer(layer);
+        Selection Sel() => canvas.Selection!;
+
+        canvas.CurrentTool = new RectSelectTool();
+        canvas.BeginStroke(10, 10, false);
+        canvas.ExtendStroke(30, 30);
+        canvas.EndStroke();
+        Assert(Sel().IsActive && Sel().IsSelected(15, 15) && !Sel().IsSelected(50, 50), "rectangle selection not made");
+        int afterSelect = canvas.History.Count;
+
+        canvas.ChangeSelection("Invert Selection", () => Sel().Invert());
+        Assert(Sel().IsSelected(50, 50) && !Sel().IsSelected(15, 15), "invert did not apply");
+        canvas.Undo();
+        Assert(Sel().IsSelected(15, 15) && !Sel().IsSelected(50, 50), "undo did not restore the rectangle");
+        canvas.Undo();
+        Assert(!Sel().IsActive, "undo did not clear the first selection");
+        canvas.Redo();
+        Assert(Sel().IsSelected(15, 15) && !Sel().IsSelected(50, 50), "redo did not bring the rectangle back");
+        canvas.Redo();
+        Assert(Sel().IsSelected(50, 50), "redo did not re-invert");
+        canvas.Undo();
+
+        // Moving selected pixels changes pixels and outline: one step undoes both.
+        canvas.CurrentTool = new MoveTool();
+        canvas.BeginStroke(15, 15, false);
+        canvas.ExtendStroke(55, 45);
+        canvas.EndStroke();
+        Assert(canvas.History.Count == afterSelect + 1, $"the move made {canvas.History.Count - afterSelect} steps, expected 1");
+        Assert(Sel().IsSelected(55, 45) && layer.Surface[55, 45].A == 255, "the move did not carry pixels and outline");
+        canvas.Undo();
+        Assert(Sel().IsSelected(15, 15) && !Sel().IsSelected(55, 45) && layer.Surface[15, 15].A == 255
+               && layer.Surface[55, 45].A == 0, "one undo did not put back both pixels and outline");
+
+        // A brush stroke inside the selection leaves the selection out of its step.
+        canvas.CurrentTool = new PaintbrushTool();
+        canvas.BeginStroke(12, 12, false);
+        canvas.ExtendStroke(28, 28);
+        canvas.EndStroke();
+        Assert(canvas.History.NextUndoName == "Paintbrush", $"stroke step is '{canvas.History.NextUndoName}'");
+        canvas.Undo();
+        Assert(Sel().IsSelected(15, 15), "undoing a stroke changed the selection");
+        canvas.History.Clear();
+        document.Dispose();
+    }
+
     private static void ResizeProportions()
     {
         var dialog = new ResizeDialog(400, 200);

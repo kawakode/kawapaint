@@ -93,6 +93,7 @@ public sealed class SurfaceView : Control
     public const int CursorGone = int.MinValue;
 
     private Surface? _preStroke;
+    private SelectionSnapshot? _preSelection;   // selection when the gesture began, for its undo step
 
     // The layers under the one being painted, flattened once per gesture: tools that recomposite
     // the whole canvas on every move (Move, full-canvas shape previews) then only blend the
@@ -674,11 +675,10 @@ public sealed class SurfaceView : Control
     public bool ClosePenPath()
     {
         if (CurrentTool is not PenTool pen || Selection is null) return false;
-        if (!pen.ApplyAsSelection(Selection, SelectionCombineMode, Antialias)) return false;
-
-        NotifySelectionChanged();
+        bool closed = false;
+        ChangeSelection(pen.Name, () => closed = pen.ApplyAsSelection(Selection, SelectionCombineMode, Antialias));
         InvalidateVisual();
-        return true;
+        return closed;
     }
 
     /// <summary>Throws away the pen's unfinished outline. False when there was none.</summary>
@@ -971,6 +971,7 @@ public sealed class SurfaceView : Control
 
         _preStroke?.Dispose();
         _preStroke = layer.Surface.Clone();
+        _preSelection = Selection is not null ? SelectionSnapshot.Capture(Selection) : null;
 
         {
             _toolCtx = new ToolContext
@@ -1137,22 +1138,40 @@ public sealed class SurfaceView : Control
     /// Turns the pre-stroke snapshot and the layer's current state into one undo step. Push
     /// ignores a null delta, so a gesture that ended up changing nothing leaves no step behind.
     /// </summary>
-    private void CommitPendingHistory()
+    private void CommitPendingHistory(string toolName)
     {
-        if (_pendingHistoryLayer is null || _preStroke is null) return;
-
-        var layer = _pendingHistoryLayer;
-        _pendingHistoryLayer = null;
-
-        // A tool that resized the layer (none do today) would invalidate the tile comparison, so
-        // fall back to the whole-surface snapshot rather than throwing.
-        if (layer.Surface.Width != _preStroke.Width || layer.Surface.Height != _preStroke.Height)
+        HistoryMemento? pixels = null;
+        if (_pendingHistoryLayer is { } layer && _preStroke is not null)
         {
-            History.Push(LayerSurfaceMemento.FromSnapshot(layer, _preStroke.Clone(), _pendingHistoryName));
-            return;
+            _pendingHistoryLayer = null;
+            // A tool that resized the layer (none do today) would invalidate the tile comparison,
+            // so fall back to the whole-surface snapshot rather than throwing.
+            pixels = layer.Surface.Width != _preStroke.Width || layer.Surface.Height != _preStroke.Height
+                ? LayerSurfaceMemento.FromSnapshot(layer, _preStroke.Clone(), _pendingHistoryName)
+                : TileDeltaMemento.Create(layer, _preStroke, _pendingHistoryName);
         }
 
-        History.Push(TileDeltaMemento.Create(layer, _preStroke, _pendingHistoryName));
+        // A select tool, the magic wand, the pen or a move of selected pixels also changes the
+        // selection; that goes in the same step, so one undo puts back both pixels and outline.
+        HistoryMemento? selection = _preSelection is { } before
+            ? SelectionMemento.Create(pixels?.Name ?? toolName, before, () => Selection, NotifySelectionChanged)
+            : null;
+        _preSelection = null;
+        History.Push(CompositeMemento.Combine(pixels?.Name ?? toolName, pixels, selection));
+    }
+
+    /// <summary>
+    /// Runs a command that changes the selection (Select All, Invert, closing a pen path…) and
+    /// records it as one undo step named <paramref name="name"/>.
+    /// </summary>
+    public void ChangeSelection(string name, Action change)
+    {
+        if (Selection is null) return;
+        EndPointerGesture();
+        var before = SelectionSnapshot.Capture(Selection);
+        change();
+        History.Push(SelectionMemento.Create(name, before, () => Selection, NotifySelectionChanged));
+        NotifySelectionChanged();
     }
 
     /// <summary>
@@ -1165,9 +1184,10 @@ public sealed class SurfaceView : Control
         if (_drawing)
         {
             if (_toolCtx is not null) _gestureTool?.PointerUp(_toolCtx);
+            string toolName = _gestureTool?.Name ?? "Selection";
             _toolCtx = null;
             _gestureTool = null;
-            CommitPendingHistory();
+            CommitPendingHistory(toolName);
             _preStroke?.Dispose();
             _preStroke = null;
             _gestureBackdrop?.Dispose();

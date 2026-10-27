@@ -886,24 +886,21 @@ public partial class MainView : UserControl
     private void OnSelectNone(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         RecordAction("select.none");
-        Canvas.Selection?.SelectNone();
-        Canvas.NotifySelectionChanged();
+        Canvas.ChangeSelection("Deselect", () => Canvas.Selection?.SelectNone());
         StatusText.Text = "Selection cleared";
     }
 
     private void OnSelectAll(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         RecordAction("select.all");
-        Canvas.Selection?.SelectAll();
-        Canvas.NotifySelectionChanged();
+        Canvas.ChangeSelection("Select All", () => Canvas.Selection?.SelectAll());
         StatusText.Text = "Selected all";
     }
 
     private void OnInvertSelection(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         RecordAction("select.invert");
-        Canvas.Selection?.Invert();
-        Canvas.NotifySelectionChanged();
+        Canvas.ChangeSelection("Invert Selection", () => Canvas.Selection?.Invert());
         StatusText.Text = "Selection inverted";
     }
 

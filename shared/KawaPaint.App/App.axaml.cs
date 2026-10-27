@@ -16,6 +16,8 @@ public partial class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+        CrashGuard.Install();
+
         // Whatever is still in the undo spill cache belongs to a previous run whose history died
         // with it, so it is pure waste on disk.
         Core.AppPaths.ClearHistoryCache();

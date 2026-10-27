@@ -223,9 +223,22 @@ public partial class MainView : UserControl
 
         _configGit = OperatingSystem.IsAndroid() ? null : new ConfigGitTracker(_settings);
 
+        if (_settings.CorruptSettingsBackup is { } backup)
+            StatusText.Text = $"Settings could not be read and were reset; the old file was kept as {backup}";
+
+        // Subscribed only while attached: the event is static, and a detached view must not be
+        // kept alive by it.
+        AttachedToVisualTree += (_, _) => CrashGuard.Reported += OnUnhandledError;
+        DetachedFromVisualTree += (_, _) => CrashGuard.Reported -= OnUnhandledError;
+
         // Deferred: on desktop this needs a Window to own the dialog, which is only available
         // once this view is attached (OwnerWindow is null during the constructor).
         Loaded += OnFirstLoadedCheckRecovery;
+    }
+
+    private void OnUnhandledError(Exception exception)
+    {
+        StatusText.Text = $"Unexpected error: {exception.Message}. Your document is still open; save it before continuing.";
     }
 
     private async void OnFirstLoadedCheckRecovery(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -610,9 +623,17 @@ public partial class MainView : UserControl
 
         try
         {
-            await using (var stream = await file.OpenWriteAsync())
-                DocumentFile.Save(Canvas.Document, stream);
+            // Saved from a copy on a worker thread, so a large project doesn't freeze the UI and
+            // edits made meanwhile can't tear the file. Edits made meanwhile are not in it, so the
+            // document stays dirty if any happened.
+            Document saving = Canvas.Document;
+            long editsBefore = _session?.EditCount ?? 0;
+            using (Document snapshot = saving.Clone())
+                await WriteProjectAsync(snapshot, LocalPathOf(file), file.OpenWriteAsync);
+            bool editedWhileSaving = !ReferenceEquals(Canvas.Document, saving)
+                || (_session?.EditCount ?? 0) != editsBefore;
             SetClean(file);
+            if (editedWhileSaving) MarkDirty();
             StatusText.Text = "Saved project " + file.Name;
             CommitGitProject(autosave: false);
             return true;
@@ -622,6 +643,31 @@ public partial class MainView : UserControl
             StatusText.Text = "Save project failed: " + ex.Message;
             return false;
         }
+    }
+
+    /// <summary>
+    /// Writes a project without ever leaving a half-written file behind. With a real path that is
+    /// a temp file + move; otherwise (browser) the project is encoded fully in memory first, so
+    /// the picker's stream - which starts out truncated - is only touched once there is a whole
+    /// file to put in it. Encoding runs on a worker thread either way.
+    /// </summary>
+    private static async Task WriteProjectAsync(Document document, string? localPath, Func<Task<Stream>> openWrite)
+    {
+        if (localPath is not null)
+        {
+            await Task.Run(() => DocumentFile.Save(document, localPath));
+            return;
+        }
+
+        byte[] bytes = await Task.Run(() =>
+        {
+            using var buffer = new MemoryStream();
+            DocumentFile.Save(document, buffer);
+            return buffer.ToArray();
+        });
+        await using var stream = await openWrite();
+        stream.SetLength(0);
+        await stream.WriteAsync(bytes);
     }
 
     private async void OnSaveAs(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -707,9 +753,22 @@ public partial class MainView : UserControl
         var doc = Canvas.Document;
         if (doc is null) return;
 
-        var replaced = Canvas.ReplaceDocument(transform(doc));
+        var replaced = SwapDocument(transform(doc));
         if (replaced is null) return;
-        Canvas.History.Push(new DocumentSwapMemento(name, replaced, d => Canvas.ReplaceDocument(d)));
+        Canvas.History.Push(new DocumentSwapMemento(name, replaced, SwapDocument));
+    }
+
+    /// <summary>
+    /// Installs a document produced by a canvas operation (or brought back by undoing one) and
+    /// moves the session onto it. Without that, autosave kept snapshotting the displaced document
+    /// - with "write to original file" on, that overwrote the user's file with the old image -
+    /// and the next save started a fresh session, dropping its git project link.
+    /// </summary>
+    private Document? SwapDocument(Document document)
+    {
+        var old = Canvas.ReplaceDocument(document);
+        if (_session is not null && ReferenceEquals(_session.Document, old)) _session.Replace(document);
+        return old;
     }
 
     private async void OnResize(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

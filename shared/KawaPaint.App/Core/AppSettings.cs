@@ -116,8 +116,14 @@ public sealed class DrawingSettings
     /// <summary>Use an inverted stylus or eraser tip as Eraser without changing the selected tool.</summary>
     public bool PenEraserEnabled { get; set; } = true;
 
-    /// <summary>Reserve touch for panning and pinch zoom; pen and mouse remain drawing inputs.</summary>
+    /// <summary>Two-finger pan and pinch zoom; also one-finger pan when touch does not draw.</summary>
     public bool TouchNavigationEnabled { get; set; } = true;
+
+    /// <summary>
+    /// One finger draws with the current tool. On by default on phones and tablets, where touch is
+    /// the main input; off on desktops, where touch usually sits beside a pen that does the drawing.
+    /// </summary>
+    public bool TouchDrawingEnabled { get; set; } = OperatingSystem.IsAndroid() || OperatingSystem.IsIOS();
 }
 
 public sealed class AutosaveSettings

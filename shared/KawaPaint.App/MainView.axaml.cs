@@ -1424,6 +1424,7 @@ public partial class MainView : UserControl
         Canvas.EraserPressure = drawing.EraserPressure;
         Canvas.PenEraserEnabled = drawing.PenEraserEnabled;
         Canvas.TouchNavigationEnabled = drawing.TouchNavigationEnabled;
+        Canvas.TouchDrawingEnabled = drawing.TouchDrawingEnabled;
     }
 
     // ---- modular panel layout --------------------------------------------

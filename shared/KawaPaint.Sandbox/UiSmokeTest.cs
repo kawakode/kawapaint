@@ -1,4 +1,5 @@
 using System.Reflection;
+using Pointer = Avalonia.Input.Pointer;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -44,6 +45,7 @@ internal static class UiSmokeTest
         Check("grow, shrink and feather selection", SelectionModify);
         Check("guides from rulers, snapping and pixel grid", RulerGuides);
         Check("painting on a 3D model", TexturePaintPanel);
+        Check("one-finger drawing and two-finger zoom", TouchDrawing);
         Check("modal shortcuts and focus", ModalInput);
         Check("inline text editing", InlineTextEditing);
         Check("adjustment cancellation", AdjustmentCancellation);
@@ -641,6 +643,73 @@ internal static class UiSmokeTest
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Pump();
             Assert(doc.LayerCount == 2 && doc.Layers[1].Name == "UV Layout", "UV layout layer was not added");
+        });
+    }
+
+    private static void TouchDrawing()
+    {
+        WithView(900, 700, (view, window) =>
+        {
+            var canvas = view.FindControl<SurfaceView>("Canvas")!;
+            var doc = new Document(400, 300);
+            doc.AddLayer();
+            canvas.SetDocument(doc);
+            Pump();
+            canvas.ZoomToFit();
+            canvas.ZoomActual();
+            canvas.TouchDrawingEnabled = true;
+            canvas.TouchNavigationEnabled = true;
+            Invoke(view, "SelectTool", "Pencil");
+            Pump();
+            Surface pixels = doc.Layers[0].Surface;
+            ulong time = 1000;
+            Point At(double x, double y) => canvas.TranslatePoint(canvas.Origin + new Vector(x, y) * canvas.Zoom, window)!.Value;
+            var props = new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed);
+            void Down(Pointer finger, Point p) =>
+                canvas.RaiseEvent(new PointerPressedEventArgs(canvas, finger, window, p, time += 10, props, KeyModifiers.None));
+            void Move(Pointer finger, Point p) =>
+                canvas.RaiseEvent(new PointerEventArgs(InputElement.PointerMovedEvent, canvas, finger, window, p, time += 50, props, KeyModifiers.None));
+            void Up(Pointer finger, Point p) =>
+                canvas.RaiseEvent(new PointerReleasedEventArgs(canvas, finger, window, p, time += 10,
+                    new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased),
+                    KeyModifiers.None, MouseButton.Left));
+
+            // One finger drags a line, starting where it first touched, as one undo step.
+            int before = canvas.History.Count;
+            var finger = new Pointer(Pointer.GetNextFreeId(), PointerType.Touch, true);
+            Down(finger, At(20, 20));
+            Move(finger, At(40, 20));
+            Move(finger, At(60, 20));
+            Up(finger, At(60, 20));
+            Pump();
+            Assert(pixels[20, 20].A > 0 && pixels[40, 20].A > 0 && pixels[60, 20].A > 0, "the finger stroke did not draw");
+            Assert(canvas.History.Count == before + 1, $"the finger stroke made {canvas.History.Count - before} steps");
+
+            // A tap draws a dot.
+            var tap = new Pointer(Pointer.GetNextFreeId(), PointerType.Touch, true);
+            Down(tap, At(30, 80));
+            Up(tap, At(30, 80));
+            Pump();
+            Assert(pixels[30, 80].A > 0, "a tap did not draw");
+
+            // Two fingers zoom and leave the pixels alone, even though the first moved before the second landed.
+            double zoom = canvas.Zoom;
+            var a = new Pointer(Pointer.GetNextFreeId(), PointerType.Touch, true);
+            var b = new Pointer(Pointer.GetNextFreeId(), PointerType.Touch, false);
+            Down(a, At(150, 150));
+            time -= 45;   // the second finger follows within a few milliseconds
+            Move(a, At(152, 150));
+            Down(b, At(200, 150));
+            Move(b, At(250, 150));
+            Up(a, At(152, 150));
+            Up(b, At(250, 150));
+            Pump();
+            Assert(canvas.Zoom > zoom * 1.3, $"pinch did not zoom: {zoom} -> {canvas.Zoom}");
+            bool untouched = true;
+            for (int y = 140; y < 160; y++)
+                for (int x = 140; x < 260; x++)
+                    untouched &= pixels[x, y].A == 0;
+            Assert(untouched, "the pinch drew on the canvas");
         });
     }
 

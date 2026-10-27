@@ -27,7 +27,7 @@ public sealed class CanvasSizeDialog : Window
     public int ResultHeight => (int)(_height.Value ?? 1);
     public CanvasAnchor ResultAnchor => AnchorOrder[_anchorIndex];
 
-    public CanvasSizeDialog(int currentWidth, int currentHeight)
+    public CanvasSizeDialog(int currentWidth, int currentHeight, int layerCount = 1)
     {
         Title = "Canvas Size";
         Width = 340;
@@ -88,11 +88,13 @@ public sealed class CanvasSizeDialog : Window
         };
         buttons.Children.Add(cancel);
         buttons.Children.Add(ok);
+        var memory = new ImageMemoryNote(_width, _height, ok, layerCount, currentWidth, currentHeight);
+        memory.Text.Margin = new Thickness(0, 8, 0, 0);
 
         Content = new StackPanel
         {
             Margin = new Thickness(16),
-            Children = { sizeGrid, anchorLabel, anchorGrid, buttons }
+            Children = { sizeGrid, memory.Text, anchorLabel, anchorGrid, buttons }
         };
     }
 

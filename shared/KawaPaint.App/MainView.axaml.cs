@@ -792,7 +792,7 @@ public partial class MainView : UserControl
             StatusText.Text = $"Resized to {browserWidth}×{browserHeight}";
             return;
         }
-        var dlg = new ResizeDialog(doc.Width, doc.Height);
+        var dlg = new ResizeDialog(doc.Width, doc.Height, doc.LayerCount);
         if (await dlg.ShowDialog<bool>(owner))
         {
             int w = dlg.ResultWidth, h = dlg.ResultHeight;
@@ -817,7 +817,7 @@ public partial class MainView : UserControl
             StatusText.Text = $"Canvas resized to {values.Width}×{values.Height}";
             return;
         }
-        var dlg = new CanvasSizeDialog(doc.Width, doc.Height);
+        var dlg = new CanvasSizeDialog(doc.Width, doc.Height, doc.LayerCount);
         if (await dlg.ShowDialog<bool>(owner))
         {
             int w = dlg.ResultWidth, h = dlg.ResultHeight;

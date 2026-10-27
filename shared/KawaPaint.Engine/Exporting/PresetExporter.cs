@@ -42,8 +42,11 @@ public static class PresetExporter
             outputFolderOverride, scriptBaseDirectory);
     }
 
+    /// <param name="claimedFileNames">When given, the final file name must not be in it yet and is
+    /// added to it, so a run of exports can refuse to overwrite its own earlier output.</param>
     public static PresetExportResult ExportFile(Document source, string sourceName, string presetName,
-        ExportPreset preset, string? outputFolderOverride = null, string? scriptBaseDirectory = null)
+        ExportPreset preset, string? outputFolderOverride = null, string? scriptBaseDirectory = null,
+        ISet<string>? claimedFileNames = null)
     {
         Validate(preset);
         string folder = outputFolderOverride ?? preset.OutputFolder
@@ -52,6 +55,8 @@ public static class PresetExporter
         Directory.CreateDirectory(folder);
         using Document prepared = Prepare(source, preset, scriptBaseDirectory, out var steps);
         string fileName = GetOutputFileName(sourceName, presetName, preset, prepared.Width, prepared.Height);
+        if (claimedFileNames is not null && !claimedFileNames.Add(fileName))
+            throw new IOException($"The output file name '{fileName}' was already used by an earlier file in this run. Add {{row}} or another unique field to the file name pattern.");
         string outputPath = Path.Combine(folder, fileName);
         string? sidecarPath = string.IsNullOrWhiteSpace(preset.PackageText)
             ? null

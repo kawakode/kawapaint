@@ -14,7 +14,7 @@ public sealed class ResizeDialog : Window
     public int ResultWidth => (int)(_width.Value ?? 1);
     public int ResultHeight => (int)(_height.Value ?? 1);
 
-    public ResizeDialog(int currentWidth, int currentHeight)
+    public ResizeDialog(int currentWidth, int currentHeight, int layerCount = 1)
     {
         Title = "Resize Image";
         Width = 320;
@@ -44,7 +44,9 @@ public sealed class ResizeDialog : Window
         };
         buttons.Children.Add(cancel);
         buttons.Children.Add(ok);
+        var memory = new ImageMemoryNote(_width, _height, ok, layerCount, currentWidth, currentHeight);
+        memory.Text.Margin = new Thickness(0, 8, 0, 0);
 
-        Content = new StackPanel { Margin = new Thickness(16), Children = { grid, buttons } };
+        Content = new StackPanel { Margin = new Thickness(16), Children = { grid, memory.Text, buttons } };
     }
 }

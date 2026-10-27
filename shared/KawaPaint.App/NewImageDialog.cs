@@ -48,6 +48,7 @@ public sealed class NewImageDialog : Window
         buttons.Children.Add(cancel);
         buttons.Children.Add(ok);
 
-        Content = new StackPanel { Margin = new Thickness(16), Spacing = 10, Children = { grid, _transparent, buttons } };
+        var memory = new ImageMemoryNote(_width, _height, ok, layers: 1);
+        Content = new StackPanel { Margin = new Thickness(16), Spacing = 10, Children = { grid, memory.Text, _transparent, buttons } };
     }
 }

@@ -70,6 +70,13 @@ internal static class MailMergeSmokeTest
         Assert(duplicateResults[0].Error is null && duplicateResults[1].Error is not null,
             "duplicate output names were not refused");
 
+        // Different values that only collide once the name is cleaned (folder parts dropped).
+        var cleanedResults = MailMergeRunner.Run(template,
+            CsvData.Parse("Student,Class\nJean/Paul,5B\nMarie/Paul,5B"), "cover.kwp", "Cleaned", preset, dir,
+            "{Student}.{ext}");
+        Assert(cleanedResults[0].Error is null && cleanedResults[1].Error is not null,
+            "names that collide after cleaning were not refused");
+
         bool rejected = false;
         template.DynamicTextZones[0].Template = "{MissingHeader}";
         try { MailMergeRunner.Run(template, data, "cover.kwp", "Bad", preset, dir, "{row}.{ext}"); }

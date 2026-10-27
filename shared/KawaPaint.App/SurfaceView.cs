@@ -46,6 +46,15 @@ public sealed partial class SurfaceView : Control
     private bool _panning;
     private Point _lastPointer;
     private readonly Dictionary<int, Point> _touches = new();
+
+    // One-finger drawing waits before it starts: the first finger of a pinch lands a few
+    // milliseconds before the second, and drawing on it straight away left a stray dab behind
+    // every zoom. The finger becomes a stroke once it has moved far enough for long enough, or
+    // lifts (a tap); a second finger arriving first turns it into navigation instead.
+    private const double TouchDrawSlop = 6;
+    private const ulong TouchDrawDelayMs = 80;
+    private (int Id, Point Start, Point Last, ulong Time)? _pendingTouch;
+    private int? _touchStrokeId;
     private bool _fitPending = true;
 
     private bool _drawing;
@@ -72,6 +81,7 @@ public sealed partial class SurfaceView : Control
     public PressureMapping EraserPressure { get; set; } = PressureMapping.Size;
     public bool PenEraserEnabled { get; set; } = true;
     public bool TouchNavigationEnabled { get; set; } = true;
+    public bool TouchDrawingEnabled { get; set; }
     public SelectionCombineMode SelectionCombineMode { get; set; } = SelectionCombineMode.Replace;
 
     public ITool CurrentTool { get; set; } = new PencilTool();
@@ -919,7 +929,24 @@ public sealed partial class SurfaceView : Control
 
         if (e.Pointer.Type == PointerType.Touch)
         {
-            if (TouchNavigationEnabled && !(_drawing && _toolCtx?.PointerKind == ToolPointerKind.Pen))
+            // A pen or finger stroke in progress owns the canvas; extra fingers are palms.
+            if (_drawing && (_toolCtx?.PointerKind == ToolPointerKind.Pen || _touchStrokeId is not null))
+                return;
+
+            if (TouchDrawingEnabled && _touches.Count == 0 && _pendingTouch is null && !_drawing && !_panning)
+            {
+                _pendingTouch = (e.Pointer.Id, pt.Position, pt.Position, e.Timestamp);
+                e.Pointer.Capture(this);
+                e.Handled = true;
+                return;
+            }
+
+            if (_pendingTouch is { } pending)
+            {
+                _pendingTouch = null;
+                if (TouchNavigationEnabled) _touches[pending.Id] = pending.Last;
+            }
+            if (TouchNavigationEnabled)
             {
                 _touches[e.Pointer.Id] = pt.Position;
                 e.Pointer.Capture(this);
@@ -1108,7 +1135,24 @@ public sealed partial class SurfaceView : Control
 
         if (e.Pointer.Type == PointerType.Touch)
         {
-            if (_touches.ContainsKey(e.Pointer.Id))
+            if (_pendingTouch is { } pending && pending.Id == e.Pointer.Id)
+            {
+                _pendingTouch = pending with { Last = p };
+                Vector moved = p - pending.Start;
+                if (Math.Sqrt(moved.X * moved.X + moved.Y * moved.Y) >= TouchDrawSlop
+                    && e.Timestamp - pending.Time >= TouchDrawDelayMs)
+                {
+                    StartTouchStroke(e);
+                    ExtendTouchStroke(e);
+                }
+                e.Handled = true;
+            }
+            else if (_touchStrokeId == e.Pointer.Id)
+            {
+                ExtendTouchStroke(e);
+                e.Handled = true;
+            }
+            else if (_touches.ContainsKey(e.Pointer.Id))
             {
                 UpdateTouch(e.Pointer.Id, p);
                 e.Handled = true;
@@ -1242,6 +1286,20 @@ public sealed partial class SurfaceView : Control
         if (SuppressPointerInput) return;
         if (e.Pointer.Type == PointerType.Touch)
         {
+            if (_pendingTouch is { } pending && pending.Id == e.Pointer.Id)
+            {
+                // A tap: a dab for the brushes, a fill for the bucket, a pick for the picker.
+                StartTouchStroke(e);
+                ExtendTouchStroke(e);
+            }
+            if (_touchStrokeId == e.Pointer.Id)
+            {
+                _touchStrokeId = null;
+                bool wasStroke = _drawing;
+                FinishGesture();
+                if (wasStroke) StrokeEnded?.Invoke();
+                _capturedPointer = null;
+            }
             _touches.Remove(e.Pointer.Id);
             e.Pointer.Capture(null);
             e.Handled = true;
@@ -1272,16 +1330,42 @@ public sealed partial class SurfaceView : Control
     {
         base.OnPointerCaptureLost(e);
         if (SuppressPointerInput) return;   // a replay's gesture is not the pointer's to lose
+        _pendingTouch = null;
         if (_touches.Count > 0)
         {
             _touches.Clear();
             return;
         }
+        _touchStrokeId = null;
         FinishGuideDrag();   // leave a guide in flight where it last was
         bool wasDrawing = _drawing;
         _capturedPointer = null;
         FinishGesture();
         if (wasDrawing) StrokeEnded?.Invoke();
+    }
+
+    /// <summary>Turns the waiting finger into a stroke that starts where it first touched down.</summary>
+    private void StartTouchStroke(PointerEventArgs e)
+    {
+        if (_pendingTouch is not { } pending) return;
+        _pendingTouch = null;
+        Point img = SnapToGuide(ControlToImage(pending.Start));
+        var start = new ToolPointerSample(img.X, img.Y, Kind: ToolPointerKind.Touch);
+        _capturedPointer = e.Pointer;
+        if (BeginStroke(start, ctrl: false) && _drawing)
+        {
+            _touchStrokeId = pending.Id;
+            StrokeBegan?.Invoke(start, false);
+        }
+    }
+
+    private void ExtendTouchStroke(PointerEventArgs e)
+    {
+        if (_touchStrokeId != e.Pointer.Id || !_drawing) return;
+        var pt = e.GetCurrentPoint(this);
+        ToolPointerSample sample = PointerSample(pt, SnapToGuide(ControlToImage(pt.Position)));
+        ExtendStroke(sample);
+        StrokeExtended?.Invoke(sample);
     }
 
     private static ToolPointerSample PointerSample(PointerPoint point, Point image)

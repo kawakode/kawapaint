@@ -17,7 +17,13 @@ public enum PanelPlace
     Top,
     Bottom,
     Floating,
-    Hidden
+    Hidden,
+
+    /// <summary>
+    /// The phone interface's bottom sheet: full width, anchored to the bottom edge over the
+    /// canvas, one at a time. Not draggable - a phone has no room to arrange windows.
+    /// </summary>
+    Sheet
 }
 
 /// <summary>Where one panel sits, plus enough memory to put it back when it is hidden or docked.</summary>

@@ -42,7 +42,8 @@ public sealed class SettingsDialog : Window
     private readonly ComboBox _paintbrushPressure = PressureCombo();
     private readonly ComboBox _eraserPressure = PressureCombo();
     private readonly CheckBox _penEraser = new() { Content = "Use the pen eraser tip as Eraser" };
-    private readonly CheckBox _touchNavigation = new() { Content = "Use touch for pan and pinch zoom (pen/mouse draw)" };
+    private readonly CheckBox _touchNavigation = new() { Content = "Use touch for pan and pinch zoom" };
+    private readonly CheckBox _touchDrawing = new() { Content = "Draw with one finger" };
 
     // Git
     private readonly CheckBox _gitEnabled = new() { Content = "Keep local git history" };
@@ -158,8 +159,10 @@ public sealed class SettingsDialog : Window
             Row("Eraser", _eraserPressure),
             _penEraser,
             _touchNavigation,
-            Note("Pressure is read per pointer sample. Touch navigation also provides one-finger pan " +
-                 "and two-finger pan/pinch while rejecting touch input during a pen stroke."));
+            _touchDrawing,
+            Note("Pressure is read per pointer sample. Touch navigation pans and pinch-zooms with two " +
+                 "fingers, and with one finger too when one-finger drawing is off. Touch is ignored " +
+                 "during a pen stroke."));
     }
 
     private StackPanel GitPage() => Stack(
@@ -281,6 +284,7 @@ public sealed class SettingsDialog : Window
         _eraserPressure.SelectedIndex = PressureIndex(s.Drawing.EraserPressure);
         _penEraser.IsChecked = s.Drawing.PenEraserEnabled;
         _touchNavigation.IsChecked = s.Drawing.TouchNavigationEnabled;
+        _touchDrawing.IsChecked = s.Drawing.TouchDrawingEnabled;
 
         _gitEnabled.IsChecked = s.Git.Enabled;
         _gitTrackConfig.IsChecked = s.Git.TrackConfiguration;
@@ -315,6 +319,7 @@ public sealed class SettingsDialog : Window
             s.Drawing.EraserPressure = PressureValue(_eraserPressure);
             s.Drawing.PenEraserEnabled = _penEraser.IsChecked ?? true;
             s.Drawing.TouchNavigationEnabled = _touchNavigation.IsChecked ?? true;
+            s.Drawing.TouchDrawingEnabled = _touchDrawing.IsChecked ?? false;
 
             s.Git.Enabled = _gitEnabled.IsChecked ?? false;
             s.Git.TrackConfiguration = _gitTrackConfig.IsChecked ?? true;

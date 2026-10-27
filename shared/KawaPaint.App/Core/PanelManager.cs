@@ -34,6 +34,10 @@ public sealed class PanelManager
 
     private readonly List<PanelDescriptor> _panels = new();
     private readonly Dictionary<string, FloatHost> _hosts = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, SheetHost> _sheets = new(StringComparer.Ordinal);
+
+    /// <summary>Share of the window height a bottom sheet takes; the rest stays canvas.</summary>
+    public const double SheetHeightFraction = 0.55;
 
     public PanelManager(DockPanel rootDock, Panel floatingLayer, Control fill, WorkspaceLayout layout)
     {
@@ -46,7 +50,11 @@ public sealed class PanelManager
         // leave floating panels sitting outside the visible area for good - see ClampToLayer.
         _floatingLayer.PropertyChanged += (_, e) =>
         {
-            if (e.Property == Visual.BoundsProperty) ClampFloatingHosts();
+            if (e.Property == Visual.BoundsProperty)
+            {
+                ClampFloatingHosts();
+                SizeSheets();
+            }
         };
     }
 
@@ -86,6 +94,11 @@ public sealed class PanelManager
     {
         var placement = PlacementOf(id);
         if (place != PanelPlace.Hidden) placement.LastShown = place;
+        // A second sheet would cover the first one completely, so opening one closes the other.
+        if (place == PanelPlace.Sheet)
+            foreach (var other in _panels)
+                if (other.Id != id && Layout.For(other).Place == PanelPlace.Sheet)
+                    Layout.For(other).Place = PanelPlace.Hidden;
         if (place is PanelPlace.Left or PanelPlace.Right or PanelPlace.Top or PanelPlace.Bottom)
             placement.LastDock = place;
         placement.Place = place;
@@ -109,6 +122,7 @@ public sealed class PanelManager
 
     public bool IsVisible(string id) => PlacementOf(id).Place != PanelPlace.Hidden;
     public bool IsFloating(string id) => PlacementOf(id).Place == PanelPlace.Floating;
+    public bool IsSheet(string id) => PlacementOf(id).Place == PanelPlace.Sheet;
 
     // ---- layout ------------------------------------------------------------
 
@@ -119,9 +133,11 @@ public sealed class PanelManager
         {
             _rootDock.Children.Remove(descriptor.Content);
             if (_hosts.TryGetValue(descriptor.Id, out var host)) host.Detach(descriptor.Content);
+            if (_sheets.TryGetValue(descriptor.Id, out var sheet)) sheet.Detach(descriptor.Content);
         }
         _rootDock.Children.Remove(_fill);
         foreach (var host in _hosts.Values) _floatingLayer.Children.Remove(host.Root);
+        foreach (var sheet in _sheets.Values) _floatingLayer.Children.Remove(sheet.Root);
 
         foreach (var descriptor in _panels)
         {
@@ -134,10 +150,11 @@ public sealed class PanelManager
             }
             descriptor.Content.IsVisible = true;
 
-            bool floating = placement.Place == PanelPlace.Floating;
+            bool floating = placement.Place is PanelPlace.Floating or PanelPlace.Sheet;
             foreach (var chrome in descriptor.DockedChrome) chrome.IsVisible = !floating;
 
-            if (floating) PlaceFloating(descriptor, placement);
+            if (placement.Place == PanelPlace.Sheet) PlaceSheet(descriptor);
+            else if (floating) PlaceFloating(descriptor, placement);
             else PlaceDocked(descriptor, placement);
         }
 
@@ -178,6 +195,31 @@ public sealed class PanelManager
         host.Root.Height = placement.FloatHeight;
         host.Root.Margin = ClampToLayer(placement.FloatX, placement.FloatY);
         _floatingLayer.Children.Add(host.Root);
+    }
+
+    private void PlaceSheet(PanelDescriptor descriptor)
+    {
+        descriptor.Content.Width = double.NaN;
+        descriptor.Content.Height = double.NaN;
+
+        if (!_sheets.TryGetValue(descriptor.Id, out var sheet))
+            _sheets[descriptor.Id] = sheet = new SheetHost(this, descriptor);
+        sheet.Attach(descriptor.Content);
+        sheet.Root.Height = SheetHeight();
+        sheet.Root.ZIndex = ++_topZ;
+        _floatingLayer.Children.Add(sheet.Root);
+    }
+
+    private double SheetHeight()
+    {
+        double available = _floatingLayer.Bounds.Height;
+        return available > 0 ? Math.Max(240, Math.Round(available * SheetHeightFraction)) : 420;
+    }
+
+    private void SizeSheets()
+    {
+        foreach (var sheet in _sheets.Values)
+            if (sheet.Root.Parent is not null) sheet.Root.Height = SheetHeight();
     }
 
     /// <summary>
@@ -237,6 +279,73 @@ public sealed class PanelManager
         // stacking on every placement change. A ZIndex lives on the control, so it survives both.
         if (root.ZIndex == _topZ && _topZ != 0) return;
         root.ZIndex = ++_topZ;
+    }
+
+    /// <summary>A bottom sheet: a grab handle and title with a close button over the panel content.</summary>
+    private sealed class SheetHost
+    {
+        private readonly DockPanel _contentDock;
+
+        public SheetHost(PanelManager owner, PanelDescriptor descriptor)
+        {
+            var handle = new Border
+            {
+                Width = 40,
+                Height = 4,
+                CornerRadius = new CornerRadius(2),
+                Background = new SolidColorBrush(Color.FromRgb(0x70, 0x70, 0x70)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 6, 0, 2)
+            };
+            var title = new TextBlock
+            {
+                Text = descriptor.Title,
+                Foreground = new SolidColorBrush(Color.FromRgb(0xE0, 0xE0, 0xE0)),
+                FontWeight = FontWeight.Bold,
+                FontSize = 15,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var close = new Button { Content = "✕", Width = 40, Height = 40, Padding = new Thickness(0) };
+            close.HorizontalContentAlignment = HorizontalAlignment.Center;
+            close.VerticalContentAlignment = VerticalAlignment.Center;
+            ToolTip.SetTip(close, "Close");
+            close.Click += (_, _) => owner.SetPlace(descriptor.Id, PanelPlace.Hidden);
+
+            var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(12, 0, 4, 4) };
+            header.Children.Add(title);
+            Grid.SetColumn(close, 1);
+            header.Children.Add(close);
+
+            var top = new StackPanel();
+            top.Children.Add(handle);
+            top.Children.Add(header);
+            DockPanel.SetDock(top, Dock.Top);
+
+            _contentDock = new DockPanel { LastChildFill = true };
+            _contentDock.Children.Add(top);
+
+            Root = new Border
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Background = new SolidColorBrush(Color.FromRgb(0x26, 0x26, 0x26)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0x50, 0x50, 0x50)),
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                CornerRadius = new CornerRadius(12, 12, 0, 0),
+                BoxShadow = BoxShadows.Parse("0 -4 16 0 #A0000000"),
+                ClipToBounds = true,
+                Child = _contentDock
+            };
+        }
+
+        public Border Root { get; }
+
+        public void Attach(Control content)
+        {
+            if (!_contentDock.Children.Contains(content)) _contentDock.Children.Add(content);
+        }
+
+        public void Detach(Control content) => _contentDock.Children.Remove(content);
     }
 
     /// <summary>Which edges a resize drag is moving. Corners combine two flags.</summary>

@@ -26,6 +26,16 @@
         <Style Selector="MenuItem MenuItem /template/ ContentPresenter#PART_HeaderPresenter">
             <Setter Property="Foreground" Value="#F0F0F0" />
         </Style>
+        <!-- Touch interfaces (see MainView.FormFactor.cs): finger-sized rows and fields. -->
+        <Style Selector=":is(UserControl).touch MenuItem">
+            <Setter Property="MinHeight" Value="40" />
+        </Style>
+        <Style Selector=":is(UserControl).touch ComboBox, :is(UserControl).touch TextBox, :is(UserControl).touch CheckBox">
+            <Setter Property="MinHeight" Value="38" />
+        </Style>
+        <Style Selector=":is(UserControl).touch ListBoxItem">
+            <Setter Property="MinHeight" Value="44" />
+        </Style>
         <!-- Top-level bar items (File/Edit/Select/…) sit on the hardcoded dark bar background. -->
         <Style Selector="MenuItem.topbar /template/ ContentPresenter#PART_HeaderPresenter">
             <Setter Property="Foreground" Value="White" />
@@ -53,7 +63,7 @@
     <Panel>
     <DockPanel x:Name="RootDock">
         <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Background="#282828">
-        <Menu>
+        <Menu x:Name="MainMenu">
             <Menu.ItemsPanel>
                 <ItemsPanelTemplate>
                     <WrapPanel Orientation="Horizontal" />
@@ -228,6 +238,13 @@
                     <Separator />
                     <!-- Preset entries are inserted here at runtime; see RebuildLayoutPresetsMenu. -->
                 </MenuItem>
+                <MenuItem x:Name="InterfaceMenu" Header="_Interface"
+                          ToolTip.Tip="Desktop, or a touch interface for a tablet or a phone - applies on the next start">
+                    <MenuItem Header="Automatic" Tag="Auto" Click="OnSetInterface" ToggleType="Radio" GroupName="Interface" />
+                    <MenuItem Header="Desktop" Tag="Desktop" Click="OnSetInterface" ToggleType="Radio" GroupName="Interface" />
+                    <MenuItem Header="Tablet" Tag="Tablet" Click="OnSetInterface" ToggleType="Radio" GroupName="Interface" />
+                    <MenuItem Header="Phone" Tag="Phone" Click="OnSetInterface" ToggleType="Radio" GroupName="Interface" />
+                </MenuItem>
             </MenuItem>
             <MenuItem Header="_Image" Classes="topbar">
                 <MenuItem Header="_Resize…" Click="OnResize" Icon="{app:Icon Resize}" />
@@ -356,8 +373,8 @@
                           ToolTip.Tip="Show/hide the 3D Paint panel" />
         </StackPanel>
         </WrapPanel>
-        <Border DockPanel.Dock="Top" Background="#282828" Padding="8,5">
-            <WrapPanel Orientation="Horizontal">
+        <Border x:Name="OptionsBar" DockPanel.Dock="Top" Background="#282828" Padding="8,5">
+            <WrapPanel x:Name="OptionsPanel" Orientation="Horizontal">
                 <WrapPanel.Styles>
                     <Style Selector="StackPanel.group">
                         <Setter Property="Orientation" Value="Horizontal" />
@@ -643,7 +660,7 @@
                     <Button Content="{app:Icon Close}" Padding="4,0" Tag="Tools:Hidden" Click="OnPanelPlace"
                             ToolTip.Tip="Hide (View ▸ Panels to restore)" />
                 </StackPanel>
-                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer x:Name="ToolScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                     <StackPanel x:Name="ToolPalette" Orientation="Vertical" Margin="4" />
                 </ScrollViewer>
             </DockPanel>

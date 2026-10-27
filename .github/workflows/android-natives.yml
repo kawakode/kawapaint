@@ -102,3 +102,11 @@ jobs:
               grep -q "lib/$abi/$lib" <<< "$listing" || { echo "$apk lacks lib/$abi/$lib" >&2; exit 1; }
             done
           done
+
+      # Signed with the SDK's debug key, so it installs directly on a phone for testing.
+      - name: Keep the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: KawaPaint-android-apk
+          path: android/bin/Release/**/*-Signed.apk
+          if-no-files-found: error

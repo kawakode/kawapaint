@@ -116,8 +116,14 @@ public sealed class DrawingSettings
     /// <summary>Use an inverted stylus or eraser tip as Eraser without changing the selected tool.</summary>
     public bool PenEraserEnabled { get; set; } = true;
 
-    /// <summary>Reserve touch for panning and pinch zoom; pen and mouse remain drawing inputs.</summary>
+    /// <summary>Two-finger pan and pinch zoom; also one-finger pan when touch does not draw.</summary>
     public bool TouchNavigationEnabled { get; set; } = true;
+
+    /// <summary>
+    /// One finger draws with the current tool. On by default on phones and tablets, where touch is
+    /// the main input; off on desktops, where touch usually sits beside a pen that does the drawing.
+    /// </summary>
+    public bool TouchDrawingEnabled { get; set; } = OperatingSystem.IsAndroid() || OperatingSystem.IsIOS();
 }
 
 public sealed class AutosaveSettings
@@ -187,6 +193,12 @@ public sealed class WorkspaceSettings
 {
     /// <summary>Name of the layout preset applied at startup.</summary>
     public string ActiveLayout { get; set; } = "Default";
+
+    /// <summary>
+    /// "Auto" picks the interface from the device (see DeviceInfo.Resolve); "Desktop", "Tablet"
+    /// or "Phone" forces one. Takes effect on the next start.
+    /// </summary>
+    public string Interface { get; set; } = "Auto";
 
     /// <summary>Saved layout presets, keyed by name.</summary>
     public Dictionary<string, WorkspaceLayout> Layouts { get; set; } = new();

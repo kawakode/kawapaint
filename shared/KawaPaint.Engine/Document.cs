@@ -172,6 +172,27 @@ public sealed class Document : IDisposable
 
     /// <summary>Recomposites only a clipped canvas rectangle, preserving the rest of dest.</summary>
     public unsafe void RenderTo(Surface dest, int x, int y, int width, int height)
+        => RenderLayers(dest, x, y, width, height, 0, _layers.Count, backdrop: null);
+
+    /// <summary>
+    /// Composites only the bottom <paramref name="count"/> layers. With the backdrop overload of
+    /// RenderTo below, this lets an editor keep the layers under the one being painted pre-flattened for the
+    /// length of a gesture. Returns false when none of them drew anything.
+    /// </summary>
+    public bool RenderBottomLayersTo(Surface dest, int count)
+        => RenderLayers(dest, 0, 0, Width, Height, 0, Math.Clamp(count, 0, _layers.Count), backdrop: null);
+
+    /// <summary>
+    /// As <see cref="RenderTo(Surface, int, int, int, int)"/>, but starts from layer
+    /// <paramref name="firstLayer"/> over <paramref name="backdrop"/>, which must hold what
+    /// <see cref="RenderBottomLayersTo"/> produced for that many layers (null when it drew
+    /// nothing). The result is identical to compositing every layer.
+    /// </summary>
+    public void RenderTo(Surface dest, int x, int y, int width, int height, Surface? backdrop, int firstLayer)
+        => RenderLayers(dest, x, y, width, height, firstLayer, _layers.Count, backdrop);
+
+    private unsafe bool RenderLayers(Surface dest, int x, int y, int width, int height,
+        int firstLayer, int endLayer, Surface? backdrop)
     {
         if (dest.Width != Width || dest.Height != Height)
             throw new ArgumentException("destination size does not match document");
@@ -180,14 +201,16 @@ public sealed class Document : IDisposable
         int top = Math.Clamp(y, 0, Height);
         int right = (int)Math.Clamp((long)x + width, 0, Width);
         int bottom = (int)Math.Clamp((long)y + height, 0, Height);
-        if (right <= left || bottom <= top) return;
+        if (right <= left || bottom <= top) return false;
 
         int count = right - left;
-        dest.ClearRect(left, top, count, bottom - top, ColorBgra.Transparent);
-        bool hasComposite = false;
+        bool hasComposite = backdrop is not null;
+        if (hasComposite) dest.CopyRectFrom(backdrop!, left, top, count, bottom - top);
+        else dest.ClearRect(left, top, count, bottom - top, ColorBgra.Transparent);
 
-        foreach (var layer in _layers)
+        for (int index = firstLayer; index < endLayer; index++)
         {
+            Layer layer = _layers[index];
             if (!layer.Visible || layer.Opacity == 0) continue;
 
             var src = layer.Surface;
@@ -212,6 +235,7 @@ public sealed class Document : IDisposable
             });
             hasComposite = true;
         }
+        return hasComposite;
     }
 
     public Surface Flatten()

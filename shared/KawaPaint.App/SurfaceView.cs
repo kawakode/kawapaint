@@ -93,6 +93,17 @@ public sealed class SurfaceView : Control
     public const int CursorGone = int.MinValue;
 
     private Surface? _preStroke;
+
+    // The layers under the one being painted, flattened once per gesture: tools that recomposite
+    // the whole canvas on every move (Move, full-canvas shape previews) then only blend the
+    // active layer and whatever lies above it. Built on the first full recomposite of a gesture,
+    // dropped when the gesture ends, and rebuilt if anything below changes in between.
+    private Surface? _gestureBackdrop;
+    private bool _gestureBackdropDrew;
+    private BackdropLayer[] _gestureBackdropLayers = Array.Empty<BackdropLayer>();
+    private DocumentFrame? _gestureBackdropFrame;
+
+    private readonly record struct BackdropLayer(Layer Layer, bool Visible, byte Opacity, BlendMode Mode);
     private ToolContext? _toolCtx;
     private ITool? _gestureTool;
     private readonly EraserTool _penEraserTool = new();
@@ -241,7 +252,7 @@ public sealed class SurfaceView : Control
         CompositeVersion++;
         if (contentChanged)
             _frameContentVersions[_document.ActiveFrame] = FrameContentVersion(_document.ActiveFrame) + 1;
-        _document.RenderTo(_composite);
+        RenderDocument(0, 0, _composite.Width, _composite.Height, mayBuildBackdrop: true);
         RefreshBitmap();
     }
 
@@ -256,9 +267,58 @@ public sealed class SurfaceView : Control
         if (right <= left || bottom <= top) return;
         CompositeVersion++;
         _frameContentVersions[_document.ActiveFrame] = FrameContentVersion(_document.ActiveFrame) + 1;
-        _document.RenderTo(_composite, left, top, right - left, bottom - top);
+        RenderDocument(left, top, right - left, bottom - top, mayBuildBackdrop: false);
         RefreshBitmap(left, top, right - left, bottom - top);
     }
+
+    private void RenderDocument(int x, int y, int width, int height, bool mayBuildBackdrop)
+    {
+        int firstLayer = GestureBackdropLayers(mayBuildBackdrop);
+        if (firstLayer > 0)
+            _document!.RenderTo(_composite!, x, y, width, height,
+                _gestureBackdropDrew ? _gestureBackdrop : null, firstLayer);
+        else
+            _document!.RenderTo(_composite!, x, y, width, height);
+    }
+
+    /// <summary>
+    /// How many bottom layers <see cref="_gestureBackdrop"/> holds for the current gesture, or 0
+    /// when there is none to use. Small rectangles never build it: a brush dab is cheaper to
+    /// recomposite outright than a full flatten of the layers below.
+    /// </summary>
+    private int GestureBackdropLayers(bool mayBuild)
+    {
+        if (!_drawing || _document is null || _composite is null || ActiveLayer is null) return 0;
+        int index = _document.IndexOf(ActiveLayer);
+        if (index <= 0) return 0;
+
+        if (_gestureBackdrop is not null && BackdropStillValid(index)) return index;
+        if (!mayBuild) return 0;
+
+        if (_gestureBackdrop is null || _gestureBackdrop.Width != _composite.Width
+            || _gestureBackdrop.Height != _composite.Height)
+        {
+            _gestureBackdrop?.Dispose();
+            _gestureBackdrop = new Surface(_composite.Width, _composite.Height);
+        }
+        _gestureBackdropDrew = _document.RenderBottomLayersTo(_gestureBackdrop, index);
+        _gestureBackdropFrame = _document.ActiveFrame;
+        _gestureBackdropLayers = new BackdropLayer[index];
+        for (int i = 0; i < index; i++) _gestureBackdropLayers[i] = StateOf(_document.Layers[i]);
+        return index;
+    }
+
+    /// <summary>Whether the backdrop was built from exactly these layers, with the same
+    /// properties that decide how they composite.</summary>
+    private bool BackdropStillValid(int count)
+    {
+        if (_gestureBackdropFrame != _document!.ActiveFrame || _gestureBackdropLayers.Length != count) return false;
+        for (int i = 0; i < count; i++)
+            if (_gestureBackdropLayers[i] != StateOf(_document.Layers[i])) return false;
+        return true;
+    }
+
+    private static BackdropLayer StateOf(Layer layer) => new(layer, layer.Visible, layer.Opacity, layer.BlendMode);
 
     private unsafe void RefreshBitmap()
         => RefreshBitmap(0, 0, _composite?.Width ?? 0, _composite?.Height ?? 0);
@@ -1110,6 +1170,8 @@ public sealed class SurfaceView : Control
             CommitPendingHistory();
             _preStroke?.Dispose();
             _preStroke = null;
+            _gestureBackdrop?.Dispose();
+            _gestureBackdrop = null;
             NotifyLayersChanged();   // the stroke is final: let the layer thumbnails catch up
         }
 

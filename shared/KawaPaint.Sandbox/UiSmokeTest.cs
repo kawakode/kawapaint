@@ -34,6 +34,7 @@ internal static class UiSmokeTest
         Check("layout preset rename", LayoutPresetRename);
         Check("marching ants", MarchingAnts);
         Check("undo recomposites the changed area", PartialUndoComposite);
+        Check("gesture backdrop", GestureBackdrop);
         Check("modal shortcuts and focus", ModalInput);
         Check("inline text editing", InlineTextEditing);
         Check("adjustment cancellation", AdjustmentCancellation);
@@ -510,6 +511,53 @@ internal static class UiSmokeTest
         AssertMatchesFlatten("after undo");
         canvas.Redo();
         AssertMatchesFlatten("after redo");
+        canvas.History.Clear();
+        document.Dispose();
+
+        void AssertMatchesFlatten(string when)
+        {
+            var composite = Field<Surface>(canvas, "_composite");
+            using Surface expected = document.Flatten();
+            int differing = 0;
+            for (int y = 0; y < expected.Height; y++)
+                for (int x = 0; x < expected.Width; x++)
+                    if (composite[x, y] != expected[x, y]) differing++;
+            Assert(differing == 0, $"{differing} pixels differ from a full flatten {when}");
+        }
+    }
+
+    /// <summary>A Move gesture on a middle layer composites over the flattened layers below it;
+    /// every frame of the drag must still match a full flatten, even when a layer below changes
+    /// mid-gesture.</summary>
+    private static void GestureBackdrop()
+    {
+        var canvas = new SurfaceView();
+        var document = new Document(240, 160);
+        Layer bottom = document.AddLayer();
+        bottom.Surface.Clear(ColorBgra.FromBgra(40, 120, 200, 255));
+        Layer tint = document.AddLayer();
+        tint.Surface.ClearRect(0, 40, 240, 60, ColorBgra.FromBgra(200, 30, 90, 140));
+        Layer moved = document.AddLayer();
+        moved.Surface.ClearRect(60, 50, 80, 50, ColorBgra.FromBgra(10, 220, 60, 200));
+        Layer above = document.AddLayer();
+        above.Surface.ClearRect(0, 0, 120, 160, ColorBgra.FromBgra(0, 200, 0, 120));
+        above.BlendMode = BlendMode.Multiply;
+        canvas.SetDocument(document);
+        canvas.SetActiveLayer(moved);
+        canvas.CurrentTool = new MoveTool();
+
+        canvas.BeginStroke(100, 70, false);
+        canvas.ExtendStroke(130, 90);
+        AssertMatchesFlatten("mid-drag");
+        Assert(Field<Surface?>(canvas, "_gestureBackdrop") is not null, "the drag built no backdrop");
+        canvas.ExtendStroke(90, 60);
+        AssertMatchesFlatten("after a second move");
+        tint.Visible = false;
+        canvas.ExtendStroke(95, 65);
+        AssertMatchesFlatten("after hiding a layer below mid-drag");
+        canvas.EndStroke();
+        Assert(Field<Surface?>(canvas, "_gestureBackdrop") is null, "the backdrop outlived the gesture");
+        AssertMatchesFlatten("after the drag");
         canvas.History.Clear();
         document.Dispose();
 

@@ -56,44 +56,67 @@ public partial class MainView
         }
 
         if (_formFactor == FormFactor.Phone) ApplyPhoneChrome();
+        Canvas.LongPressed += ShowQuickMenu;
     }
 
     private void ApplyPhoneChrome()
     {
-        // One menu button instead of nine top-level menus that would wrap over three rows.
-        var menus = MainMenu.Items.OfType<MenuItem>().ToList();
-        MainMenu.Items.Clear();
-        var root = new MenuItem
+        // The menu bar gives way to one ☰ button that opens the menus as a drawer from the left
+        // (see OpenMainDrawer); it shares its row with the tool options, which sit on one line
+        // that scrolls sideways rather than wrapping into rows that push the canvas down.
+        TopBar.IsVisible = false;
+        var menuButton = new Button
         {
-            Header = new TextBlock { Text = "☰", FontSize = 20, VerticalAlignment = VerticalAlignment.Center },
-            MinWidth = 44,
-            MinHeight = 40
+            Name = "MenuButton",
+            Content = new TextBlock { Text = "☰", FontSize = 20, VerticalAlignment = VerticalAlignment.Center },
+            Width = 44,
+            Height = 40,
+            Padding = new Thickness(0),
+            Margin = new Thickness(0, 0, 6, 0),
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Background = Brushes.Transparent
         };
-        root.Classes.Add("topbar");
-        ToolTip.SetTip(root, "Menu");
-        foreach (var menu in menus)
-        {
-            menu.Classes.Remove("topbar");
-            root.Items.Add(menu);
-        }
-        MainMenu.Items.Add(root);
+        ToolTip.SetTip(menuButton, "Menu");
+        menuButton.Click += (_, _) => OpenMainDrawer();
+        DockPanel.SetDock(menuButton, Dock.Left);
 
-        // The tool strip is always on screen, and the rest are in View > Panels.
+        OptionsBar.Child = null;
+        var optionsRow = new DockPanel();
+        optionsRow.Children.Add(menuButton);
+        optionsRow.Children.Add(new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalAlignment = VerticalAlignment.Center,
+            Content = OptionsPanel
+        });
+        OptionsBar.Child = optionsRow;
+        OptionsBar.Padding = new Thickness(4, 2, 8, 2);
+
+        // Undo, redo and the panel toggles are what a thumb reaches for between strokes, so they
+        // move to the very bottom, under the tool strip. The tool strip is always on screen, and
+        // the rarer panels stay in View > Panels.
         ToggleTools.IsVisible = false;
         ToggleTimeline.IsVisible = false;
         ToggleDock.IsVisible = false;
         TogglePaint3D.IsVisible = false;
-
-        // Tool options on one line that scrolls sideways, rather than wrapping into rows that
-        // push the canvas down.
-        OptionsBar.Child = null;
-        OptionsBar.Child = new ScrollViewer
+        TopBar.Children.Remove(QuickBar);
+        QuickBar.HorizontalAlignment = HorizontalAlignment.Center;
+        QuickBar.Spacing = 6;
+        var thumbBar = new Border
         {
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Content = OptionsPanel
+            Name = "ThumbBar",
+            Background = new SolidColorBrush(Color.FromRgb(0x22, 0x22, 0x22)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x40, 0x40, 0x40)),
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(4, 4, 4, 8),
+            Child = QuickBar
         };
-        OptionsBar.Padding = new Thickness(8, 2);
+        DockPanel.SetDock(thumbBar, Dock.Bottom);
+        // First child, so it docks outermost: below the tool strip, at the screen's bottom edge.
+        RootDock.Children.Insert(0, thumbBar);
+        StatusBar.IsVisible = false;
 
         // Tools in a strip along the bottom, within reach of the thumb.
         ToolPalette.Orientation = Orientation.Horizontal;
@@ -101,8 +124,6 @@ public partial class MainView
         ToolScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
         ToolsHeader.IsVisible = false;
         ToolsBorder.BorderThickness = new Thickness(0, 1, 0, 0);
-
-        CoordText.IsVisible = false;
     }
 
     /// <summary>The rule between two tool groups: across the vertical rail, down the phone strip.</summary>

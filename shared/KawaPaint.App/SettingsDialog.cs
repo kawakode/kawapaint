@@ -284,7 +284,8 @@ public sealed class SettingsDialog : Window
         _eraserPressure.SelectedIndex = PressureIndex(s.Drawing.EraserPressure);
         _penEraser.IsChecked = s.Drawing.PenEraserEnabled;
         _touchNavigation.IsChecked = s.Drawing.TouchNavigationEnabled;
-        _touchDrawing.IsChecked = s.Drawing.TouchDrawingEnabled;
+        _touchDrawing.IsChecked = s.Drawing.TouchDrawingEnabled
+                                  ?? DeviceInfo.Resolve(s.Workspace.Interface) != FormFactor.Desktop;
 
         _gitEnabled.IsChecked = s.Git.Enabled;
         _gitTrackConfig.IsChecked = s.Git.TrackConfiguration;

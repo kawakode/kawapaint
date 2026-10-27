@@ -716,18 +716,25 @@ internal static class UiSmokeTest
         });
     }
 
+    private static double Distance(Point a, Point b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
+
     private static void WithInterface(string choice, int width, int height, Action<MainView, Window> test)
     {
+        // SettingsService.Instance can be file-backed when another test class created it first,
+        // so start from a fresh layout for the interface and leave the saved state as found.
         var workspace = SettingsService.Instance.Settings.Workspace;
         string before = workspace.Interface;
         bool rulers = workspace.ShowRulers;
         workspace.Interface = choice;
+        workspace.Layouts.Remove(choice);
         try { WithView(width, height, test); }
         finally
         {
             workspace.Interface = before;
             workspace.ShowRulers = rulers;
             workspace.ActiveLayout = "Default";
+            workspace.Layouts.Remove(choice);
+            SettingsService.Instance.Save();
         }
     }
 
@@ -761,12 +768,17 @@ internal static class UiSmokeTest
             canvas.SetDocument(doc);
             Pump();
             Assert(view.CurrentFormFactor == FormFactor.Phone, "interface is " + view.CurrentFormFactor);
-            Assert(view.FindControl<Menu>("MainMenu")!.Items.Count == 1, "the menus were not folded into one button");
+            Assert(!view.FindControl<WrapPanel>("TopBar")!.IsVisible, "the desktop menu bar is still shown");
 
-            // Tools along the bottom, one row, the canvas taking the full width above them.
+            // Tools in one row along the bottom, with undo/redo and the panels under them at the
+            // bottom edge, and the canvas taking the full width above.
             var tools = view.FindControl<Border>("ToolsBorder")!;
             var toolsTop = tools.TranslatePoint(default, window)!.Value.Y;
-            Assert(toolsTop > 780 && tools.Bounds.Width > 400, $"tools are not a bottom strip: {toolsTop} {tools.Bounds}");
+            var thumbBar = view.GetLogicalDescendants().OfType<Border>().Single(b => b.Name == "ThumbBar");
+            var thumbTop = thumbBar.TranslatePoint(default, window)!.Value.Y;
+            Assert(thumbTop + thumbBar.Bounds.Height >= 914 && thumbTop > 820, $"the thumb bar is not at the bottom: {thumbTop}");
+            Assert(toolsTop > 720 && toolsTop < thumbTop && tools.Bounds.Width > 400, $"tools are not a strip above the thumb bar: {toolsTop} {tools.Bounds}");
+            Assert(view.FindControl<StackPanel>("QuickBar")!.Parent == thumbBar, "undo/redo did not move to the thumb bar");
             Assert(tools.Bounds.Height < 80, "the tool strip wraps: " + tools.Bounds);
             Assert(canvas.Bounds.Width > 400, "the canvas does not get the full width: " + canvas.Bounds);
             Assert(view.FindControl<Border>("OptionsBar")!.Bounds.Height < 70, "the tool options wrap");
@@ -789,6 +801,77 @@ internal static class UiSmokeTest
             Assert(!layers.IsEffectivelyVisible && view.FindControl<Border>("ColorWheelBorder")!.IsEffectivelyVisible,
                 "opening a second sheet did not replace the first");
             Screenshot(window, "phone-color");
+            view.FindControl<ToggleButton>("ToggleColorWheel")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump();
+
+            // ☰ opens the menus as a drawer; a section expands in place and its items work.
+            var menuButton = view.GetLogicalDescendants().OfType<Button>().Single(b => b.Name == "MenuButton");
+            Assert(menuButton.TranslatePoint(default, window)!.Value.Y < 20, "the menu button is not at the top");
+            menuButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump();
+            var drawer = view.GetVisualDescendants().OfType<Border>().SingleOrDefault(b => b.Name == "MainDrawer");
+            Assert(drawer is not null && drawer.Bounds.Height > 900 && drawer.Bounds.X < 1, "the menu drawer did not open from the left");
+            Button Row(string text) => drawer!.GetVisualDescendants().OfType<Button>()
+                .First(b => b.Content is TextBlock t && t.Text!.Trim().TrimStart('▸', '▾', '✓').Trim() == text);
+            Screenshot(window, "phone-drawer");
+            Row("View").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump();
+            Screenshot(window, "phone-drawer-view");
+            var workspace = SettingsService.Instance.Settings.Workspace;
+            bool rulers = workspace.ShowRulers;
+            Row("Rulers").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump();
+            Assert(!view.IsTouchOverlayOpen, "the drawer stayed open after picking an item");
+            Assert(workspace.ShowRulers != rulers, "the drawer's Rulers item did nothing");
+
+            // A long press opens the current tool's quick menu, and its slider sets the size.
+            Invoke(view, "SelectTool", "Brush");
+            Pump();
+            var finger = new Pointer(Pointer.GetNextFreeId(), PointerType.Touch, true);
+            var at = canvas.TranslatePoint(new Point(200, 400), window)!.Value;
+            canvas.RaiseEvent(new PointerPressedEventArgs(canvas, finger, window, at, 1,
+                new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed), KeyModifiers.None));
+            // The headless dispatcher does not run timers on its own; fire the long-press one.
+            Invoke(canvas, "CompleteLongPress");
+            Pump();
+            var quick = view.GetVisualDescendants().OfType<Canvas>().SingleOrDefault(c => c.Name == "QuickMenu");
+            Assert(quick is not null, "a long press did not open the radial menu");
+            Button Radial(string name) => quick!.Children.OfType<Button>().Single(b => b.Name == "Radial" + name);
+            var hub = Radial("Hub");
+            var hubCentre = new Point(Canvas.GetLeft(hub) + hub.Width / 2, Canvas.GetTop(hub) + hub.Width / 2);
+            Assert(Distance(hubCentre, view.TranslatePoint(at, view)!.Value) < 2 && quick.Children.OfType<Button>().Count() >= 6,
+                "the radial menu is not around the finger");
+            foreach (var button in quick.Children.OfType<Button>().Where(b => b != hub))
+            {
+                var c = new Point(Canvas.GetLeft(button) + button.Width / 2, Canvas.GetTop(button) + button.Height / 2);
+                double d = Distance(c, hubCentre);
+                Assert(d >= 79 && c.X >= 0 && c.X <= 412 && c.Y >= 0, $"{button.Name} is not on the ring: {c} at {d:0}");
+            }
+            Assert(quick.Children.OfType<Button>().Any(b => b.Name == "RadialHardness"), "the brush's radial menu has no hardness");
+            Screenshot(window, "phone-quick-menu");
+            Radial("Size").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump();
+            var size = quick.GetVisualDescendants().OfType<Slider>().Single(sl => sl.Name == "QuickSize");
+            size.Value = 25;
+            Pump();
+            Screenshot(window, "phone-quick-size");
+            Assert(canvas.BrushWidth == 25, "the radial menu's size slider did not set the brush size: " + canvas.BrushWidth);
+            Radial("Color").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump();
+            Screenshot(window, "phone-quick-colors");
+            var swatch = quick.Children.OfType<Button>().First(b => b.Name == "RadialSwatch" && b.Background is Avalonia.Media.SolidColorBrush { Color.R: > 200, Color.G: < 50 });
+            swatch.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump();
+            Assert(!view.IsTouchOverlayOpen && canvas.BrushColor.R > 200 && canvas.BrushColor.G < 50, "picking a colour from the ring did not set it");
+
+            // Near the right edge the ring becomes an arc that opens to the left.
+            var arc = MainView.RingPositions(9, new Point(400, 450), 412, 915);
+            Assert(arc.All(p => p.X <= 412 - 30 && p.X >= 30), "the arc runs off the screen near the edge");
+            Assert(arc.All(p => p.X < 400), "the arc does not open away from the edge");
+            canvas.RaiseEvent(new PointerReleasedEventArgs(canvas, finger, window, at, 2,
+                new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased), KeyModifiers.None, MouseButton.Left));
+            Pump();
+            Assert(canvas.History.Count == 0, "the long press drew on the canvas");
         });
     }
 

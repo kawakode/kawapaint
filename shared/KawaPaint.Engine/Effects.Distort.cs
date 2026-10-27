@@ -304,3 +304,31 @@ public sealed class DentsEffect : WarpEffect
         return (x + refractionScale * Math.Sin(-bumpAngle), y + refractionScale * Math.Cos(bumpAngle));
     }
 }
+
+/// <summary>
+/// Paint.NET's Layer Rotate / Zoom: turns the layer about its centre, scales it and moves it by a
+/// fraction of its size, on a canvas of the same size. Uncovered pixels become transparent.
+/// </summary>
+public sealed class RotateZoomEffect : IEffect
+{
+    private readonly double _angle, _zoom, _panX, _panY;
+
+    /// <param name="panXPercent">Horizontal move in percent of the layer width (-100..100).</param>
+    /// <param name="panYPercent">Vertical move in percent of the layer height (-100..100).</param>
+    public RotateZoomEffect(double angleDegrees, double zoom, double panXPercent = 0, double panYPercent = 0)
+    {
+        _angle = angleDegrees;
+        _zoom = Math.Clamp(zoom, 0.01, 100);
+        _panX = panXPercent;
+        _panY = panYPercent;
+    }
+
+    public string Name => "Rotate / Zoom Layer";
+
+    public void Apply(Surface surface)
+    {
+        using Surface turned = surface.Rotated(_angle, surface.Width, surface.Height, _zoom,
+            _panX * surface.Width / 100, _panY * surface.Height / 100);
+        surface.CopyFrom(turned);
+    }
+}

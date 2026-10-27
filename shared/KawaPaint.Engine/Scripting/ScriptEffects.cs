@@ -24,7 +24,7 @@ public static class ScriptEffects
             or "outline" or "relief" or "vignette" or "reducenoise" or "motionblur" or "radialblur"
             or "zoomblur" or "surfaceblur" or "unfocus" or "fragment" or "julia" or "mandelbrot"
             or "glow" or "redeye" or "softenportrait" or "inksketch" or "pencilsketch"
-            or "oilpainting" or "clouds" or "curves" => true,
+            or "oilpainting" or "clouds" or "curves" or "rotatezoom" => true,
         _ => false
     };
 
@@ -59,6 +59,7 @@ public static class ScriptEffects
                 "tile" => new TileEffect(a[0], a[1], a[2]),
                 "frostedglass" => new FrostedGlassEffect(a[0], a[1], (int)a[2], a.Count > 3 ? (int)a[3] : 0),
                 "pixelate" => new PixelateEffect((int)a[0]),
+                "rotatezoom" => new RotateZoomEffect(a[0], a[1], a[2], a[3]),
                 "dents" => new DentsEffect(a[0], a[1], a[2], a[3], a.Count > 4 ? (int)a[4] : 0),
                 "median" => new MedianEffect((int)a[0], (int)a[1]),
                 "outline" => new OutlineEffect((int)a[0], (int)a[1]),

@@ -89,6 +89,8 @@ public sealed class ScriptRecorder
             case "image.flipV":
             case "image.rotateCW":
             case "image.rotateCCW":
+            case "image.rotate180":
+            case "image.rotate":
             case "image.flatten":
             case "image.crop":
             case "layer.add":

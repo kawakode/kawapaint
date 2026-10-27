@@ -40,6 +40,7 @@ internal static class UiSmokeTest
         Check("batch progress cancel and size memory warning", BatchProgressAndMemory);
         Check("resize by percentage and keep proportions", ResizeProportions);
         Check("selection changes are undoable", UndoableSelection);
+        Check("rotate image dialog previews the new size", RotateImageDialogSize);
         Check("modal shortcuts and focus", ModalInput);
         Check("inline text editing", InlineTextEditing);
         Check("adjustment cancellation", AdjustmentCancellation);
@@ -580,6 +581,18 @@ internal static class UiSmokeTest
 
     /// <summary>Issue #26: a batch result that cannot be encoded must leave the file it was going to
     /// overwrite exactly as it was, and a successful one must replace it completely.</summary>
+    private static void RotateImageDialogSize()
+    {
+        var dialog = new RotateImageDialog(400, 200);
+        var angle = dialog.GetLogicalDescendants().OfType<NumericUpDown>().Single(n => n.Name == "RotateAngle");
+        var expand = dialog.GetLogicalDescendants().OfType<CheckBox>().Single(c => c.Name == "RotateExpand");
+        var size = dialog.GetLogicalDescendants().OfType<TextBlock>().Single(t => t.Name == "RotateSize");
+        angle.Value = 90;
+        Assert(size.Text == "New size: 200 × 400" && dialog.ResultAngle == 90 && dialog.ResultExpand, "90°: " + size.Text);
+        expand.IsChecked = false;
+        Assert(size.Text == "New size: 400 × 200" && !dialog.ResultExpand, "kept canvas: " + size.Text);
+    }
+
     private static void UndoableSelection()
     {
         var canvas = new SurfaceView();

@@ -220,6 +220,9 @@
                 <MenuItem Header="Flip _Vertical" Click="OnFlipV" Icon="{app:Icon FlipV}" />
                 <MenuItem Header="Rotate 90° C_W" Click="OnRotateCW" Icon="{app:Icon RotateCW}" />
                 <MenuItem Header="Rotate 90° CC_W" Click="OnRotateCCW" Icon="{app:Icon RotateCCW}" />
+                <MenuItem Header="Rotate 1_80°" Click="OnRotate180" />
+                <MenuItem Header="R_otate…" Click="OnRotateArbitrary" />
+                <MenuItem Header="Rotate / _Zoom Layer…" Tag="rotatezoom" Click="OnAdjust" />
                 <Separator />
                 <MenuItem Header="_Flatten Image" Click="OnFlatten" Icon="{app:Icon Flatten}" />
             </MenuItem>

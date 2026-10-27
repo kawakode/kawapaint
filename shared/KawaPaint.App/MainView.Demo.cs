@@ -118,6 +118,7 @@ public partial class MainView
             ["image.flipV"] = () => OnFlipV(this, empty),
             ["image.rotateCW"] = () => OnRotateCW(this, empty),
             ["image.rotateCCW"] = () => OnRotateCCW(this, empty),
+            ["image.rotate180"] = () => OnRotate180(this, empty),
             ["image.crop"] = () => OnCropToSelection(this, empty),
             ["image.flatten"] = () => OnFlatten(this, empty),
 
@@ -160,7 +161,7 @@ public partial class MainView
         // not by DemoEvent.ActionArgs). Seeded Noise/Frosted Glass/Dents append their hidden seed
         // to args and are fully replayable.
         bool isEffect = TrySplit(id, "effect.", out string tag);
-        bool replayable = id == "image.crop" ||
+        bool replayable = id is "image.crop" or "image.rotate" ||
             isEffect && ScriptEffects.IsKnownTag(tag) && tag != "clouds";
         if (replayable) _demoRecorder.NoteAction(id, args);
         else _demoRecorder.NoteSkipped(isEffect ? "adjustment '" + tag + "'" : id);
@@ -580,6 +581,14 @@ public partial class MainView
             if (width > 0 && height > 0 && x >= 0 && y >= 0 &&
                 x + (long)width <= Canvas.Document.Width && y + (long)height <= Canvas.Document.Height)
                 ApplyDocumentOp("Crop", document => DocumentOps.Crop(document, x, y, width, height));
+            return;
+        }
+
+        if (id == "image.rotate" && args.Count >= 1 && Canvas.Document is not null)
+        {
+            double degrees = args[0];
+            bool expand = args.Count < 2 || args[1] != 0;
+            ApplyDocumentOp($"Rotate {degrees:0.##}°", document => DocumentOps.Rotate(document, degrees, expand));
             return;
         }
 

@@ -209,6 +209,58 @@ public sealed unsafe class Surface : IDisposable
         return dst;
     }
 
+    /// <summary>
+    /// Returns a <paramref name="newWidth"/> x <paramref name="newHeight"/> surface holding this
+    /// one drawn through <paramref name="matrix"/> (source pixel space to destination pixel
+    /// space), filtered like <see cref="Resized"/> and with antialiased edges. Uncovered pixels
+    /// are transparent.
+    /// </summary>
+    public Surface Transformed(int newWidth, int newHeight, SKMatrix matrix)
+    {
+        ThrowIfDisposed();
+        var dst = new Surface(newWidth, newHeight);
+        using var source = Clone();
+        source.Premultiply();
+        using var srcBmp = new SKBitmap();
+        srcBmp.InstallPixels(new SKImageInfo(Width, Height, SKColorType.Bgra8888, SKAlphaType.Premul), source.scan0, source.Stride);
+        using var image = SKImage.FromBitmap(srcBmp);
+
+        using (var premul = new SKBitmap())
+        {
+            premul.InstallPixels(new SKImageInfo(newWidth, newHeight, SKColorType.Bgra8888, SKAlphaType.Premul), dst.scan0, dst.Stride);
+            using var canvas = new SKCanvas(premul);
+            canvas.Clear(SKColors.Transparent);
+            canvas.SetMatrix(matrix);
+            using var paint = new SKPaint { IsAntialias = true };
+            canvas.DrawImage(image, new SKRect(0, 0, Width, Height),
+                new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear), paint);
+        }
+        dst.Unpremultiply();
+        return dst;
+    }
+
+    /// <summary>This surface turned <paramref name="degrees"/> clockwise about its centre, then
+    /// scaled by <paramref name="scale"/> and moved by (<paramref name="panX"/>, <paramref name="panY"/>),
+    /// centred in a <paramref name="newWidth"/> x <paramref name="newHeight"/> surface.</summary>
+    public Surface Rotated(double degrees, int newWidth, int newHeight, double scale = 1, double panX = 0, double panY = 0)
+    {
+        SKMatrix matrix = SKMatrix.CreateTranslation(-Width / 2f, -Height / 2f);
+        matrix = matrix.PostConcat(SKMatrix.CreateScale((float)scale, (float)scale));
+        matrix = matrix.PostConcat(SKMatrix.CreateRotationDegrees((float)degrees));
+        matrix = matrix.PostConcat(SKMatrix.CreateTranslation((float)(newWidth / 2.0 + panX), (float)(newHeight / 2.0 + panY)));
+        return Transformed(newWidth, newHeight, matrix);
+    }
+
+    /// <summary>Size of the box that holds a <paramref name="width"/> x <paramref name="height"/>
+    /// image turned by <paramref name="degrees"/>.</summary>
+    public static (int Width, int Height) RotatedBounds(int width, int height, double degrees)
+    {
+        double radians = degrees * Math.PI / 180;
+        double cos = Math.Abs(Math.Cos(radians)), sin = Math.Abs(Math.Sin(radians));
+        // Rounded with a small tolerance so 90 degrees gives exactly height x width.
+        return ((int)Math.Ceiling(width * cos + height * sin - 1e-6), (int)Math.Ceiling(width * sin + height * cos - 1e-6));
+    }
+
     private void Premultiply()
     {
         for (int y = 0; y < Height; y++)

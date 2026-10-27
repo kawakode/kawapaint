@@ -151,6 +151,53 @@ public static class DocumentOps
         return result;
     }
 
+    /// <summary>Turns the document half a turn in place (canvas size is unchanged).</summary>
+    public static void Rotate180(Document doc)
+    {
+        foreach (DocumentFrame frame in doc.Frames)
+            foreach (Layer layer in frame.Layers)
+            {
+                SurfaceOps.FlipHorizontal(layer.Surface);
+                SurfaceOps.FlipVertical(layer.Surface);
+            }
+        foreach (var zone in doc.DynamicTextZones)
+        {
+            zone.X = doc.Width - zone.X - zone.Width;
+            zone.Y = doc.Height - zone.Y - zone.Height;
+        }
+    }
+
+    /// <summary>
+    /// Returns a new document turned <paramref name="degrees"/> clockwise about its centre. With
+    /// <paramref name="expandCanvas"/> the canvas grows to hold the whole turned image (corners
+    /// become transparent); otherwise it keeps its size and the corners are cut off.
+    /// </summary>
+    public static Document Rotate(Document doc, double degrees, bool expandCanvas)
+    {
+        var (w, h) = expandCanvas ? Surface.RotatedBounds(doc.Width, doc.Height, degrees) : (doc.Width, doc.Height);
+        var result = NewTransformedDocument(doc, w, h);
+        TransformFrames(doc, result, layer =>
+            new Layer(layer.Surface.Rotated(degrees, w, h), layer.Name)
+            {
+                Opacity = layer.Opacity,
+                Visible = layer.Visible,
+                BlendMode = layer.BlendMode
+            });
+        // Text zones stay upright: each keeps its size and follows its centre around the turn.
+        double radians = degrees * Math.PI / 180, cos = Math.Cos(radians), sin = Math.Sin(radians);
+        foreach (var source in doc.DynamicTextZones)
+        {
+            double cx = source.X + source.Width / 2.0 - doc.Width / 2.0;
+            double cy = source.Y + source.Height / 2.0 - doc.Height / 2.0;
+            var zone = source.Clone();
+            zone.X = (int)Math.Round(w / 2.0 + cx * cos - cy * sin - source.Width / 2.0);
+            zone.Y = (int)Math.Round(h / 2.0 + cx * sin + cy * cos - source.Height / 2.0);
+            if (zone.X + zone.Width > 0 && zone.Y + zone.Height > 0 && zone.X < w && zone.Y < h)
+                result.DynamicTextZones.Add(zone);
+        }
+        return result;
+    }
+
     /// <summary>Returns a new single-layer document with all layers composited together.</summary>
     public static Document Flatten(Document doc)
     {

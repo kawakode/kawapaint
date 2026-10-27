@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using KawaPaint.App;
@@ -37,6 +38,7 @@ internal static class UiSmokeTest
         Check("gesture backdrop", GestureBackdrop);
         Check("batch overwrite keeps the original on failure", BatchOverwriteFailure);
         Check("batch progress cancel and size memory warning", BatchProgressAndMemory);
+        Check("resize by percentage and keep proportions", ResizeProportions);
         Check("modal shortcuts and focus", ModalInput);
         Check("inline text editing", InlineTextEditing);
         Check("adjustment cancellation", AdjustmentCancellation);
@@ -577,6 +579,28 @@ internal static class UiSmokeTest
 
     /// <summary>Issue #26: a batch result that cannot be encoded must leave the file it was going to
     /// overwrite exactly as it was, and a successful one must replace it completely.</summary>
+    private static void ResizeProportions()
+    {
+        var dialog = new ResizeDialog(400, 200);
+        NumericUpDown Field(string name) => dialog.GetLogicalDescendants().OfType<NumericUpDown>().Single(n => n.Name == name);
+        var percent = Field("ResizePercent");
+        var width = Field("ResizeWidth");
+        var height = Field("ResizeHeight");
+        var keep = dialog.GetLogicalDescendants().OfType<CheckBox>().Single(c => c.Name == "ResizeKeepProportions");
+        string State() => $"{percent.Value}% {width.Value}x{height.Value}";
+
+        percent.Value = 50;
+        Assert(dialog.ResultWidth == 200 && dialog.ResultHeight == 100, "50 % did not halve both sides: " + State());
+        height.Value = 50;
+        Assert(dialog.ResultWidth == 100 && percent.Value == 25, "height did not carry the width and percentage: " + State());
+        keep.IsChecked = false;
+        width.Value = 300;
+        Assert(dialog.ResultHeight == 50 && percent.Value is null, "unlocked width still moved the height: " + State());
+        keep.IsChecked = true;
+        Assert(dialog.ResultWidth == 300 && dialog.ResultHeight == 150 && percent.Value == 75,
+            "re-locking did not restore the ratio: " + State());
+    }
+
     private static void BatchProgressAndMemory()
     {
         var owner = new Window();

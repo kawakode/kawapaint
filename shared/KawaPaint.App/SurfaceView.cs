@@ -55,6 +55,17 @@ public sealed partial class SurfaceView : Control
     private const ulong TouchDrawDelayMs = 80;
     private (int Id, Point Start, Point Last, ulong Time)? _pendingTouch;
     private int? _touchStrokeId;
+
+    /// <summary>How long a finger must rest without moving to count as a long press.</summary>
+    public static readonly TimeSpan LongPressDelay = TimeSpan.FromMilliseconds(500);
+    private DispatcherTimer? _longPressTimer;
+    private IPointer? _longPressPointer;
+
+    /// <summary>
+    /// A finger held still on the canvas, in control coordinates. Nothing is drawn: the touch
+    /// interfaces open their quick menu for the current tool here.
+    /// </summary>
+    public event Action<Point>? LongPressed;
     private bool _fitPending = true;
 
     private bool _drawing;
@@ -938,6 +949,7 @@ public sealed partial class SurfaceView : Control
                 _pendingTouch = (e.Pointer.Id, pt.Position, pt.Position, e.Timestamp);
                 e.Pointer.Capture(this);
                 e.Handled = true;
+                if (LongPressed is not null) StartLongPressTimer(e.Pointer);
                 return;
             }
 
@@ -1342,6 +1354,33 @@ public sealed partial class SurfaceView : Control
         _capturedPointer = null;
         FinishGesture();
         if (wasDrawing) StrokeEnded?.Invoke();
+    }
+
+    private void StartLongPressTimer(IPointer pointer)
+    {
+        _longPressPointer = pointer;
+        if (_longPressTimer is null)
+        {
+            _longPressTimer = new DispatcherTimer { Interval = LongPressDelay };
+            _longPressTimer.Tick += (_, _) => CompleteLongPress();
+        }
+        _longPressTimer.Stop();
+        _longPressTimer.Start();
+    }
+
+    private void CompleteLongPress()
+    {
+        _longPressTimer?.Stop();
+        var pointer = _longPressPointer;
+        _longPressPointer = null;
+        // Moved far enough to start a stroke, lifted, or joined by a second finger: any of
+        // those already cleared or replaced the pending touch.
+        if (pointer is null || _pendingTouch is not { } pending || pending.Id != pointer.Id) return;
+        Vector moved = pending.Last - pending.Start;
+        if (Math.Sqrt(moved.X * moved.X + moved.Y * moved.Y) >= TouchDrawSlop) return;
+        _pendingTouch = null;
+        pointer.Capture(null);
+        LongPressed?.Invoke(pending.Start);
     }
 
     /// <summary>Turns the waiting finger into a stroke that starts where it first touched down.</summary>

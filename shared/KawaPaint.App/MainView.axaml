@@ -60,9 +60,9 @@
     <UserControl.Resources>
         <SolidColorBrush x:Key="ValueSliderCursorBrush" Color="Black" />
     </UserControl.Resources>
-    <Panel>
+    <Panel x:Name="RootPanel">
     <DockPanel x:Name="RootDock">
-        <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Background="#282828">
+        <WrapPanel x:Name="TopBar" DockPanel.Dock="Top" Orientation="Horizontal" Background="#282828">
         <Menu x:Name="MainMenu">
             <Menu.ItemsPanel>
                 <ItemsPanelTemplate>
@@ -339,7 +339,7 @@
                 <MenuItem Header="_About KawaPaint…" Click="OnAbout" />
             </MenuItem>
         </Menu>
-        <StackPanel Orientation="Horizontal" Spacing="2" Margin="6,0" VerticalAlignment="Center">
+        <StackPanel x:Name="QuickBar" Orientation="Horizontal" Spacing="2" Margin="6,0" VerticalAlignment="Center">
             <StackPanel.Styles>
                 <Style Selector="Button.iconbtn, ToggleButton.paneltoggle">
                     <Setter Property="Width" Value="26" />
@@ -444,7 +444,7 @@
                 </StackPanel>
             </WrapPanel>
         </Border>
-        <Border DockPanel.Dock="Bottom" Background="#202020" Padding="8,3">
+        <Border x:Name="StatusBar" DockPanel.Dock="Bottom" Background="#202020" Padding="8,3">
             <Grid ColumnDefinitions="*,Auto,Auto,Auto">
                 <!-- Trimmed and pinned to one line: status text is free-form and not all of it is
                      ours - an exception message can be long enough to run under the coordinate and

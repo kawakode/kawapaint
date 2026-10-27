@@ -11,6 +11,48 @@ public sealed record ReferenceRenderOptions
     public float Ambient { get; init; } = 0.28f;
     public ColorBgra Color { get; init; } = ColorBgra.FromBgr(195, 205, 220);
     public int Supersampling { get; init; } = 2;
+
+    /// <summary>Magnification on top of the fit-to-frame scale; 1 fits the whole model.</summary>
+    public float Zoom { get; init; } = 1;
+
+    /// <summary>Texture shown on UV-mapped faces (repeating outside 0..1), composited over
+    /// <see cref="Color"/> so transparent texels show the bare model. Unmapped faces use Color.</summary>
+    public Surface? Texture { get; init; }
+}
+
+/// <summary>
+/// Which texture coordinate each pixel of a render shows, for painting on the model: a pointer
+/// over the render looks up where on the texture it lands. Stored at the supersampled resolution
+/// and read back in output pixels.
+/// </summary>
+public sealed class UvMap
+{
+    private readonly Vector2[] _uv;
+
+    internal UvMap(Vector2[] uv, int width, int height, int scale)
+    {
+        _uv = uv;
+        Width = width;
+        Height = height;
+        Scale = scale;
+    }
+
+    /// <summary>Size of the render this map belongs to, in output pixels.</summary>
+    public int Width { get; }
+    public int Height { get; }
+    private int Scale { get; }
+
+    /// <summary>The texture coordinate under output-pixel position (x, y); false off the model or on
+    /// a face without UVs.</summary>
+    public bool TryGet(double x, double y, out Vector2 uv)
+    {
+        uv = default;
+        int sx = (int)Math.Floor(x * Scale), sy = (int)Math.Floor(y * Scale);
+        int stride = Width * Scale;
+        if (sx < 0 || sy < 0 || sx >= stride || sy >= Height * Scale) return false;
+        uv = _uv[sy * stride + sx];
+        return !float.IsNaN(uv.X);
+    }
 }
 
 /// <summary>Deterministic orthographic CPU renderer for rasterized 3D reference layers.</summary>
@@ -19,6 +61,11 @@ public static class ReferenceRenderer
     private const long MaxSupersampledPixels = 32_000_000;
 
     public static Surface Render(ObjMesh mesh, int width, int height, ReferenceRenderOptions? options = null)
+        => Render(mesh, width, height, options, out _);
+
+    /// <summary>Renders like <see cref="Render(ObjMesh,int,int,ReferenceRenderOptions?)"/> and also
+    /// returns which texture coordinate each pixel shows.</summary>
+    public static Surface Render(ObjMesh mesh, int width, int height, ReferenceRenderOptions? options, out UvMap uvMap)
     {
         ArgumentNullException.ThrowIfNull(mesh);
         if (width <= 0) throw new ArgumentOutOfRangeException(nameof(width));
@@ -29,12 +76,14 @@ public static class ReferenceRenderer
         while (samples > 1 && (long)width * height * samples * samples > MaxSupersampledPixels) samples--;
         int renderWidth = checked(width * samples);
         int renderHeight = checked(height * samples);
-        using Surface highResolution = RenderCore(mesh, renderWidth, renderHeight, options);
+        var uv = new Vector2[checked(renderWidth * renderHeight)];
+        using Surface highResolution = RenderCore(mesh, renderWidth, renderHeight, options, uv);
+        uvMap = new UvMap(uv, width, height, samples);
         if (samples == 1) return highResolution.Clone();
         return Downsample(highResolution, width, height, samples);
     }
 
-    private static Surface RenderCore(ObjMesh mesh, int width, int height, ReferenceRenderOptions options)
+    private static Surface RenderCore(ObjMesh mesh, int width, int height, ReferenceRenderOptions options, Vector2[] uvOut)
     {
         Matrix4x4 rotation = Matrix4x4.CreateRotationY(Degrees(options.YawDegrees)) *
                              Matrix4x4.CreateRotationX(Degrees(options.PitchDegrees)) *
@@ -66,7 +115,7 @@ public static class ReferenceRenderer
         float availableHeight = height * (1 - 2 * padding);
         float scaleX = projectedWidth > 1e-12f ? availableWidth / projectedWidth : float.PositiveInfinity;
         float scaleY = projectedHeight > 1e-12f ? availableHeight / projectedHeight : float.PositiveInfinity;
-        float scale = MathF.Min(scaleX, scaleY);
+        float scale = MathF.Min(scaleX, scaleY) * Math.Clamp(options.Zoom, 0.05f, 50f);
         float projectedCenterX = (min.X + max.X) * 0.5f;
         float projectedCenterY = (min.Y + max.Y) * 0.5f;
 
@@ -84,7 +133,10 @@ public static class ReferenceRenderer
         float ambient = Math.Clamp(options.Ambient, 0, 1);
         var depth = new float[checked(width * height)];
         Array.Fill(depth, float.NegativeInfinity);
+        Array.Fill(uvOut, new Vector2(float.NaN));
         var surface = new Surface(width, height);
+        Surface? texture = mesh.HasTexCoords ? options.Texture : null;
+        Vector2 noUv = new(float.NaN);
 
         foreach (ObjTriangle triangle in mesh.Triangles)
         {
@@ -95,7 +147,12 @@ public static class ReferenceRenderer
             Vector3 na = RotateNormal(NormalFor(mesh, generatedNormals, triangle.NA, triangle.A), rotation);
             Vector3 nb = RotateNormal(NormalFor(mesh, generatedNormals, triangle.NB, triangle.B), rotation);
             Vector3 nc = RotateNormal(NormalFor(mesh, generatedNormals, triangle.NC, triangle.C), rotation);
-            Rasterize(surface, depth, a, b, c, na, nb, nc, area, light, ambient, options.Color);
+            bool mapped = triangle.HasTexCoords;
+            Vector2 ta = mapped ? mesh.TexCoords[triangle.TA] : noUv;
+            Vector2 tb = mapped ? mesh.TexCoords[triangle.TB] : noUv;
+            Vector2 tc = mapped ? mesh.TexCoords[triangle.TC] : noUv;
+            Rasterize(surface, depth, uvOut, a, b, c, na, nb, nc, ta, tb, tc, area, light, ambient, options.Color,
+                mapped ? texture : null);
         }
         return surface;
     }
@@ -124,8 +181,9 @@ public static class ReferenceRenderer
         return rotated.LengthSquared() > 1e-20f ? Vector3.Normalize(rotated) : Vector3.UnitZ;
     }
 
-    private static unsafe void Rasterize(Surface surface, float[] depth, Vector3 a, Vector3 b, Vector3 c,
-        Vector3 na, Vector3 nb, Vector3 nc, float area, Vector3 light, float ambient, ColorBgra color)
+    private static unsafe void Rasterize(Surface surface, float[] depth, Vector2[] uvOut, Vector3 a, Vector3 b, Vector3 c,
+        Vector3 na, Vector3 nb, Vector3 nc, Vector2 ta, Vector2 tb, Vector2 tc, float area, Vector3 light,
+        float ambient, ColorBgra color, Surface? texture)
     {
         int left = Math.Clamp((int)MathF.Floor(MathF.Min(a.X, MathF.Min(b.X, c.X))), 0, surface.Width - 1);
         int top = Math.Clamp((int)MathF.Floor(MathF.Min(a.Y, MathF.Min(b.Y, c.Y))), 0, surface.Height - 1);
@@ -153,7 +211,18 @@ public static class ReferenceRenderer
                 if (normal.LengthSquared() > 1e-20f) normal = Vector3.Normalize(normal);
                 if (normal.Z < 0) normal = -normal; // OBJ winding varies; references are double-sided.
                 float intensity = ambient + (1 - ambient) * MathF.Max(0, Vector3.Dot(normal, light));
-                row[x] = Shade(color, intensity);
+                // The projection is orthographic, so screen-space barycentrics are already
+                // perspective-correct for the UVs.
+                Vector2 uv = wa * ta + wb * tb + wc * tc;
+                uvOut[index] = uv;
+                ColorBgra baseColor = color;
+                if (texture is not null)
+                {
+                    ColorBgra texel = texture.GetBilinearSampleWrapped(
+                        uv.X * texture.Width - 0.5f, uv.Y * texture.Height - 0.5f);
+                    baseColor = ColorBgra.BlendOver(color, texel);
+                }
+                row[x] = Shade(baseColor, intensity);
             }
         }
     }

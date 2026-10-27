@@ -30,8 +30,9 @@ The remaining entries require hardware, registered API applications, or an expli
 - **Publishing live validation:** register Tumblr, DeviantArt and Meta applications, approve the
   loopback redirect URI, and exercise real accounts. Mocked multipart requests and all failure
   semantics are covered; no client IDs or test accounts were available in this pass.
-- **Major product expansions (gated):** live 3D layers, UV/texture painting, branching/replayable
-  history, and Paint.NET GPU effects each need explicit scope approval. Paint.NET v5 CPU effects
+- **Major product expansions (gated):** live 3D layers, branching/replayable history, and
+  Paint.NET GPU effects each need explicit scope approval (UV/texture painting was approved and
+  shipped 2026-10-27, see 5.3). Paint.NET v5 CPU effects
   cannot be hosted through its public API; the classic plugin tier is complete.
 - **Product posture decisions:** whether browser and Android should become design-centre,
   first-class targets rather than graceful-parity ports remains a product choice, not unfinished
@@ -1772,7 +1773,16 @@ The cost is everything around the port, and each of these is a real item:
 tablet or foldable with a pressure pen. True hinge-aware dual-pane UI and Android JXL/JP2 ABI packs
 remain separate optional scopes.
 
-### 5.3 - 3D model support (`Support modeles 3D`) - reference layer **DONE 2026-08-25**; live/UV modes gated
+### 5.3 - 3D model support (`Support modeles 3D`) - reference layer **DONE 2026-08-25**; UV painting **DONE 2026-10-27**; live mode gated
+
+Option (c), UV/texture painting, shipped 2026-10-27 at Sébastien's request: OBJ `vt` and glTF
+`TEXCOORD_0` are loaded (stored in image space, V down), the renderer samples a texture with
+repeat wrapping and returns a per-pixel UV map, and File > Paint on 3D Model opens the 3D Paint
+panel. The whole document is the texture: the panel shows the model wearing the canvas composite
+and refreshes as it changes; with "Paint on Model" a left drag paints the active layer at the
+texture coordinates under the pointer (one undo step per drag, wrapping across texture edges,
+clipped by the selection), and "UV Layout Layer" adds the UV wireframe as a guide layer. The model
+is view state and is not saved in `.kwp`. Option (b), a live scene graph, is still gated.
 
 Option (a), the recommended default, is shipped: OBJ/glTF/GLB import, camera pose, orthographic
 lighting, optional mesh edges and z-buffer rasterization into an ordinary undoable layer. It is pure

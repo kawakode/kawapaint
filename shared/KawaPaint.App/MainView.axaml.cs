@@ -144,6 +144,7 @@ public partial class MainView : UserControl
         ToggleHistory.Content = Icons.Create("PanelHistory", 15);
         ToggleTimeline.Content = Icons.Create("PanelTimeline", 15);
         ToggleDock.Content = Icons.Create("PanelDock", 15);
+        TogglePaint3D.Content = Icons.Create("Panel3D", 15);
 
         FloatToolsBtn.Content = Icons.Create("Float", 13);
         FloatColorsBtn.Content = Icons.Create("Float", 13);
@@ -152,6 +153,7 @@ public partial class MainView : UserControl
         FloatHistoryBtn.Content = Icons.Create("Float", 13);
         FloatTimelineBtn.Content = Icons.Create("Float", 13);
         FloatDockBtn.Content = Icons.Create("Float", 13);
+        FloatPaint3DBtn.Content = Icons.Create("Float", 13);
 
         _suppressFrames = true;
         ShowFramePreviewsCheck.IsChecked = _settings.Settings.Workspace.ShowFramePreviews;
@@ -196,6 +198,7 @@ public partial class MainView : UserControl
             _autosave = null;
         };
         SetupRulers();
+        SetupTexturePaint();
         BuildCommands();
         ApplyHistorySettings();
         ApplyDrawingSettings();
@@ -1524,6 +1527,21 @@ public partial class MainView : UserControl
             MinHeight = 100
         });
 
+        _panels.Register(new PanelDescriptor("Paint3D", "3D Paint", Paint3DBorder)
+        {
+            IconName = "Panel3D",
+            DockedChrome = new Control[] { Paint3DHeader },
+            // Hidden until a model is opened, then floating beside the canvas.
+            DefaultPlace = PanelPlace.Hidden,
+            DefaultDockSize = 340,
+            DefaultFloatX = 560,
+            DefaultFloatY = 90,
+            DefaultFloatWidth = 360,
+            DefaultFloatHeight = 440,
+            MinWidth = 260,
+            MinHeight = 300
+        });
+
         if (OperatingSystem.IsAndroid() && createdLayout)
         {
             // A phone is narrower than the desktop Color + Layers columns combined. Start with a
@@ -1536,6 +1554,7 @@ public partial class MainView : UserControl
             ConfigureMobilePlacement("History", PanelPlace.Hidden, floatWidth: 330, floatHeight: 560);
             ConfigureMobilePlacement("Timeline", PanelPlace.Hidden, floatWidth: 360, floatHeight: 300);
             ConfigureMobilePlacement("Dock", PanelPlace.Hidden, floatWidth: 330, floatHeight: 220);
+            ConfigureMobilePlacement("Paint3D", PanelPlace.Hidden, floatWidth: 330, floatHeight: 440);
         }
 
         _panels.LayoutChanged += (_, _) =>
@@ -1606,6 +1625,7 @@ public partial class MainView : UserControl
         ToggleHistory.IsChecked = _panels.IsVisible("History");
         ToggleTimeline.IsChecked = _panels.IsVisible("Timeline");
         ToggleDock.IsChecked = _panels.IsVisible("Dock");
+        TogglePaint3D.IsChecked = _panels.IsVisible("Paint3D");
 
         RefreshFloatButton(FloatToolsBtn, "Tools");
         RefreshFloatButton(FloatColorsBtn, "Colors");
@@ -1614,6 +1634,7 @@ public partial class MainView : UserControl
         RefreshFloatButton(FloatHistoryBtn, "History");
         RefreshFloatButton(FloatTimelineBtn, "Timeline");
         RefreshFloatButton(FloatDockBtn, "Dock");
+        RefreshFloatButton(FloatPaint3DBtn, "Paint3D");
     }
 
     private void RefreshFloatButton(ToggleButton btn, string id)

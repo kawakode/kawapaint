@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -81,14 +82,27 @@ public partial class MainView
             CsvData data = CsvData.Load(dialog.CsvPath!);
             using var snapshot = doc.Clone();
             string sourceName = _currentFile?.Name ?? _session?.DisplayName ?? "template.kwp";
-            var results = await Task.Run(() => MailMergeRunner.Run(snapshot, data, sourceName,
-                dialog.PresetName, preset, dialog.OutputFolder!, dialog.FilenamePattern, KawaPaint.App.Core.AppPaths.Root));
+            var progress = new BatchProgressDialog("Mail Merge", data.Rows.Count);
+            _ = progress.ShowDialog(owner);
+            IReadOnlyList<MailMergeRowResult> results;
+            try
+            {
+                results = await Task.Run(() => MailMergeRunner.Run(snapshot, data, sourceName,
+                    dialog.PresetName, preset, dialog.OutputFolder!, dialog.FilenamePattern, KawaPaint.App.Core.AppPaths.Root,
+                    (done, row) => progress.Report(done, $"row {row}"), progress.Token));
+            }
+            finally
+            {
+                progress.Finish();
+            }
             int failed = results.Count(r => r.Error is not null);
+            int skipped = data.Rows.Count - results.Count;
             string summary = string.Join(Environment.NewLine, results.Select(r => r.Error is null
                 ? $"OK row {r.RowNumber}: {Path.GetFileName(r.OutputPath)}"
                 : $"FAIL row {r.RowNumber}: {r.Error}"));
-            summary += $"{Environment.NewLine}{Environment.NewLine}{results.Count - failed}/{results.Count} image(s) created.";
-            StatusText.Text = $"Mail merge: {results.Count - failed}/{results.Count} created";
+            summary += $"{Environment.NewLine}{Environment.NewLine}{results.Count - failed}/{data.Rows.Count} image(s) created.";
+            if (skipped > 0) summary += $"{Environment.NewLine}Cancelled: {skipped} row(s) were not processed.";
+            StatusText.Text = $"Mail merge: {results.Count - failed}/{data.Rows.Count} created" + (skipped > 0 ? " (cancelled)" : "");
             await new BatchResultsDialog(summary).ShowDialog(owner);
         }
         catch (Exception ex) { StatusText.Text = "Mail merge failed: " + ex.Message; }

@@ -8,7 +8,8 @@ public static class MailMergeRunner
 {
     public static IReadOnlyList<MailMergeRowResult> Run(Document template, CsvData data,
         string sourceName, string presetName, ExportPreset preset, string outputFolder,
-        string filenamePattern, string? scriptBaseDirectory = null)
+        string filenamePattern, string? scriptBaseDirectory = null,
+        Action<int, int>? progress = null, CancellationToken cancellationToken = default)
     {
         if (template.DynamicTextZones.Count == 0)
             throw new InvalidOperationException("The template has no dynamic zones.");
@@ -21,20 +22,24 @@ public static class MailMergeRunner
                     throw new InvalidDataException($"Zone '{zone.Name}' refers to CSV field '{field}', but that header does not exist.");
 
         var results = new List<MailMergeRowResult>(data.Rows.Count);
-        var usedPatterns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Compared on the final file name: cleaning a name (dropping folders, replacing invalid
+        // characters) can make two different expansions collide.
+        var usedFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < data.Rows.Count; i++)
         {
+            // Stopping between rows keeps every written file whole; the caller sees fewer results
+            // than rows.
+            if (cancellationToken.IsCancellationRequested) break;
+            progress?.Invoke(i, i + 1);
             try
             {
                 using Document rendered = RenderRow(template, data.Rows[i], i + 1);
                 ExportPreset rowPreset = ClonePreset(preset);
                 rowPreset.FilenamePattern = Expand(filenamePattern, data.Rows[i], i + 1);
-                if (!usedPatterns.Add(rowPreset.FilenamePattern))
-                    throw new IOException("This row resolves to the same output filename as an earlier row. Add {row} or a unique CSV field to the filename pattern.");
                 if (rowPreset.PackageText is not null)
                     rowPreset.PackageText = Expand(rowPreset.PackageText, data.Rows[i], i + 1);
                 var result = PresetExporter.ExportFile(rendered, sourceName, presetName, rowPreset,
-                    outputFolder, scriptBaseDirectory);
+                    outputFolder, scriptBaseDirectory, usedFileNames);
                 results.Add(new MailMergeRowResult(i + 1, result.OutputPath, null));
             }
             catch (Exception ex) { results.Add(new MailMergeRowResult(i + 1, null, ex.Message)); }

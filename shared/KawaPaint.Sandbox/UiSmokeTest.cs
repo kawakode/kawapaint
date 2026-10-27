@@ -36,6 +36,7 @@ internal static class UiSmokeTest
         Check("undo recomposites the changed area", PartialUndoComposite);
         Check("gesture backdrop", GestureBackdrop);
         Check("batch overwrite keeps the original on failure", BatchOverwriteFailure);
+        Check("batch progress cancel and size memory warning", BatchProgressAndMemory);
         Check("modal shortcuts and focus", ModalInput);
         Check("inline text editing", InlineTextEditing);
         Check("adjustment cancellation", AdjustmentCancellation);
@@ -576,6 +577,41 @@ internal static class UiSmokeTest
 
     /// <summary>Issue #26: a batch result that cannot be encoded must leave the file it was going to
     /// overwrite exactly as it was, and a successful one must replace it completely.</summary>
+    private static void BatchProgressAndMemory()
+    {
+        var owner = new Window();
+        owner.Show();
+        try
+        {
+            var progress = new BatchProgressDialog("Batch", 3);
+            _ = progress.ShowDialog(owner);
+            Pump();
+            progress.Report(1, "b.png");
+            Pump();
+            Assert(progress.FindDescendantOfType<ProgressBar>()!.Value == 1, "progress did not advance");
+            progress.Close();
+            Pump();
+            Assert(progress.Token.IsCancellationRequested, "closing the progress window did not cancel the run");
+            Assert(progress.IsVisible, "the progress window closed before the run stopped");
+            progress.Finish();
+            Pump();
+            Assert(!progress.IsVisible, "Finish did not close the progress window");
+
+            var width = new NumericUpDown { Minimum = 1, Maximum = 20000, Value = 100 };
+            var height = new NumericUpDown { Minimum = 1, Maximum = 20000, Value = 100 };
+            var ok = new Button();
+            var note = new ImageMemoryNote(width, height, ok, layers: 1);
+            Assert(ok.IsEnabled && note.Text.Text!.Contains("MB"), $"small image flagged: {note.Text.Text}");
+            width.Value = 20000;
+            height.Value = 20000;
+            bool fits = KawaPaint.Engine.ImageMemory.Check(KawaPaint.Engine.ImageMemory.Estimate(20000, 20000, 1),
+                KawaPaint.Engine.ImageMemory.Budget) != KawaPaint.Engine.ImageMemoryFit.TooLarge;
+            Assert(note.Text.Text!.Contains("6.0 GB") && ok.IsEnabled == fits,
+                $"20000 x 20000 not reported: {note.Text.Text}, OK enabled {ok.IsEnabled}");
+        }
+        finally { owner.Close(); }
+    }
+
     private static void BatchOverwriteFailure()
     {
         string directory = Path.Combine(Path.GetTempPath(), "kawapaint-batch-" + Guid.NewGuid().ToString("N"));

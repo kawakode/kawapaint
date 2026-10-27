@@ -122,30 +122,51 @@ public partial class MainView
 
         StatusText.Text = $"Applying script to {targetFiles.Count} file(s)…";
         var results = new List<(string Name, string? Error, IReadOnlyList<ScriptStepResult> Steps)>();
-
-        foreach (var target in targetFiles)
+        var progress = new BatchProgressDialog("Batch Apply Script", targetFiles.Count);
+        _ = progress.ShowDialog(owner);
+        try
         {
-            Document? workingDoc = null;
-            try
+            // Decoding, the script and encoding run off the UI thread; only file access is awaited
+            // here. Cancelling stops between files, so no file is left half written.
+            foreach (var target in targetFiles)
             {
-                workingDoc = await DecodeAsync(target);
-                var steps = ScriptExecutor.Run(ref workingDoc, script, policy);
-                await SaveBatchResultAsync(workingDoc, target, options.InPlace ? null : options.OutputFolder!);
-                results.Add((target.Name, null, steps));
+                if (progress.Token.IsCancellationRequested) break;
+                progress.Report(results.Count, target.Name);
+                Document? workingDoc = null;
+                try
+                {
+                    workingDoc = await DecodeAsync(target);
+                    Document input = workingDoc;
+                    (workingDoc, var steps) = await Task.Run(() =>
+                    {
+                        Document doc = input;
+                        var steps = ScriptExecutor.Run(ref doc, script, policy);
+                        return (doc, steps);
+                    });
+                    await SaveBatchResultAsync(workingDoc, target, options.InPlace ? null : options.OutputFolder!);
+                    results.Add((target.Name, null, steps));
+                }
+                catch (Exception ex)
+                {
+                    results.Add((target.Name, ex.Message, Array.Empty<ScriptStepResult>()));
+                }
+                finally
+                {
+                    workingDoc?.Dispose();
+                }
             }
-            catch (Exception ex)
-            {
-                results.Add((target.Name, ex.Message, Array.Empty<ScriptStepResult>()));
-            }
-            finally
-            {
-                workingDoc?.Dispose();
-            }
+        }
+        finally
+        {
+            progress.Finish();
         }
 
         string summary = BuildResultsSummary(results);
         int failed = results.Count(r => r.Error is not null);
-        StatusText.Text = $"Batch apply: {results.Count - failed}/{results.Count} saved";
+        bool cancelled = results.Count < targetFiles.Count;
+        if (cancelled)
+            summary += $"{Environment.NewLine}Cancelled: {targetFiles.Count - results.Count} file(s) were not processed.";
+        StatusText.Text = $"Batch apply: {results.Count - failed}/{targetFiles.Count} saved" + (cancelled ? " (cancelled)" : "");
         await new BatchResultsDialog(summary).ShowDialog(owner);
     }
 
@@ -158,28 +179,38 @@ public partial class MainView
     /// </summary>
     private static async Task SaveBatchResultAsync(Document document, IStorageFile target, IStorageFolder? outputFolder)
     {
-        byte[] bytes;
-        using (var buffer = new MemoryStream())
+        byte[] bytes = await Task.Run(() =>
         {
+            using var buffer = new MemoryStream();
             Encode(document, buffer, target.Name);
-            bytes = buffer.ToArray();
-        }
+            return buffer.ToArray();
+        });
 
         if (outputFolder is null) await WriteInPlaceAsync(target, bytes);
         else await WriteCopyAsync(outputFolder, target.Name, bytes);
     }
 
-    private async Task<Document> DecodeAsync(IStorageFile file)
+    private static async Task<Document> DecodeAsync(IStorageFile file)
     {
-        await using var stream = await file.OpenReadAsync();
-        if (file.Name.EndsWith(DocumentFile.Extension, StringComparison.OrdinalIgnoreCase))
-            return DocumentFile.Load(stream);
+        var bytes = new MemoryStream();
+        await using (var stream = await file.OpenReadAsync())
+            await stream.CopyToAsync(bytes);
+        bytes.Position = 0;
+        string name = file.Name;
+        return await Task.Run(() =>
+        {
+            using (bytes)
+            {
+                if (name.EndsWith(DocumentFile.Extension, StringComparison.OrdinalIgnoreCase))
+                    return DocumentFile.Load(bytes);
 
-        using var surface = CodecRegistry.Decode(stream, file.Name);
-        var doc = new Document(surface.Width, surface.Height);
-        var layer = doc.AddLayer();
-        layer.Surface.CopyFrom(surface);
-        return doc;
+                using var surface = CodecRegistry.Decode(bytes, name);
+                var doc = new Document(surface.Width, surface.Height);
+                var layer = doc.AddLayer();
+                layer.Surface.CopyFrom(surface);
+                return doc;
+            }
+        });
     }
 
     private static void Encode(Document doc, Stream outStream, string name)

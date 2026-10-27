@@ -122,6 +122,10 @@
                 <MenuItem Header="_Invert" Click="OnInvertSelection" InputGesture="Ctrl+I" Icon="{app:Icon InvertSel}" />
                 <MenuItem Header="Deselect (Select _None)" Click="OnSelectNone" InputGesture="Ctrl+D" Icon="{app:Icon Deselect}" />
                 <Separator />
+                <MenuItem Header="_Grow Selection…" Click="OnGrowSelection" />
+                <MenuItem Header="Shrin_k Selection…" Click="OnShrinkSelection" />
+                <MenuItem Header="Fea_ther Selection…" Click="OnFeatherSelection" />
+                <Separator />
                 <MenuItem Header="Close _Path as Selection" Click="OnClosePenPath" InputGesture="Enter" Icon="{app:Icon Pen}" />
                 <MenuItem Header="Discard Pen Pat_h" Click="OnCancelPenPath" InputGesture="Escape" />
                 <Separator />
@@ -215,6 +219,8 @@
                 <MenuItem Header="_Resize…" Click="OnResize" Icon="{app:Icon Resize}" />
                 <MenuItem Header="_Canvas Size…" Click="OnCanvasSize" Icon="{app:Icon CanvasSize}" />
                 <MenuItem Header="_Crop to Selection" Click="OnCropToSelection" Icon="{app:Icon Crop}" />
+                <MenuItem Header="_Auto-Crop" Click="OnAutoCrop"
+                          ToolTip.Tip="Trim transparent borders, keeping every visible or hidden pixel" />
                 <Separator />
                 <MenuItem Header="Flip _Horizontal" Click="OnFlipH" Icon="{app:Icon FlipH}" />
                 <MenuItem Header="Flip _Vertical" Click="OnFlipV" Icon="{app:Icon FlipV}" />

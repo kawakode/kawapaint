@@ -130,6 +130,18 @@ public static class ScriptExecutor
                 return Ok();
             }
 
+            case "image.autocrop":
+            {
+                if (DocumentOps.ContentBounds(doc) is not { } content) return Skip("the image is fully transparent");
+                var (x, y, width, height) = content;
+                if (width == doc.Width && height == doc.Height) return Ok();
+                var trimmed = DocumentOps.Crop(doc, x, y, width, height);
+                doc.Dispose();
+                doc = trimmed;
+                currentLayer = Math.Clamp(currentLayer, 0, doc.LayerCount - 1);
+                return Ok();
+            }
+
             case "layer.rename":
                 if (!InRange(currentLayer, doc)) return Skip("no current layer");
                 if (step.StringArgs.Count < 1 || string.IsNullOrWhiteSpace(step.StringArgs[0]))

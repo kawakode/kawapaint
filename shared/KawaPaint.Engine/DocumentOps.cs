@@ -36,6 +36,36 @@ public static class DocumentOps
         return result;
     }
 
+    /// <summary>
+    /// Smallest rectangle holding every non-transparent pixel of every layer in every frame, for
+    /// Auto-Crop. Hidden layers count too, so cropping never cuts into content that is merely
+    /// switched off. Returns null when the whole document is transparent.
+    /// </summary>
+    public static unsafe (int X, int Y, int W, int H)? ContentBounds(Document doc)
+    {
+        int minX = doc.Width, minY = doc.Height, maxX = -1, maxY = -1;
+        foreach (DocumentFrame frame in doc.Frames)
+            foreach (Layer layer in frame.Layers)
+            {
+                Surface surface = layer.Surface;
+                for (int y = 0; y < surface.Height; y++)
+                {
+                    ColorBgra* row = (ColorBgra*)surface.GetRowPointer(y);
+                    int first = -1, last = -1;
+                    for (int x = 0; x < surface.Width; x++)
+                        if (row[x].A != 0) { first = x; break; }
+                    if (first < 0) continue;
+                    for (int x = surface.Width - 1; x >= first; x--)
+                        if (row[x].A != 0) { last = x; break; }
+                    if (first < minX) minX = first;
+                    if (last > maxX) maxX = last;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+        return maxX < 0 ? null : (minX, minY, maxX - minX + 1, maxY - minY + 1);
+    }
+
     /// <summary>Returns a new document scaled to (w,h); every layer is resampled.</summary>
     public static Document Resize(Document doc, int w, int h)
     {

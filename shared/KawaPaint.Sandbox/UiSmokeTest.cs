@@ -41,6 +41,7 @@ internal static class UiSmokeTest
         Check("resize by percentage and keep proportions", ResizeProportions);
         Check("selection changes are undoable", UndoableSelection);
         Check("rotate image dialog previews the new size", RotateImageDialogSize);
+        Check("grow, shrink and feather selection", SelectionModify);
         Check("modal shortcuts and focus", ModalInput);
         Check("inline text editing", InlineTextEditing);
         Check("adjustment cancellation", AdjustmentCancellation);
@@ -591,6 +592,32 @@ internal static class UiSmokeTest
         Assert(size.Text == "New size: 200 × 400" && dialog.ResultAngle == 90 && dialog.ResultExpand, "90°: " + size.Text);
         expand.IsChecked = false;
         Assert(size.Text == "New size: 400 × 200" && !dialog.ResultExpand, "kept canvas: " + size.Text);
+    }
+
+    private static void SelectionModify()
+    {
+        var previews = new List<int>();
+        var dialog = new SelectionRadiusDialog("Grow Selection", 4, previews.Add);
+        var radius = dialog.GetLogicalDescendants().OfType<NumericUpDown>().Single(n => n.Name == "SelectionRadius");
+        radius.Value = 7;
+        Assert(previews.LastOrDefault() == 7 && dialog.ResultRadius == 7, "radius change did not preview: " + string.Join(",", previews));
+        radius.Value = 9999;
+        Assert(dialog.ResultRadius == Selection.MaxModifyRadius, "radius was not capped: " + dialog.ResultRadius);
+
+        var canvas = new SurfaceView();
+        var document = new Document(80, 80);
+        document.AddLayer();
+        canvas.SetDocument(document);
+        canvas.ChangeSelection("Select", () => canvas.Selection!.ReplaceWithRectangle(30, 30, 50, 50));
+        canvas.ChangeSelection("Grow Selection", () => canvas.Selection!.Grow(5));
+        Assert(canvas.Selection!.GetBounds() == (25, 25, 30, 30), "grow: " + canvas.Selection.GetBounds());
+        canvas.ChangeSelection("Feather Selection", () => canvas.Selection!.Feather(4));
+        canvas.Undo();
+        canvas.Undo();
+        Assert(canvas.Selection.GetBounds() == (30, 30, 20, 20) && canvas.Selection.CoverageAt(30, 40) == 255,
+            "undo did not restore the square: " + canvas.Selection.GetBounds());
+        canvas.History.Clear();
+        document.Dispose();
     }
 
     private static void UndoableSelection()

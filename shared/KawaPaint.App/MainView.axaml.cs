@@ -840,6 +840,18 @@ public partial class MainView : UserControl
         StatusText.Text = $"Cropped to {w}×{h}";
     }
 
+    private void OnAutoCrop(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document;
+        if (doc is null) return;
+        if (DocumentOps.ContentBounds(doc) is not { } bounds) { StatusText.Text = "Auto-Crop: the image is fully transparent"; return; }
+        var (x, y, w, h) = bounds;
+        if (w == doc.Width && h == doc.Height) { StatusText.Text = "Auto-Crop: no transparent border to trim"; return; }
+        RecordAction("image.autocrop");
+        ApplyDocumentOp("Auto-Crop", d => DocumentOps.Crop(d, x, y, w, h));
+        StatusText.Text = $"Auto-cropped to {w}×{h}";
+    }
+
     private void OnFlipH(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         var doc = Canvas.Document; if (doc is null) return;
@@ -930,6 +942,50 @@ public partial class MainView : UserControl
         RecordAction("select.invert");
         Canvas.ChangeSelection("Invert Selection", () => Canvas.Selection?.Invert());
         StatusText.Text = "Selection inverted";
+    }
+
+    private int _selectionRadius = 4;
+
+    private void OnGrowSelection(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        => ModifySelectionAsync("Grow Selection", "select.grow", (s, r) => s.Grow(r));
+
+    private void OnShrinkSelection(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        => ModifySelectionAsync("Shrink Selection", "select.shrink", (s, r) => s.Shrink(r));
+
+    private void OnFeatherSelection(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        => ModifySelectionAsync("Feather Selection", "select.feather", (s, r) => s.Feather(r));
+
+    /// <summary>Asks for a radius with a live preview on the canvas, then commits the change as
+    /// one undo step. Cancel puts the selection back exactly as it was.</summary>
+    private async void ModifySelectionAsync(string name, string actionId, Action<Selection, int> modify)
+    {
+        if (Canvas.Selection is not { IsActive: true } selection) { StatusText.Text = name + " needs an active selection"; return; }
+        if (OwnerWindow is not { } owner) return;
+
+        var before = SelectionSnapshot.Capture(selection);
+        void Preview(int radius)
+        {
+            before.RestoreTo(selection);
+            modify(selection, radius);
+            Canvas.NotifySelectionChanged();
+        }
+
+        var dlg = new SelectionRadiusDialog(name, _selectionRadius, Preview);
+        bool ok = await dlg.ShowDialog<bool>(owner);
+        before.RestoreTo(selection);
+        Canvas.NotifySelectionChanged();
+        if (!ok) return;
+
+        _selectionRadius = dlg.ResultRadius;
+        RecordParameterizedAction(actionId, new double[] { _selectionRadius });
+        ModifySelection(name, modify, _selectionRadius);
+    }
+
+    private void ModifySelection(string name, Action<Selection, int> modify, int radius)
+    {
+        if (Canvas.Selection is not { IsActive: true } selection) return;
+        Canvas.ChangeSelection(name, () => modify(selection, radius));
+        StatusText.Text = $"{name}: {radius} px";
     }
 
     /// <summary>Spelled out in the status bar the moment the pen is picked: it is the one tool

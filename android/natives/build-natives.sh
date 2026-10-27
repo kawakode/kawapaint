@@ -62,13 +62,31 @@ for abi in $ABIS; do
     dest="$out/$abi"
     rm -rf "$dest"
     mkdir -p "$dest"
-    for name in libjxl.so libjxl_cms.so libhwy.so libbrotlicommon.so libbrotlidec.so libbrotlienc.so; do
-        cp "$(find "$work/build-jxl-$abi" -name "$name" -type f | head -n 1)" "$dest/"
-    done
-    cp "$(find "$work/build-opj-$abi" -name libopenjp2.so -type f | head -n 1)" "$dest/"
     triple=$(case "$abi" in arm64-v8a) echo aarch64-linux-android;; x86_64) echo x86_64-linux-android;;
              armeabi-v7a) echo arm-linux-androideabi;; x86) echo i686-linux-android;; esac)
-    cp "$ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/$triple/libc++_shared.so" "$dest/"
+    sysroot_lib="$ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/$triple"
+    # Copy each top-level library plus whatever it needs, transitively: which of libjxl's
+    # dependencies come out shared (Highway, Brotli, the CMS) depends on the libjxl version.
+    queue=(libjxl.so libopenjp2.so)
+    while ((${#queue[@]})); do
+        name="${queue[0]}"; queue=("${queue[@]:1}")
+        [[ -f "$dest/$name" ]] && continue
+        case "$name" in libc.so|libm.so|libdl.so|liblog.so) continue;; esac
+        if [[ "$name" == libc++_shared.so ]]; then
+            source="$sysroot_lib/$name"
+        else
+            source="$(find "$work/build-jxl-$abi" "$work/build-opj-$abi" -name "$name" -type f | head -n 1)"
+        fi
+        if [[ -z "$source" ]]; then
+            echo "$abi: $name is needed but was not built" >&2
+            find "$work/build-jxl-$abi" "$work/build-opj-$abi" -name '*.so*' -type f >&2
+            exit 1
+        fi
+        cp "$source" "$dest/$name"
+        while read -r needed; do queue+=("$needed"); done < <(
+            "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -d "$source" |
+            sed -n 's/.*Shared library: \[\(.*\)\]/\1/p')
+    done
     "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" --strip-unneeded "$dest"/*.so
 done
 

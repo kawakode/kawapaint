@@ -6,8 +6,9 @@ using System.Text.Json;
 namespace KawaPaint.Engine.ThreeD;
 
 /// <summary>Geometry-only glTF 2.0 reader for 3D reference rasterization. It accepts JSON glTF and
-/// binary GLB, embedded data URIs, and optional caller-resolved external buffers. Materials,
-/// textures, skins, morphs and animation do not survive a raster reference import and are ignored.</summary>
+/// binary GLB, embedded data URIs, and optional caller-resolved external buffers. TEXCOORD_0 is
+/// kept so the model can be texture-painted; materials, images, skins, morphs and animation are
+/// ignored.</summary>
 public static class GltfModelLoader
 {
     private const uint GlbMagic = 0x46546C67;
@@ -44,11 +45,13 @@ public static class GltfModelLoader
         List<byte[]> buffers = ReadBuffers(root, glbBinary, externalBufferResolver);
         var outputVertices = new List<Vector3>();
         var outputTriangles = new List<ModelTriangle>();
-        var reader = new GeometryReader(root, buffers, outputVertices, outputTriangles);
+        var outputTexCoords = new List<Vector2>();
+        var reader = new GeometryReader(root, buffers, outputVertices, outputTriangles, outputTexCoords);
         reader.ReadScene();
         if (outputVertices.Count == 0 || outputTriangles.Count == 0)
             throw new InvalidDataException("glTF contains no supported triangle geometry.");
-        return new ReferenceModel(outputVertices, outputTriangles);
+        return new ReferenceModel(outputVertices, outputTriangles,
+            reader.SawTexCoords ? outputTexCoords : null);
     }
 
     private static byte[] ReadAll(Stream stream)
@@ -145,12 +148,16 @@ public static class GltfModelLoader
         private readonly List<byte[]> _buffers;
         private readonly List<Vector3> _vertices;
         private readonly List<ModelTriangle> _triangles;
+        private readonly List<Vector2> _texCoords;
 
         public GeometryReader(JsonElement root, List<byte[]> buffers, List<Vector3> vertices,
-            List<ModelTriangle> triangles)
+            List<ModelTriangle> triangles, List<Vector2> texCoords)
         {
-            _root = root; _buffers = buffers; _vertices = vertices; _triangles = triangles;
+            _root = root; _buffers = buffers; _vertices = vertices; _triangles = triangles; _texCoords = texCoords;
         }
+
+        /// <summary>Whether any primitive carried TEXCOORD_0.</summary>
+        public bool SawTexCoords { get; private set; }
 
         public void ReadScene()
         {
@@ -222,6 +229,20 @@ public static class GltfModelLoader
                 _vertices.Add(transformed);
             }
 
+            // Kept parallel to _vertices; NaN marks a primitive without UVs (see ReferenceModel).
+            if (attributes.TryGetProperty("TEXCOORD_0", out JsonElement texCoordAccessor))
+            {
+                Vector2[] uv = ReadTexCoords(texCoordAccessor.GetInt32());
+                if (uv.Length != positions.Length)
+                    throw new InvalidDataException("glTF TEXCOORD_0 count does not match POSITION.");
+                _texCoords.AddRange(uv);
+                SawTexCoords = true;
+            }
+            else
+            {
+                for (int i = 0; i < positions.Length; i++) _texCoords.Add(new Vector2(float.NaN));
+            }
+
             uint[] indices = primitive.TryGetProperty("indices", out JsonElement indexAccessor)
                 ? ReadIndices(indexAccessor.GetInt32())
                 : Enumerable.Range(0, positions.Length).Select(i => (uint)i).ToArray();
@@ -265,6 +286,38 @@ public static class GltfModelLoader
                 if (!float.IsFinite(x) || !float.IsFinite(y) || !float.IsFinite(z))
                     throw new InvalidDataException("glTF POSITION contains a non-finite value.");
                 result[i] = new Vector3(x, y, z);
+            }
+            return result;
+        }
+
+        private Vector2[] ReadTexCoords(int accessorIndex)
+        {
+            Accessor a = GetAccessor(accessorIndex);
+            if (a.Type != "VEC2" || a.ComponentType is not (5126 or 5121 or 5123))
+                throw new InvalidDataException("glTF TEXCOORD_0 must use FLOAT or normalized unsigned VEC2 data.");
+            var result = new Vector2[a.Count];
+            for (int i = 0; i < result.Length; i++)
+            {
+                Vector2 uv;
+                if (a.ComponentType == 5126)
+                {
+                    ReadOnlySpan<byte> item = a.Item(i, 8);
+                    uv = new Vector2(Float(item), Float(item[4..]));
+                    if (!float.IsFinite(uv.X) || !float.IsFinite(uv.Y))
+                        throw new InvalidDataException("glTF TEXCOORD_0 contains a non-finite value.");
+                }
+                else if (a.ComponentType == 5121)
+                {
+                    ReadOnlySpan<byte> item = a.Item(i, 2);
+                    uv = new Vector2(item[0] / 255f, item[1] / 255f);
+                }
+                else
+                {
+                    ReadOnlySpan<byte> item = a.Item(i, 4);
+                    uv = new Vector2(BinaryPrimitives.ReadUInt16LittleEndian(item) / 65535f,
+                        BinaryPrimitives.ReadUInt16LittleEndian(item[2..]) / 65535f);
+                }
+                result[i] = uv;
             }
             return result;
         }

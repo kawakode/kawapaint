@@ -43,6 +43,7 @@ internal static class UiSmokeTest
         Check("rotate image dialog previews the new size", RotateImageDialogSize);
         Check("grow, shrink and feather selection", SelectionModify);
         Check("guides from rulers, snapping and pixel grid", RulerGuides);
+        Check("painting on a 3D model", TexturePaintPanel);
         Check("modal shortcuts and focus", ModalInput);
         Check("inline text editing", InlineTextEditing);
         Check("adjustment cancellation", AdjustmentCancellation);
@@ -593,6 +594,54 @@ internal static class UiSmokeTest
         Assert(size.Text == "New size: 200 × 400" && dialog.ResultAngle == 90 && dialog.ResultExpand, "90°: " + size.Text);
         expand.IsChecked = false;
         Assert(size.Text == "New size: 400 × 200" && !dialog.ResultExpand, "kept canvas: " + size.Text);
+    }
+
+    private static void TexturePaintPanel()
+    {
+        WithView(1100, 760, (view, window) =>
+        {
+            var canvas = view.FindControl<SurfaceView>("Canvas")!;
+            var doc = new Document(64, 64);
+            Layer layer = doc.AddLayer();
+            layer.Surface.ClearRect(0, 0, 32, 64, ColorBgra.FromBgra(40, 60, 220, 255));
+            canvas.SetDocument(doc);
+            canvas.SetActiveLayer(layer);
+            canvas.RenderComposite();
+            Pump();
+
+            var mesh = KawaPaint.Engine.ThreeD.ObjMesh.Parse(new StringReader(
+                "v -1 -1 0\nv 1 -1 0\nv 1 1 0\nv -1 1 0\nvt 0 0\nvt 1 0\nvt 1 1\nvt 0 1\nf 1/1 2/2 3/3 4/4\n"));
+            Invoke(view, "ShowPaintModel", mesh, "plane.obj");
+            Pump();
+            var preview = view.FindControl<ModelPreview>("Paint3DView")!;
+            Assert(preview.IsEffectivelyVisible && preview.Bounds.Width > 100, "3D Paint panel did not open: " + preview.Bounds);
+            preview.RenderModel();
+            var centre = new Point(preview.Bounds.Width / 2, preview.Bounds.Height / 2);
+            Assert(preview.TryGetTexCoord(centre, out var uv) && Math.Abs(uv.X - 0.5) < 0.15 && Math.Abs(uv.Y - 0.5) < 0.15,
+                "the middle of the model should show the middle of the texture: " + uv);
+
+            // A drag across the model paints the active layer as one undo step.
+            canvas.BrushColor = ColorBgra.FromBgra(0, 200, 0, 255);
+            canvas.BrushWidth = 6;
+            int before = canvas.History.Count;
+            var start = preview.TranslatePoint(centre - new Vector(20, 0), window)!.Value;
+            var end = preview.TranslatePoint(centre + new Vector(20, 0), window)!.Value;
+            window.MouseDown(start, MouseButton.Left);
+            window.MouseMove(end, RawInputModifiers.LeftMouseButton);
+            window.MouseUp(end, MouseButton.Left);
+            Pump();
+            Assert(layer.Surface[32, 32].G == 200, "painting on the model did not reach the texture centre: " + layer.Surface[32, 32]);
+            Assert(canvas.History.Count == before + 1, "a paint drag should be one undo step");
+            Screenshot(window, "texture-paint");
+            canvas.Undo();
+            Assert(layer.Surface[32, 32].A == 0, "undo did not remove the 3D paint");
+
+            // The UV layout becomes a layer of its own.
+            view.GetLogicalDescendants().OfType<Button>().Single(b => b.Name == "Paint3DUvLayoutBtn")
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump();
+            Assert(doc.LayerCount == 2 && doc.Layers[1].Name == "UV Layout", "UV layout layer was not added");
+        });
     }
 
     private static void RulerGuides()

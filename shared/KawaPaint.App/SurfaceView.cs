@@ -242,6 +242,13 @@ public sealed partial class SurfaceView : Control
     /// </summary>
     public int CompositeVersion { get; private set; }
 
+    /// <summary>The flattened image of the active frame, as shown on screen. Read-only use only:
+    /// the 3D paint preview samples it as the model's texture.</summary>
+    public Surface? Composite => _composite;
+
+    /// <summary>Raised whenever <see cref="Composite"/> is re-rendered, whole or in part.</summary>
+    public event Action? CompositeChanged;
+
     /// <summary>Preview-cache key that is stable while frames are merely selected or played.</summary>
     public int FrameContentVersion(DocumentFrame frame) =>
         _frameContentVersions.TryGetValue(frame, out int version) ? version : 0;
@@ -253,6 +260,7 @@ public sealed partial class SurfaceView : Control
     {
         if (_document is null || _composite is null) return;
         CompositeVersion++;
+        CompositeChanged?.Invoke();
         if (contentChanged)
             _frameContentVersions[_document.ActiveFrame] = FrameContentVersion(_document.ActiveFrame) + 1;
         RenderDocument(0, 0, _composite.Width, _composite.Height, mayBuildBackdrop: true);
@@ -269,6 +277,7 @@ public sealed partial class SurfaceView : Control
         int bottom = (int)Math.Clamp((long)y + height, 0, _document.Height);
         if (right <= left || bottom <= top) return;
         CompositeVersion++;
+        CompositeChanged?.Invoke();
         _frameContentVersions[_document.ActiveFrame] = FrameContentVersion(_document.ActiveFrame) + 1;
         RenderDocument(left, top, right - left, bottom - top, mayBuildBackdrop: false);
         RefreshBitmap(left, top, right - left, bottom - top);

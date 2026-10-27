@@ -65,6 +65,8 @@
                 <MenuItem Header="Open _Project…" Click="OnOpenProject" InputGesture="Ctrl+Shift+O" Icon="{app:Icon OpenProject}" />
                 <MenuItem Header="Import _3D Reference..." Click="OnImport3DReference"
                           ToolTip.Tip="Rasterize an OBJ, glTF or GLB model into a normal layer" />
+                <MenuItem Header="Paint on 3D _Model…" Click="OnOpenPaintModel"
+                          ToolTip.Tip="Open a UV-mapped model in the 3D Paint panel, textured with this image" />
                 <MenuItem x:Name="RecentFilesMenu" Header="_Recent Files">
                     <MenuItem Header="(none yet)" IsEnabled="False" />
                 </MenuItem>
@@ -201,6 +203,12 @@
                         <MenuItem Header="Bottom" Tag="Timeline:Bottom" Click="OnPanelPlace" />
                         <MenuItem Header="Floating" Tag="Timeline:Floating" Click="OnPanelPlace" />
                         <MenuItem Header="Hidden" Tag="Timeline:Hidden" Click="OnPanelPlace" />
+                    </MenuItem>
+                    <MenuItem Header="3D Paint">
+                        <MenuItem Header="Left" Tag="Paint3D:Left" Click="OnPanelPlace" />
+                        <MenuItem Header="Right" Tag="Paint3D:Right" Click="OnPanelPlace" />
+                        <MenuItem Header="Floating" Tag="Paint3D:Floating" Click="OnPanelPlace" />
+                        <MenuItem Header="Hidden" Tag="Paint3D:Hidden" Click="OnPanelPlace" />
                     </MenuItem>
                     <MenuItem Header="Dock">
                         <MenuItem Header="Left" Tag="Dock:Left" Click="OnPanelPlace" />
@@ -344,6 +352,8 @@
                           ToolTip.Tip="Show/hide the Timeline panel" />
             <ToggleButton x:Name="ToggleDock" Classes="paneltoggle" Tag="Dock" Click="OnPanelToggle"
                           ToolTip.Tip="Show/hide the custom dock" />
+            <ToggleButton x:Name="TogglePaint3D" Classes="paneltoggle" Tag="Paint3D" Click="OnPanelToggle"
+                          ToolTip.Tip="Show/hide the 3D Paint panel" />
         </StackPanel>
         </WrapPanel>
         <Border DockPanel.Dock="Top" Background="#282828" Padding="8,5">
@@ -582,6 +592,31 @@
                     </StackPanel>
                 </Button>
                 <ListBox x:Name="HistoryList" Background="#1E1E1E" SelectionChanged="OnHistorySelected" />
+            </DockPanel>
+        </Border>
+
+        <!-- 3D Paint: a model wearing the image as its texture; floating, hidden until a model is opened. -->
+        <Border x:Name="Paint3DBorder" DockPanel.Dock="Right" Width="340" Background="#262626" BorderBrush="#404040" BorderThickness="1,0,0,0">
+            <DockPanel Margin="6">
+                <Grid x:Name="Paint3DHeader" DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="2,2,2,6">
+                    <TextBlock Text="3D Paint" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
+                    <ToggleButton x:Name="FloatPaint3DBtn" Grid.Column="1" Padding="4,0" Tag="Paint3D" Click="OnPanelFloatToggle" />
+                    <Button Grid.Column="2" Content="{app:Icon Close}" Padding="4,0" Tag="Paint3D:Hidden" Click="OnPanelPlace"
+                            ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                </Grid>
+                <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                    <Button x:Name="Paint3DOpenBtn" Content="Open Model…" Click="OnOpenPaintModel" Margin="0,0,4,4"
+                            ToolTip.Tip="OBJ, glTF or GLB with texture coordinates (UVs)" />
+                    <ToggleButton x:Name="Paint3DPaintToggle" Content="Paint on Model" Click="OnTogglePaintOnModel" Margin="0,0,4,4"
+                                  ToolTip.Tip="Left-drag paints the active layer through the model; right-drag still turns it" />
+                    <Button x:Name="Paint3DUvLayoutBtn" Content="UV Layout Layer" Click="OnAddUvLayoutLayer" Margin="0,0,4,4"
+                            ToolTip.Tip="Add a layer showing where each face sits on the texture" />
+                    <Button Content="Reset View" Click="OnResetPaintModelView" Margin="0,0,4,4" />
+                </WrapPanel>
+                <TextBlock x:Name="Paint3DStatus" DockPanel.Dock="Bottom" Foreground="#909090" FontSize="11"
+                           TextWrapping="Wrap" Margin="2,6,2,2"
+                           Text="The whole image is the model's texture: paint here or on the canvas." />
+                <app:ModelPreview x:Name="Paint3DView" MinHeight="200" />
             </DockPanel>
         </Border>
 

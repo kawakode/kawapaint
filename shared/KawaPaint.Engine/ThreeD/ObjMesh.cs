@@ -3,9 +3,17 @@ using System.Numerics;
 
 namespace KawaPaint.Engine.ThreeD;
 
-public readonly record struct ObjTriangle(int A, int B, int C, int NA = -1, int NB = -1, int NC = -1);
+public readonly record struct ObjTriangle(int A, int B, int C, int NA = -1, int NB = -1, int NC = -1,
+    int TA = -1, int TB = -1, int TC = -1)
+{
+    /// <summary>True when all three corners carry a texture coordinate.</summary>
+    public bool HasTexCoords => TA >= 0 && TB >= 0 && TC >= 0;
+}
 
-/// <summary>A deliberately small, dependency-free OBJ mesh: positions, normals and triangulated faces.</summary>
+/// <summary>A deliberately small, dependency-free OBJ mesh: positions, normals, texture coordinates
+/// and triangulated faces. Texture coordinates are stored in image space - (0,0) is the texture's
+/// top-left corner and V grows downwards - so OBJ's bottom-up V is flipped on load, while glTF's
+/// already matches.</summary>
 public sealed class ObjMesh
 {
     private const int MaxVertices = 5_000_000;
@@ -14,15 +22,23 @@ public sealed class ObjMesh
     public IReadOnlyList<Vector3> Vertices { get; }
     public IReadOnlyList<Vector3> Normals { get; }
     public IReadOnlyList<ObjTriangle> Triangles { get; }
+    public IReadOnlyList<Vector2> TexCoords { get; }
 
-    private ObjMesh(List<Vector3> vertices, List<Vector3> normals, List<ObjTriangle> triangles)
+    /// <summary>Whether any face is UV-mapped, i.e. whether the mesh can show a painted texture.</summary>
+    public bool HasTexCoords { get; }
+
+    private ObjMesh(List<Vector3> vertices, List<Vector3> normals, List<ObjTriangle> triangles,
+        List<Vector2>? texCoords = null)
     {
         Vertices = vertices;
         Normals = normals;
         Triangles = triangles;
+        TexCoords = texCoords ?? new List<Vector2>();
+        HasTexCoords = TexCoords.Count > 0 && triangles.Any(t => t.HasTexCoords);
     }
 
-    public static ObjMesh Create(IEnumerable<Vector3> vertices, IEnumerable<ObjTriangle> triangles)
+    public static ObjMesh Create(IEnumerable<Vector3> vertices, IEnumerable<ObjTriangle> triangles,
+        IEnumerable<Vector2>? texCoords = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(triangles);
@@ -39,7 +55,12 @@ public sealed class ObjMesh
             if ((uint)triangle.A >= (uint)vertexList.Count || (uint)triangle.B >= (uint)vertexList.Count ||
                 (uint)triangle.C >= (uint)vertexList.Count)
                 throw new ArgumentException("Mesh triangle index is out of range.", nameof(triangles));
-        return new ObjMesh(vertexList, new List<Vector3>(), triangleList);
+        var texCoordList = texCoords?.ToList() ?? new List<Vector2>();
+        foreach (ObjTriangle triangle in triangleList)
+            if (triangle.HasTexCoords && ((uint)triangle.TA >= (uint)texCoordList.Count ||
+                (uint)triangle.TB >= (uint)texCoordList.Count || (uint)triangle.TC >= (uint)texCoordList.Count))
+                throw new ArgumentException("Mesh texture coordinate index is out of range.", nameof(triangles));
+        return new ObjMesh(vertexList, new List<Vector3>(), triangleList, texCoordList);
     }
 
     public static ObjMesh Load(Stream stream)
@@ -54,6 +75,7 @@ public sealed class ObjMesh
         ArgumentNullException.ThrowIfNull(reader);
         var vertices = new List<Vector3>();
         var normals = new List<Vector3>();
+        var texCoords = new List<Vector2>();
         var triangles = new List<ObjTriangle>();
         string? line;
         int lineNumber = 0;
@@ -84,40 +106,51 @@ public sealed class ObjMesh
                     Number(parts[3], lineNumber));
                 normals.Add(normal.LengthSquared() > 1e-20f ? Vector3.Normalize(normal) : Vector3.UnitZ);
             }
+            else if (parts[0] == "vt")
+            {
+                if (parts.Length < 2) throw Error(lineNumber, "texture coordinate needs at least u");
+                if (texCoords.Count >= MaxVertices) throw Error(lineNumber, $"texture coordinate limit ({MaxVertices:N0}) exceeded");
+                float v = parts.Length >= 3 ? Number(parts[2], lineNumber) : 0;
+                texCoords.Add(new Vector2(Number(parts[1], lineNumber), 1 - v));
+            }
             else if (parts[0] == "f")
             {
                 if (parts.Length < 4) throw Error(lineNumber, "face needs at least three vertices");
-                var corners = new (int Vertex, int Normal)[parts.Length - 1];
+                var corners = new (int Vertex, int TexCoord, int Normal)[parts.Length - 1];
                 for (int i = 1; i < parts.Length; i++)
-                    corners[i - 1] = ParseCorner(parts[i], vertices.Count, normals.Count, lineNumber);
+                    corners[i - 1] = ParseCorner(parts[i], vertices.Count, texCoords.Count, normals.Count, lineNumber);
 
                 for (int i = 1; i + 1 < corners.Length; i++)
                 {
                     if (triangles.Count >= MaxTriangles)
                         throw Error(lineNumber, $"triangle limit ({MaxTriangles:N0}) exceeded");
                     triangles.Add(new ObjTriangle(corners[0].Vertex, corners[i].Vertex, corners[i + 1].Vertex,
-                        corners[0].Normal, corners[i].Normal, corners[i + 1].Normal));
+                        corners[0].Normal, corners[i].Normal, corners[i + 1].Normal,
+                        corners[0].TexCoord, corners[i].TexCoord, corners[i + 1].TexCoord));
                 }
             }
         }
 
         if (vertices.Count == 0) throw new InvalidDataException("OBJ contains no vertices.");
         if (triangles.Count == 0) throw new InvalidDataException("OBJ contains no faces.");
-        return new ObjMesh(vertices, normals, triangles);
+        return new ObjMesh(vertices, normals, triangles, texCoords);
     }
 
-    private static (int Vertex, int Normal) ParseCorner(string token, int vertexCount, int normalCount,
-        int lineNumber)
+    private static (int Vertex, int TexCoord, int Normal) ParseCorner(string token, int vertexCount,
+        int texCoordCount, int normalCount, int lineNumber)
     {
         string[] fields = token.Split('/');
         if (fields.Length > 3 || fields[0].Length == 0)
             throw Error(lineNumber, $"invalid face corner '{token}'");
 
         int vertex = ResolveIndex(fields[0], vertexCount, "vertex", lineNumber);
+        int texCoord = fields.Length >= 2 && fields[1].Length > 0
+            ? ResolveIndex(fields[1], texCoordCount, "texture coordinate", lineNumber)
+            : -1;
         int normal = fields.Length == 3 && fields[2].Length > 0
             ? ResolveIndex(fields[2], normalCount, "normal", lineNumber)
             : -1;
-        return (vertex, normal);
+        return (vertex, texCoord, normal);
     }
 
     private static int ResolveIndex(string text, int count, string kind, int lineNumber)

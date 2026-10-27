@@ -22,38 +22,15 @@ public partial class MainView
         if (doc is null) return;
         RecordSkipped("Import 3D Reference");
 
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "Import a 3D reference model",
-            AllowMultiple = false,
-            FileTypeFilter = new[] { ReferenceModelFileType }
-        });
-        var file = files.FirstOrDefault();
-        if (file is null) return;
-
         try
         {
-            byte[] bytes;
-            await using (Stream source = await file.OpenReadAsync())
-            {
-                using var buffer = new MemoryStream();
-                await source.CopyToAsync(buffer);
-                bytes = buffer.ToArray();
-            }
-
-            string extension = System.IO.Path.GetExtension(file.Name);
-            ObjMesh mesh = await Task.Run(() =>
-            {
-                using var stream = new MemoryStream(bytes, writable: false);
-                return extension.Equals(".obj", StringComparison.OrdinalIgnoreCase)
-                    ? ObjMesh.Load(stream)
-                    : GltfModelLoader.Load(stream, ExternalBufferResolver(file)).ToRenderMesh();
-            });
+            if (await PickModelAsync("Import a 3D reference model") is not { } picked) return;
+            var (mesh, fileName) = picked;
 
             ReferenceRenderOptions options = new();
             if (OwnerWindow is { } owner)
             {
-                var dialog = new ThreeDImportDialog(mesh, file.Name);
+                var dialog = new ThreeDImportDialog(mesh, fileName);
                 if (!await dialog.ShowDialog<bool>(owner)) return;
                 options = dialog.ResultOptions;
             }
@@ -67,7 +44,7 @@ public partial class MainView
             }
 
             var layer = new Layer(rendered,
-                System.IO.Path.GetFileNameWithoutExtension(file.Name) + " 3D reference");
+                System.IO.Path.GetFileNameWithoutExtension(fileName) + " 3D reference");
             try { doc.AddLayer(layer); }
             catch { layer.Dispose(); throw; }
             Canvas.SetActiveLayer(layer);
@@ -83,6 +60,39 @@ public partial class MainView
         {
             StatusText.Text = "3D import failed: " + ex.Message;
         }
+    }
+
+    /// <summary>Asks for an OBJ/glTF/GLB file and loads it off the UI thread. Null when the user
+    /// cancels; load errors propagate to the caller.</summary>
+    private async Task<(ObjMesh Mesh, string FileName)?> PickModelAsync(string title)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = title,
+            AllowMultiple = false,
+            FileTypeFilter = new[] { ReferenceModelFileType }
+        });
+        var file = files.FirstOrDefault();
+        if (file is null) return null;
+
+        byte[] bytes;
+        await using (Stream source = await file.OpenReadAsync())
+        {
+            using var buffer = new MemoryStream();
+            await source.CopyToAsync(buffer);
+            bytes = buffer.ToArray();
+        }
+
+        string extension = System.IO.Path.GetExtension(file.Name);
+        var resolver = ExternalBufferResolver(file);
+        ObjMesh mesh = await Task.Run(() =>
+        {
+            using var stream = new MemoryStream(bytes, writable: false);
+            return extension.Equals(".obj", StringComparison.OrdinalIgnoreCase)
+                ? ObjMesh.Load(stream)
+                : GltfModelLoader.Load(stream, resolver).ToRenderMesh();
+        });
+        return (mesh, file.Name);
     }
 
     private static Func<string, byte[]?>? ExternalBufferResolver(IStorageFile modelFile)

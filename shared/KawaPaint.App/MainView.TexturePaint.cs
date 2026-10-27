@@ -49,7 +49,7 @@ public partial class MainView
     internal void ShowPaintModel(ObjMesh mesh, string name)
     {
         Paint3DView.Mesh = mesh;
-        if (!_panels.IsVisible("Paint3D")) _panels.SetPlace("Paint3D", PanelPlace.Floating);
+        if (!_panels.IsVisible("Paint3D")) _panels.ToggleVisible("Paint3D");
         Paint3DPaintToggle.IsChecked = mesh.HasTexCoords;
         Paint3DView.PaintMode = mesh.HasTexCoords;
         UpdatePaint3DControls();

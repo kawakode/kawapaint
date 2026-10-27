@@ -2,6 +2,7 @@ using System.Reflection;
 using Pointer = Avalonia.Input.Pointer;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -52,6 +53,8 @@ internal static class UiSmokeTest
         Check("small dialog layout", DialogLayout);
         Check("narrow palette layout", PaletteLayout);
         Check("narrow menu layout", MenuLayout);
+        Check("tablet interface", TabletInterface);
+        Check("phone interface", PhoneInterface);
         if (failures.Count > 0) throw new Exception(string.Join(Environment.NewLine, failures));
         Console.WriteLine("UI SMOKE OK - drawing history, modal input, adjustment cancellation and responsive layout");
 
@@ -710,6 +713,82 @@ internal static class UiSmokeTest
                 for (int x = 140; x < 260; x++)
                     untouched &= pixels[x, y].A == 0;
             Assert(untouched, "the pinch drew on the canvas");
+        });
+    }
+
+    private static void WithInterface(string choice, int width, int height, Action<MainView, Window> test)
+    {
+        var workspace = SettingsService.Instance.Settings.Workspace;
+        string before = workspace.Interface;
+        bool rulers = workspace.ShowRulers;
+        workspace.Interface = choice;
+        try { WithView(width, height, test); }
+        finally
+        {
+            workspace.Interface = before;
+            workspace.ShowRulers = rulers;
+            workspace.ActiveLayout = "Default";
+        }
+    }
+
+    private static void TabletInterface()
+    {
+        WithInterface("Tablet", 1280, 800, (view, window) =>
+        {
+            var doc = new Document(1600, 1000);
+            doc.AddLayer().Surface.Clear(ColorBgra.White);
+            view.FindControl<SurfaceView>("Canvas")!.SetDocument(doc);
+            Pump();
+            Assert(view.CurrentFormFactor == FormFactor.Tablet, "interface is " + view.CurrentFormFactor);
+            var tools = view.FindControl<Border>("ToolsBorder")!;
+            var layers = view.FindControl<Border>("LayersBorder")!;
+            Assert(tools.IsEffectivelyVisible && tools.Bounds.X < 1, "tools are not docked left: " + tools.Bounds);
+            Assert(layers.IsEffectivelyVisible && layers.Bounds.X > 700, "layers are not docked right: " + layers.Bounds);
+            var toolButton = view.FindControl<StackPanel>("ToolPalette")!.GetLogicalDescendants().OfType<ToggleButton>().First();
+            Assert(toolButton.Bounds.Width >= 40, "tool buttons are too small for a finger: " + toolButton.Bounds);
+            Assert(view.FindControl<RulerBar>("HRuler")!.Bounds.Height < 1, "rulers are shown on a tablet");
+            Screenshot(window, "tablet");
+        });
+    }
+
+    private static void PhoneInterface()
+    {
+        WithInterface("Phone", 412, 915, (view, window) =>
+        {
+            var canvas = view.FindControl<SurfaceView>("Canvas")!;
+            var doc = new Document(1080, 1440);
+            doc.AddLayer().Surface.Clear(ColorBgra.White);
+            canvas.SetDocument(doc);
+            Pump();
+            Assert(view.CurrentFormFactor == FormFactor.Phone, "interface is " + view.CurrentFormFactor);
+            Assert(view.FindControl<Menu>("MainMenu")!.Items.Count == 1, "the menus were not folded into one button");
+
+            // Tools along the bottom, one row, the canvas taking the full width above them.
+            var tools = view.FindControl<Border>("ToolsBorder")!;
+            var toolsTop = tools.TranslatePoint(default, window)!.Value.Y;
+            Assert(toolsTop > 780 && tools.Bounds.Width > 400, $"tools are not a bottom strip: {toolsTop} {tools.Bounds}");
+            Assert(tools.Bounds.Height < 80, "the tool strip wraps: " + tools.Bounds);
+            Assert(canvas.Bounds.Width > 400, "the canvas does not get the full width: " + canvas.Bounds);
+            Assert(view.FindControl<Border>("OptionsBar")!.Bounds.Height < 70, "the tool options wrap");
+            Screenshot(window, "phone");
+
+            // A panel opens as a bottom sheet; a second one replaces it.
+            var layersToggle = view.FindControl<ToggleButton>("ToggleLayers")!;
+            layersToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump();
+            var layers = view.FindControl<Border>("LayersBorder")!;
+            var sheet = layers.GetVisualAncestors().OfType<Border>().Last(b => b.Parent is Panel { Name: "FloatingLayer" });
+            var sheetTop = sheet.TranslatePoint(default, window)!.Value.Y;
+            Assert(layers.IsEffectivelyVisible && sheet.Bounds.Width >= 410 && sheet.Bounds.Bottom >= 913,
+                $"layers did not open as a bottom sheet: {sheet.Bounds}");
+            Assert(sheetTop > 300, "the sheet covers too much of the canvas: " + sheetTop);
+            Screenshot(window, "phone-layers");
+
+            view.FindControl<ToggleButton>("ToggleColorWheel")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump();
+            Assert(!layers.IsEffectivelyVisible && view.FindControl<Border>("ColorWheelBorder")!.IsEffectivelyVisible,
+                "opening a second sheet did not replace the first");
+            Screenshot(window, "phone-color");
         });
     }
 

@@ -90,6 +90,7 @@ public partial class MainView : UserControl
     public MainView()
     {
         InitializeComponent();
+        InitializeFormFactor();
         InitializeTextEditing();
 
         _valueCursorBrush = this.Resources["ValueSliderCursorBrush"] as SolidColorBrush;
@@ -1435,7 +1436,10 @@ public partial class MainView : UserControl
     private void BuildPanelManager()
     {
         var workspace = _settings.Settings.Workspace;
-        if (OperatingSystem.IsAndroid()) workspace.ActiveLayout = "Mobile";
+        // Each interface keeps its own arrangement: a desktop layout makes no sense on a phone,
+        // and trying the tablet interface on a desktop must not overwrite the desktop one.
+        if (FormFactorLayoutName is { } formLayout) workspace.ActiveLayout = formLayout;
+        else if (IsFormFactorLayoutName(workspace.ActiveLayout)) workspace.ActiveLayout = "Default";
 
         bool createdLayout = !workspace.Layouts.TryGetValue(workspace.ActiveLayout, out var layout) || layout is null;
         if (createdLayout)
@@ -1449,7 +1453,8 @@ public partial class MainView : UserControl
         _panels.Register(new PanelDescriptor("Tools", "Tools", ToolsBorder)
         {
             IconName = "PanelTools",
-            DockedChrome = new Control[] { ToolsHeader },
+            // The phone's tool strip is always there, so it has no float/hide buttons to show.
+            DockedChrome = _formFactor == FormFactor.Phone ? Array.Empty<Control>() : new Control[] { ToolsHeader },
             DefaultPlace = PanelPlace.Left,
             DefaultDockSize = 70,
             DefaultFloatX = 90,
@@ -1543,20 +1548,7 @@ public partial class MainView : UserControl
             MinHeight = 300
         });
 
-        if (OperatingSystem.IsAndroid() && createdLayout)
-        {
-            // A phone is narrower than the desktop Color + Layers columns combined. Start with a
-            // useful canvas and the vertical tool rail; every other panel remains one tap away in
-            // the top-right panel toggles and opens as a movable overlay.
-            ConfigureMobilePlacement("Tools", PanelPlace.Left, 70);
-            ConfigureMobilePlacement("Colors", PanelPlace.Hidden);
-            ConfigureMobilePlacement("ColorWheel", PanelPlace.Hidden, floatWidth: 300, floatHeight: 520);
-            ConfigureMobilePlacement("Layers", PanelPlace.Hidden, floatWidth: 330, floatHeight: 560);
-            ConfigureMobilePlacement("History", PanelPlace.Hidden, floatWidth: 330, floatHeight: 560);
-            ConfigureMobilePlacement("Timeline", PanelPlace.Hidden, floatWidth: 360, floatHeight: 300);
-            ConfigureMobilePlacement("Dock", PanelPlace.Hidden, floatWidth: 330, floatHeight: 220);
-            ConfigureMobilePlacement("Paint3D", PanelPlace.Hidden, floatWidth: 330, floatHeight: 440);
-        }
+        if (createdLayout) ApplyFormFactorLayout();
 
         _panels.LayoutChanged += (_, _) =>
         {
@@ -1566,20 +1558,6 @@ public partial class MainView : UserControl
 
         _panels.Apply();
         RefreshPanelToggleButtons();
-
-        void ConfigureMobilePlacement(string id, PanelPlace place, double dockSize = double.NaN,
-            double floatWidth = double.NaN, double floatHeight = double.NaN)
-        {
-            var placement = _panels.PlacementOf(id);
-            placement.Place = place;
-            placement.LastShown = place == PanelPlace.Hidden ? PanelPlace.Floating : place;
-            placement.LastDock = id == "Tools" ? PanelPlace.Left : PanelPlace.Right;
-            placement.DockSize = dockSize;
-            placement.FloatX = 36;
-            placement.FloatY = 72;
-            placement.FloatWidth = floatWidth;
-            placement.FloatHeight = floatHeight;
-        }
     }
 
     private void OnPanelPlace(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -1875,6 +1853,11 @@ public partial class MainView : UserControl
         var fresh = new WorkspaceLayout();
         _settings.Settings.Workspace.Layouts[_settings.Settings.Workspace.ActiveLayout] = fresh;
         _panels.SetLayout(fresh);
+        if (_formFactor != FormFactor.Desktop)
+        {
+            ApplyFormFactorLayout();
+            _panels.Apply();
+        }
         RefreshPanelToggleButtons();
         PersistLayout();
     }
@@ -2501,9 +2484,9 @@ public partial class MainView : UserControl
                 var btn = new ToggleButton
                 {
                     Content = Icons.Create(key),
-                    Width = 28,
-                    Height = 28,
-                    Padding = new Thickness(3),
+                    Width = ToolButtonSize,
+                    Height = ToolButtonSize,
+                    Padding = new Thickness(ToolButtonPadding),
                     Margin = new Thickness(1),
                     Tag = key
                 };
@@ -2520,9 +2503,9 @@ public partial class MainView : UserControl
                     var cropBtn = new Button
                     {
                         Content = Icons.Create("Crop"),
-                        Width = 28,
-                        Height = 28,
-                        Padding = new Thickness(3),
+                        Width = ToolButtonSize,
+                        Height = ToolButtonSize,
+                        Padding = new Thickness(ToolButtonPadding),
                         Margin = new Thickness(1)
                     };
                     ToolTip.SetTip(cropBtn, "Crop to Selection");
@@ -2533,14 +2516,7 @@ public partial class MainView : UserControl
 
             ToolPalette.Children.Add(group);
 
-            if (g < ToolGroups.Length - 1)
-                ToolPalette.Children.Add(new Border
-                {
-                    Height = 1,
-                    Margin = new Thickness(2, 4),
-                    HorizontalAlignment = HorizontalAlignment.Stretch,
-                    Background = Brushes.DimGray
-                });
+            if (g < ToolGroups.Length - 1) ToolPalette.Children.Add(ToolGroupSeparator());
         }
     }
 
@@ -2565,14 +2541,9 @@ public partial class MainView : UserControl
         var tools = KawaPaint.Engine.Plugins.ToolRegistry.All;
         if (tools.Count == 0) return;
 
-        ToolPalette.Children.Add(new Border
-        {
-            Tag = marker,
-            Height = 1,
-            Margin = new Thickness(2, 4),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            Background = Brushes.DimGray
-        });
+        var separator = ToolGroupSeparator();
+        separator.Tag = marker;
+        ToolPalette.Children.Add(separator);
 
         var group = new WrapPanel { Tag = marker, Orientation = Orientation.Horizontal };
         foreach (var d in tools)
@@ -2581,9 +2552,9 @@ public partial class MainView : UserControl
             var btn = new ToggleButton
             {
                 Content = Icons.Create("Plugin"),
-                Width = 28,
-                Height = 28,
-                Padding = new Thickness(3),
+                Width = ToolButtonSize,
+                Height = ToolButtonSize,
+                Padding = new Thickness(ToolButtonPadding),
                 Margin = new Thickness(1),
                 Tag = key
             };

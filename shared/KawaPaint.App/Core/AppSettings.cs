@@ -194,6 +194,12 @@ public sealed class WorkspaceSettings
     /// <summary>Name of the layout preset applied at startup.</summary>
     public string ActiveLayout { get; set; } = "Default";
 
+    /// <summary>
+    /// "Auto" picks the interface from the device (see DeviceInfo.Resolve); "Desktop", "Tablet"
+    /// or "Phone" forces one. Takes effect on the next start.
+    /// </summary>
+    public string Interface { get; set; } = "Auto";
+
     /// <summary>Saved layout presets, keyed by name.</summary>
     public Dictionary<string, WorkspaceLayout> Layouts { get; set; } = new();
 

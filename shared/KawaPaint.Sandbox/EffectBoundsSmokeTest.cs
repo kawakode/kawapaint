@@ -55,7 +55,7 @@ internal static class EffectBoundsSmokeTest
     [
         new InvertEffect(), new GrayscaleEffect(), new SepiaEffect(),
         new BrightnessContrastEffect(12, 1.15), new HueSaturationEffect(30, 1.2, 0.1),
-        new LevelsEffect(10, 240, 1.1), new AutoLevelsEffect(), new BoxBlurEffect(3),
+        new LevelsEffect(10, 240, 1.1), new AutoLevelsEffect(), new BoxBlurEffect(3), new GaussianBlurEffect(3),
         new SharpenEffect(), new EmbossEffect(), new EdgeDetectEffect(), new PosterizeEffect(5),
         new NoiseEffect(12, 12345), new CurvesEffect(Enumerable.Range(0, 256).Select(i => (byte)(255 - i)).ToArray()),
         new BulgeEffect(45), new TwistEffect(30, 1.0), new PolarInversionEffect(1.0),

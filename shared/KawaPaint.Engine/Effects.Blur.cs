@@ -44,18 +44,14 @@ public sealed class MotionBlurEffect : IEffect
             ColorBgra* dst = (ColorBgra*)s.GetRowPointer(y);
             for (int x = bounds.X; x < bounds.Right; x++)
             {
-                int sumB = 0, sumG = 0, sumR = 0, sumA = 0, count = 0;
+                var average = new ColorAverage();
                 foreach (var (dx, dy) in pts)
                 {
                     double px = x + dx, py = y + dy;
                     if (px < 0 || py < 0 || px > w - 1 || py > h - 1) continue;
-                    ColorBgra c = src.GetBilinearSampleClamped((float)px, (float)py);
-                    sumB += c.B; sumG += c.G; sumR += c.R; sumA += c.A;
-                    count++;
+                    average.Add(src.GetBilinearSampleClamped((float)px, (float)py));
                 }
-                dst[x] = count > 0
-                    ? ColorBgra.FromBgra((byte)(sumB / count), (byte)(sumG / count), (byte)(sumR / count), (byte)(sumA / count))
-                    : src[x, y];
+                dst[x] = average.IsEmpty ? src[x, y] : average.Result;
             }
         });
     }
@@ -212,18 +208,14 @@ public sealed class FragmentEffect : IEffect
             ColorBgra* dst = (ColorBgra*)s.GetRowPointer(y);
             for (int x = bounds.X; x < bounds.Right; x++)
             {
-                int sumB = 0, sumG = 0, sumR = 0, sumA = 0, count = 0;
+                var average = new ColorAverage();
                 foreach (var (dx, dy) in offsets)
                 {
                     int u = x - dx, v = y - dy;
                     if ((uint)u >= (uint)w || (uint)v >= (uint)h) continue;
-                    ColorBgra c = src[u, v];
-                    sumB += c.B; sumG += c.G; sumR += c.R; sumA += c.A;
-                    count++;
+                    average.Add(src[u, v]);
                 }
-                dst[x] = count > 0
-                    ? ColorBgra.FromBgra((byte)(sumB / count), (byte)(sumG / count), (byte)(sumR / count), (byte)(sumA / count))
-                    : ColorBgra.Transparent;
+                dst[x] = average.Result;
             }
         });
     }
@@ -266,19 +258,44 @@ public sealed class SurfaceBlurEffect : LocalHistogramEffect
 
 /// <summary>True circular-kernel uniform blur - a rounder, softer look than the square/separable
 /// Gaussian Blur menu entry, most visible at hard silhouette edges.</summary>
-public sealed class UnfocusEffect : LocalHistogramEffect
+public sealed class UnfocusEffect : IEffect
 {
-    public UnfocusEffect(int radius) : base(radius) { }
-    public override string Name => "Unfocus";
+    private readonly int _radius;
+    public UnfocusEffect(int radius) => _radius = Math.Max(1, radius);
+    public string Name => "Unfocus";
 
-    protected override ColorBgra Apply(ColorBgra src, int area, int[] hb, int[] hg, int[] hr, int[] ha)
+    public unsafe void Apply(Surface s) => Apply(s, EffectBounds.Full(s));
+
+    public unsafe void Apply(Surface s, EffectBounds requested)
     {
-        if (area <= 0) return src;
-        long sb = 0, sg = 0, sr = 0, sa = 0;
-        for (int i = 0; i < 256; i++)
+        EffectBounds bounds = requested.Clip(s);
+        if (bounds.IsEmpty) return;
+        using var src = s.Clone();
+        int w = s.Width, h = s.Height, rad = _radius;
+        // Same disc as LocalHistogramEffect, whose per-channel histograms can't weight color by
+        // alpha - which is why this one averages directly instead.
+        int cutoff = ((rad * 2 + 1) * (rad * 2 + 1) + 2) / 4;
+
+        System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
-            sb += (long)i * hb[i]; sg += (long)i * hg[i]; sr += (long)i * hr[i]; sa += (long)i * ha[i];
-        }
-        return ColorBgra.FromBgra((byte)(sb / area), (byte)(sg / area), (byte)(sr / area), (byte)(sa / area));
+            ColorBgra* dst = (ColorBgra*)s.GetRowPointer(y);
+            int top = Math.Max(0, y - rad), bottom = Math.Min(h - 1, y + rad);
+            for (int x = bounds.X; x < bounds.Right; x++)
+            {
+                var average = new ColorAverage();
+                int left = Math.Max(0, x - rad), right = Math.Min(w - 1, x + rad);
+                for (int v = top; v <= bottom; v++)
+                {
+                    int dy = v - y;
+                    ColorBgra* row = (ColorBgra*)src.GetRowPointer(v);
+                    for (int u = left; u <= right; u++)
+                    {
+                        int dx = u - x;
+                        if (dx * dx + dy * dy <= cutoff) average.Add(row[u]);
+                    }
+                }
+                dst[x] = average.Result;
+            }
+        });
     }
 }

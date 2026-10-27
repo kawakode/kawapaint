@@ -195,7 +195,7 @@ public sealed class FrostedGlassEffect : IEffect
             ColorBgra* dst = (ColorBgra*)s.GetRowPointer(y);
             for (int x = bounds.X; x < bounds.Right; x++)
             {
-                int sumB = 0, sumG = 0, sumR = 0, sumA = 0;
+                var average = new ColorAverage();
                 for (int i = 0; i < _samples; i++)
                 {
                     double sx, sy;
@@ -209,11 +209,9 @@ public sealed class FrostedGlassEffect : IEffect
                         sy = y + Math.Sin(angle) * dist;
                     } while ((sx < 0 || sx > w - 1 || sy < 0 || sy > h - 1) && ++guard < 32);
 
-                    var c = src.GetBilinearSampleClamped((float)sx, (float)sy);
-                    sumB += c.B; sumG += c.G; sumR += c.R; sumA += c.A;
+                    average.Add(src.GetBilinearSampleClamped((float)sx, (float)sy));
                 }
-                dst[x] = ColorBgra.FromBgra((byte)(sumB / _samples), (byte)(sumG / _samples),
-                                             (byte)(sumR / _samples), (byte)(sumA / _samples));
+                dst[x] = average.Result;
             }
         });
     }
@@ -246,22 +244,18 @@ public sealed class PixelateEffect : IEffect
             for (int x0 = firstX; x0 < bounds.Right; x0 += cell)
             {
                 int x1 = Math.Min(x0 + cell, w);
-                long sumB = 0, sumG = 0, sumR = 0, sumA = 0;
-                int count = 0;
+                var average = new ColorAverage();
 
                 for (int y = y0; y < y1; y++)
                 {
                     ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
                     for (int x = x0; x < x1; x++)
                     {
-                        var c = row[x];
-                        sumB += c.B; sumG += c.G; sumR += c.R; sumA += c.A;
-                        count++;
+                        average.Add(row[x]);
                     }
                 }
 
-                var avg = ColorBgra.FromBgra((byte)(sumB / count), (byte)(sumG / count),
-                                              (byte)(sumR / count), (byte)(sumA / count));
+                var avg = average.Result;
 
                 for (int y = Math.Max(y0, bounds.Y); y < Math.Min(y1, bounds.Bottom); y++)
                 {

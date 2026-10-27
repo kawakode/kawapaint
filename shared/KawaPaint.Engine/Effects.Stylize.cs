@@ -18,6 +18,12 @@ public abstract class LocalHistogramEffect : IEffect
 
     protected abstract ColorBgra Apply(ColorBgra src, int area, int[] hb, int[] hg, int[] hr, int[] ha);
 
+    /// <summary>When true, the color histograms (hb/hg/hr) only count pixels that are at least
+    /// partly opaque; the alpha histogram and area still count every pixel. For effects that pick
+    /// a color out of the neighborhood, so the black stored in transparent pixels isn't one of the
+    /// candidates.</summary>
+    protected virtual bool ColorFromVisiblePixelsOnly => false;
+
     public unsafe void Apply(Surface s) => Apply(s, EffectBounds.Full(s));
 
     public unsafe void Apply(Surface s, EffectBounds requested)
@@ -27,6 +33,7 @@ public abstract class LocalHistogramEffect : IEffect
         using var src = s.Clone();
         int w = s.Width, h = s.Height, rad = _radius;
         int cutoff = ((rad * 2 + 1) * (rad * 2 + 1) + 2) / 4;
+        bool visibleOnly = ColorFromVisiblePixelsOnly;
 
         System.Threading.Tasks.Parallel.For(bounds.Y, bounds.Bottom, y =>
         {
@@ -53,7 +60,8 @@ public abstract class LocalHistogramEffect : IEffect
                         int dx = u - x;
                         if (dx * dx + dy * dy > cutoff) continue;
                         ColorBgra c = row[u];
-                        hb[c.B]++; hg[c.G]++; hr[c.R]++; ha[c.A]++;
+                        if (!visibleOnly || c.A > 0) { hb[c.B]++; hg[c.G]++; hr[c.R]++; }
+                        ha[c.A]++;
                         area++;
                     }
                 }
@@ -70,11 +78,16 @@ public sealed class MedianEffect : LocalHistogramEffect
     private readonly int _percentile;
     public MedianEffect(int radius, int percentile = 50) : base(radius) => _percentile = Math.Clamp(percentile, 0, 100);
     public override string Name => "Median";
+    protected override bool ColorFromVisiblePixelsOnly => true;
 
     protected override ColorBgra Apply(ColorBgra src, int area, int[] hb, int[] hg, int[] hr, int[] ha)
     {
-        int minCount = area * _percentile / 100;
-        return ColorBgra.FromBgra(Scan(hb, minCount), Scan(hg, minCount), Scan(hr, minCount), Scan(ha, minCount));
+        byte alpha = Scan(ha, area * _percentile / 100);
+        int colorArea = 0;
+        foreach (int count in hb) colorArea += count;
+        if (alpha == 0 || colorArea == 0) return ColorBgra.Transparent;
+        int minCount = colorArea * _percentile / 100;
+        return ColorBgra.FromBgra(Scan(hb, minCount), Scan(hg, minCount), Scan(hr, minCount), alpha);
     }
 
     private static byte Scan(int[] hist, int minCount)

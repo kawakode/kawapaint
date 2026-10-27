@@ -120,6 +120,7 @@ public partial class MainView
             ["image.rotateCCW"] = () => OnRotateCCW(this, empty),
             ["image.rotate180"] = () => OnRotate180(this, empty),
             ["image.crop"] = () => OnCropToSelection(this, empty),
+            ["image.autocrop"] = () => OnAutoCrop(this, empty),
             ["image.flatten"] = () => OnFlatten(this, empty),
 
             ["layer.add"] = () => OnAddLayer(this, empty),
@@ -161,7 +162,7 @@ public partial class MainView
         // not by DemoEvent.ActionArgs). Seeded Noise/Frosted Glass/Dents append their hidden seed
         // to args and are fully replayable.
         bool isEffect = TrySplit(id, "effect.", out string tag);
-        bool replayable = id is "image.crop" or "image.rotate" ||
+        bool replayable = id is "image.crop" or "image.rotate" or "select.grow" or "select.shrink" or "select.feather" ||
             isEffect && ScriptEffects.IsKnownTag(tag) && tag != "clouds";
         if (replayable) _demoRecorder.NoteAction(id, args);
         else _demoRecorder.NoteSkipped(isEffect ? "adjustment '" + tag + "'" : id);
@@ -589,6 +590,15 @@ public partial class MainView
             double degrees = args[0];
             bool expand = args.Count < 2 || args[1] != 0;
             ApplyDocumentOp($"Rotate {degrees:0.##}°", document => DocumentOps.Rotate(document, degrees, expand));
+            return;
+        }
+
+        if (id is "select.grow" or "select.shrink" or "select.feather" && args.Count >= 1)
+        {
+            int radius = (int)args[0];
+            if (id == "select.grow") ModifySelection("Grow Selection", (s, r) => s.Grow(r), radius);
+            else if (id == "select.shrink") ModifySelection("Shrink Selection", (s, r) => s.Shrink(r), radius);
+            else ModifySelection("Feather Selection", (s, r) => s.Feather(r), radius);
             return;
         }
 

@@ -737,4 +737,151 @@ public sealed class Selection
             }
         }
     }
+
+    /// <summary>Largest radius Grow, Shrink and Feather accept, in pixels.</summary>
+    public const int MaxModifyRadius = 500;
+
+    /// <summary>
+    /// Expands the selection outward by <paramref name="radius"/> pixels with a round corner, the
+    /// way "Grow"/"Expand" works elsewhere. The new rim is antialiased; coverage already present
+    /// is never lowered, so a feathered edge survives underneath. Does nothing when inactive.
+    /// </summary>
+    public void Grow(int radius) => Morph(radius, shrink: false);
+
+    /// <summary>
+    /// Pulls the selection's edge inward by <paramref name="radius"/> pixels: the exact complement
+    /// of <see cref="Grow"/>. The canvas border is not treated as an edge, so a selection that
+    /// touches it stays against it. Does nothing when inactive.
+    /// </summary>
+    public void Shrink(int radius) => Morph(radius, shrink: true);
+
+    /// <summary>
+    /// Softens the selection's edge over roughly <paramref name="radius"/> pixels on each side
+    /// (three box blurs, which approximate a Gaussian). Does nothing when inactive.
+    /// </summary>
+    public void Feather(int radius)
+    {
+        if (!IsActive || radius <= 0) return;
+        radius = Math.Min(radius, MaxModifyRadius);
+        int box = Math.Max(1, (int)Math.Round(radius / 2.0));
+        var bounds = GetBounds();
+        if (bounds.W == 0) return;
+        var (wx, wy, ww, wh) = Inflate(bounds, 3 * box + 1);
+
+        var values = new float[ww * wh];
+        for (int y = 0; y < wh; y++)
+            for (int x = 0; x < ww; x++)
+                values[y * ww + x] = _mask[(wy + y) * Width + wx + x];
+
+        var line = new float[Math.Max(ww, wh)];
+        for (int pass = 0; pass < 3; pass++)
+        {
+            for (int y = 0; y < wh; y++) BoxBlurLine(values, y * ww, 1, ww, box, line);
+            for (int x = 0; x < ww; x++) BoxBlurLine(values, x, ww, wh, box, line);
+        }
+
+        for (int y = 0; y < wh; y++)
+            for (int x = 0; x < ww; x++)
+                _mask[(wy + y) * Width + wx + x] = (byte)Math.Clamp((int)(values[y * ww + x] + 0.5f), 0, 255);
+        _boundsValid = false;
+    }
+
+    private void Morph(int radius, bool shrink)
+    {
+        if (!IsActive || radius <= 0) return;
+        radius = Math.Min(radius, MaxModifyRadius);
+        var bounds = GetBounds();
+        if (bounds.W == 0) return;   // empty: nothing to grow, nothing left to shrink
+
+        // Everything the result can differ in lies within the radius of the current selection, so
+        // the distance transform only needs that window. Shrink grows the complement instead: its
+        // seeds are the unselected pixels, and the window ring outside the bounds supplies them.
+        var (wx, wy, ww, wh) = Inflate(bounds, radius + 1);
+        const float Far = 1e20f;
+        var dist = new float[ww * wh];
+        bool anySeed = false;
+        for (int y = 0; y < wh; y++)
+            for (int x = 0; x < ww; x++)
+            {
+                byte m = _mask[(wy + y) * Width + wx + x];
+                bool seed = shrink ? m < 128 : m >= 128;
+                dist[y * ww + x] = seed ? 0 : Far;
+                anySeed |= seed;
+            }
+        if (!anySeed) return;
+
+        var line = new float[Math.Max(ww, wh)];
+        var hull = new int[Math.Max(ww, wh)];
+        var cuts = new float[Math.Max(ww, wh) + 1];
+        for (int x = 0; x < ww; x++) SquaredDistanceLine(dist, x, ww, wh, line, hull, cuts);
+        for (int y = 0; y < wh; y++) SquaredDistanceLine(dist, y * ww, 1, ww, line, hull, cuts);
+
+        for (int y = 0; y < wh; y++)
+            for (int x = 0; x < ww; x++)
+            {
+                int index = (wy + y) * Width + wx + x;
+                // Distances run centre to centre, and a seed pixel's own edge sits half a pixel out
+                // from its centre, so a pixel exactly `radius` away is still fully covered.
+                double reach = radius + 1 - Math.Sqrt(dist[y * ww + x]);
+                int cover = reach >= 1 ? 255 : reach <= 0 ? 0 : (int)(reach * 255 + 0.5);
+                if (shrink)
+                {
+                    int keep = 255 - cover;
+                    if (keep < _mask[index]) _mask[index] = (byte)keep;
+                }
+                else if (cover > _mask[index]) _mask[index] = (byte)cover;
+            }
+        _boundsValid = false;
+    }
+
+    private (int X, int Y, int W, int H) Inflate((int X, int Y, int W, int H) r, int by)
+    {
+        int x0 = Math.Max(0, r.X - by), y0 = Math.Max(0, r.Y - by);
+        int x1 = Math.Min(Width, r.X + r.W + by), y1 = Math.Min(Height, r.Y + r.H + by);
+        return (x0, y0, x1 - x0, y1 - y0);
+    }
+
+    /// <summary>One line of the Felzenszwalb-Huttenlocher squared Euclidean distance transform,
+    /// in place over <paramref name="count"/> values spaced <paramref name="step"/> apart.</summary>
+    private static void SquaredDistanceLine(float[] data, int start, int step, int count, float[] f, int[] hull, float[] cuts)
+    {
+        for (int i = 0; i < count; i++) f[i] = data[start + i * step];
+        int k = 0;
+        hull[0] = 0;
+        cuts[0] = float.NegativeInfinity;
+        cuts[1] = float.PositiveInfinity;
+        for (int q = 1; q < count; q++)
+        {
+            float s = Intersection(f, q, hull[k]);
+            while (s <= cuts[k]) { k--; s = Intersection(f, q, hull[k]); }
+            k++;
+            hull[k] = q;
+            cuts[k] = s;
+            cuts[k + 1] = float.PositiveInfinity;
+        }
+        k = 0;
+        for (int q = 0; q < count; q++)
+        {
+            while (cuts[k + 1] < q) k++;
+            int p = hull[k];
+            data[start + q * step] = (q - p) * (q - p) + f[p];
+        }
+    }
+
+    private static float Intersection(float[] f, int q, int p)
+        => ((f[q] + (float)q * q) - (f[p] + (float)p * p)) / (2f * (q - p));
+
+    /// <summary>Box blur of one line in place, repeating the end values past both ends.</summary>
+    private static void BoxBlurLine(float[] data, int start, int step, int count, int radius, float[] line)
+    {
+        for (int i = 0; i < count; i++) line[i] = data[start + i * step];
+        float sum = 0;
+        for (int i = -radius; i <= radius; i++) sum += line[Math.Clamp(i, 0, count - 1)];
+        float scale = 1f / (2 * radius + 1);
+        for (int i = 0; i < count; i++)
+        {
+            data[start + i * step] = sum * scale;
+            sum += line[Math.Min(i + radius + 1, count - 1)] - line[Math.Max(i - radius, 0)];
+        }
+    }
 }

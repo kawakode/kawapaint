@@ -29,7 +29,15 @@ public sealed class SurfaceView : Control
 
     private int _antPhase;
     private DispatcherTimer? _antTimer;
-    private StreamGeometry[] _antGeometry = Array.Empty<StreamGeometry>();
+    private List<OutlineSegment> _antOutline = new();
+    // The ants are painted into a screen-sized overlay rather than stroked as vector paths: an
+    // outline with hundreds of thousands of edges (a Magic Wand pick on a photo) would otherwise
+    // take seconds per animation tick. The outline's screen pixels are listed once per view, and
+    // each tick only recolours them.
+    private WriteableBitmap? _antBitmap;
+    private readonly List<int> _antPixels = new();
+    private (double Zoom, Point Origin, PixelSize Size) _antView;
+    private int _antPaintedPhase;
 
     public Selection? Selection { get; private set; }
 
@@ -371,8 +379,6 @@ public sealed class SurfaceView : Control
     private static readonly IBrush CheckLight = new SolidColorBrush(Color.FromRgb(0xC0, 0xC0, 0xC0));
     private static readonly IBrush CheckDark = new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80));
     private static readonly IBrush Checkerboard = CreateCheckerboardBrush();
-    private static readonly IBrush AntBlack = new SolidColorBrush(Colors.Black);
-    private static readonly IBrush AntWhite = new SolidColorBrush(Colors.White);
     private static readonly IPen EdgePen = new Pen(Brushes.Black, 1);
     private static readonly IPen CursorLight = new Pen(new SolidColorBrush(Color.FromArgb(200, 255, 255, 255)), 1);
     private static readonly IPen CursorDark = new Pen(new SolidColorBrush(Color.FromArgb(200, 0, 0, 0)), 1);
@@ -420,8 +426,8 @@ public sealed class SurfaceView : Control
         DrawCheckerboard(context, dest);
         context.DrawImage(_bitmap, new Rect(0, 0, _composite.Width, _composite.Height), dest);
 
-        if (Selection is { IsActive: true } sel)
-            DrawMarchingAnts(context, sel);
+        if (Selection is { IsActive: true })
+            DrawMarchingAnts(context);
 
         foreach (DynamicTextZone zone in _document!.DynamicTextZones)
         {
@@ -460,18 +466,70 @@ public sealed class SurfaceView : Control
         }
     }
 
-    private void DrawMarchingAnts(DrawingContext context, Selection sel)
+    private unsafe void DrawMarchingAnts(DrawingContext context)
     {
-        if (_antGeometry.Length == 0) return;
-        using (context.PushTransform(new Matrix(_zoom, 0, 0, _zoom, _origin.X, _origin.Y)))
+        if (_antOutline.Count == 0) return;
+        var size = new PixelSize((int)Math.Ceiling(Bounds.Width), (int)Math.Ceiling(Bounds.Height));
+        if (size.Width <= 0 || size.Height <= 0) return;
+
+        if (_antBitmap is null || _antBitmap.PixelSize != size)
         {
-            for (int group = 0; group < _antGeometry.Length; group++)
+            _antBitmap?.Dispose();
+            _antBitmap = new WriteableBitmap(size, new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Premul);
+            _antView = default;
+        }
+
+        using (ILockedFramebuffer fb = _antBitmap.Lock())
+        {
+            uint* pixels = (uint*)fb.Address;
+            int stride = fb.RowBytes / 4;
+            if (_antView != (_zoom, _origin, size))
             {
-                IBrush brush = (((group + _antPhase) >> 2) & 1) == 0 ? AntBlack : AntWhite;
-                context.DrawGeometry(brush, null, _antGeometry[group]);
+                new Span<uint>(pixels, stride * size.Height).Clear();
+                ListAntPixels(pixels, stride, size);
+                _antView = (_zoom, _origin, size);
+                _antPaintedPhase = _antPhase - 1;
+            }
+
+            if (_antPaintedPhase != _antPhase)
+            {
+                // Diagonal stripes, four pixels wide, that slide along as the phase advances.
+                foreach (int offset in _antPixels)
+                {
+                    int x = offset % stride, y = offset / stride;
+                    pixels[offset] = (((x + y + _antPhase) >> 2) & 1) == 0 ? 0xFF000000u : 0xFFFFFFFFu;
+                }
+                _antPaintedPhase = _antPhase;
             }
         }
+
+        context.DrawImage(_antBitmap, new Rect(0, 0, size.Width, size.Height));
     }
+
+    /// <summary>Marks every visible screen pixel the outline passes through, once each.</summary>
+    private unsafe void ListAntPixels(uint* pixels, int stride, PixelSize size)
+    {
+        _antPixels.Clear();
+        foreach (OutlineSegment s in _antOutline)
+        {
+            double x0 = ScreenPixel(_origin.X, s.X0), y0 = ScreenPixel(_origin.Y, s.Y0);
+            double x1 = ScreenPixel(_origin.X, s.X1), y1 = ScreenPixel(_origin.Y, s.Y1);
+            if (x1 < 0 || y1 < 0 || x0 >= size.Width || y0 >= size.Height) continue;
+
+            int left = (int)Math.Max(x0, 0), right = (int)Math.Min(x1, size.Width - 1);
+            int top = (int)Math.Max(y0, 0), bottom = (int)Math.Min(y1, size.Height - 1);
+            for (int y = top; y <= bottom; y++)
+                for (int x = left; x <= right; x++)
+                {
+                    int offset = y * stride + x;
+                    if (pixels[offset] != 0) continue;
+                    pixels[offset] = 1;
+                    _antPixels.Add(offset);
+                }
+        }
+    }
+
+    private double ScreenPixel(double origin, int imageCoordinate) => Math.Floor(origin + imageCoordinate * _zoom);
 
     /// <summary>
     /// Paints the pen tool's in-progress outline: the curve itself, the rubber band trailing to
@@ -595,48 +653,15 @@ public sealed class SurfaceView : Control
 
     private void RebuildMarchingAntGeometry()
     {
-        if (Selection is not { IsActive: true } selection)
+        _antOutline = Selection is { IsActive: true } selection
+            ? SelectionOutline.Trace(selection)
+            : new List<OutlineSegment>();
+        _antView = default;
+        if (_antOutline.Count == 0)
         {
-            _antGeometry = Array.Empty<StreamGeometry>();
-            return;
+            _antBitmap?.Dispose();
+            _antBitmap = null;
         }
-
-        var geometry = new StreamGeometry[8];
-        var writers = new StreamGeometryContext[8];
-        for (int i = 0; i < geometry.Length; i++)
-        {
-            geometry[i] = new StreamGeometry();
-            writers[i] = geometry[i].Open();
-            writers[i].SetFillRule(FillRule.NonZero);
-        }
-
-        try
-        {
-            ReadOnlySpan<byte> mask = selection.Mask;
-            int width = selection.Width, height = selection.Height;
-            for (int y = 0; y < height; y++)
-            for (int x = 0; x < width; x++)
-            {
-                int index = y * width + x;
-                if (mask[index] == 0) continue;
-                bool interior = x > 0 && x < width - 1 && y > 0 && y < height - 1
-                    && mask[index - 1] != 0 && mask[index + 1] != 0
-                    && mask[index - width] != 0 && mask[index + width] != 0;
-                if (interior) continue;
-
-                StreamGeometryContext writer = writers[(x + y) & 7];
-                writer.BeginFigure(new Point(x, y), true);
-                writer.LineTo(new Point(x + 1, y));
-                writer.LineTo(new Point(x + 1, y + 1));
-                writer.LineTo(new Point(x, y + 1));
-                writer.EndFigure(true);
-            }
-        }
-        finally
-        {
-            foreach (StreamGeometryContext writer in writers) writer.Dispose();
-        }
-        _antGeometry = geometry;
     }
 
     private static IBrush CreateCheckerboardBrush()

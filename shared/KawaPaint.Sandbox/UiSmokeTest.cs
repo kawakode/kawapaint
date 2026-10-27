@@ -32,6 +32,7 @@ internal static class UiSmokeTest
         Check("unhandled UI exceptions", UnhandledUiException);
         Check("paste growing the canvas", PasteGrowingCanvas);
         Check("layout preset rename", LayoutPresetRename);
+        Check("marching ants", MarchingAnts);
         Check("modal shortcuts and focus", ModalInput);
         Check("inline text editing", InlineTextEditing);
         Check("adjustment cancellation", AdjustmentCancellation);
@@ -482,6 +483,63 @@ internal static class UiSmokeTest
             }
             Screenshot(window, "editor-narrow");
         });
+    }
+
+    /// <summary>The ants are 1px lines on the selection's edge, at any zoom, and they move.</summary>
+    private static void MarchingAnts()
+    {
+        var canvas = new SurfaceView();
+        var document = new Document(200, 100);
+        document.AddLayer().Surface.Clear(ColorBgra.FromBgra(128, 128, 128, 255));
+        var window = new Window { Width = 400, Height = 200, Content = canvas };
+        window.Show();
+        try
+        {
+            canvas.SetDocument(document);
+            Pump();
+            canvas.Selection!.ReplaceWithRectangle(50, 20, 150, 80);
+            canvas.NotifySelectionChanged();
+            Pump();
+
+            using var first = Frame();
+            typeof(SurfaceView).GetField("_antPhase", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(canvas, 2);
+            canvas.InvalidateVisual();
+            Pump();
+            using var second = Frame();
+
+            // The document is fitted at zoom 1 and centred, so image (50, 20) lands at (150, 70).
+            int edgeAnts = 0, moved = 0, inside = 0;
+            for (int x = 160; x < 240; x++)
+            {
+                var a = Pixel(first, x, 70);
+                if (a.R is < 16 or > 240 && a.R == a.G) edgeAnts++;
+                if (a != Pixel(second, x, 70)) moved++;
+                if (Pixel(first, x, 100).R is < 16 or > 240) inside++;
+            }
+            Assert(edgeAnts == 80, $"edge pixels drawn as ants: {edgeAnts}/80");
+            Assert(moved > 0, "ants did not move when the phase advanced");
+            Assert(inside == 0, "ants were drawn inside the selection");
+            Screenshot(window, "marching-ants");
+        }
+        finally
+        {
+            window.Close();
+            Pump();
+            document.Dispose();
+        }
+
+        Avalonia.Media.Imaging.Bitmap Frame() => window.CaptureRenderedFrame()!;
+    }
+
+    private static Avalonia.Media.Color Pixel(Avalonia.Media.Imaging.Bitmap bitmap, int x, int y)
+    {
+        var buffer = new byte[4];
+        unsafe
+        {
+            fixed (byte* p = buffer)
+                bitmap.CopyPixels(new PixelRect(x, y, 1, 1), (nint)p, 4, 4);
+        }
+        return Avalonia.Media.Color.FromArgb(buffer[3], buffer[2], buffer[1], buffer[0]);
     }
 
     private static void Screenshot(Window window, string name)

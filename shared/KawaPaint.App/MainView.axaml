@@ -146,6 +146,12 @@
                     <MenuItem Header="Inches" Tag="Inches" Click="OnSetRulerUnit" />
                     <MenuItem Header="Centimeters" Tag="Centimeters" Click="OnSetRulerUnit" />
                 </MenuItem>
+                <MenuItem x:Name="TogglePixelGridItem" Header="Pixel _Grid" Click="OnTogglePixelGrid" ToggleType="CheckBox"
+                          ToolTip.Tip="Lines between pixels once zoomed in to 800% or more" />
+                <MenuItem x:Name="ToggleGuidesItem" Header="_Guides" Click="OnToggleGuides" ToggleType="CheckBox"
+                          ToolTip.Tip="Drag from a ruler to add a guide; drag it back off the canvas to remove it" />
+                <MenuItem x:Name="ToggleSnapGuidesItem" Header="_Snap to Guides" Click="OnToggleSnapGuides" ToggleType="CheckBox" />
+                <MenuItem Header="_Clear Guides" Click="OnClearGuides" />
                 <Separator />
                 <MenuItem Header="_Panels">
                     <MenuItem Header="Tools">

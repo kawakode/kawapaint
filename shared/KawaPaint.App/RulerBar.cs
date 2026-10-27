@@ -5,6 +5,7 @@
 using System;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Media;
 using KawaPaint.Engine;
 
@@ -20,6 +21,7 @@ public sealed class RulerBar : Control
     private static readonly IPen MinorTick = new Pen(new SolidColorBrush(Color.FromRgb(0x60, 0x60, 0x60)), 1);
     private static readonly IBrush Label = new SolidColorBrush(Color.FromRgb(0xC8, 0xC8, 0xC8));
     private static readonly IPen CursorMarker = new Pen(new SolidColorBrush(Color.FromRgb(0xF0, 0xA0, 0x30)), 1);
+    private static readonly IPen GuideMarker = new Pen(new SolidColorBrush(Color.FromRgb(0x00, 0xC0, 0xFF)), 1);
     private static readonly Typeface LabelFace = new("monospace");
 
     public RulerOrientation Orientation { get; init; } = RulerOrientation.Horizontal;
@@ -34,6 +36,54 @@ public sealed class RulerBar : Control
     public double? CursorPosition { get; set; }
 
     public RulerBar() => ClipToBounds = true;
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        // Orientation is only known once XAML has set it, after the constructor.
+        Cursor = new Cursor(Orientation == RulerOrientation.Horizontal
+            ? StandardCursorType.SizeNorthSouth : StandardCursorType.SizeWestEast);
+    }
+
+    // Dragging out of a ruler makes a guide parallel to it: the top ruler gives a horizontal line,
+    // the side ruler a vertical one. The canvas owns the guide; this only forwards the drag in the
+    // canvas's own coordinates, so the guide follows the pointer once it leaves the ruler.
+    private bool _draggingGuide;
+
+    protected override void OnPointerPressed(PointerPressedEventArgs e)
+    {
+        base.OnPointerPressed(e);
+        if (Target?.Document is null || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+        Target.BeginGuideDrag(Orientation == RulerOrientation.Horizontal, e.GetPosition(Target));
+        _draggingGuide = Target.DraggedGuide is not null;
+        if (!_draggingGuide) return;
+        e.Pointer.Capture(this);
+        e.Handled = true;
+    }
+
+    protected override void OnPointerMoved(PointerEventArgs e)
+    {
+        base.OnPointerMoved(e);
+        if (_draggingGuide) Target?.MoveGuideDrag(e.GetPosition(Target));
+    }
+
+    protected override void OnPointerReleased(PointerReleasedEventArgs e)
+    {
+        base.OnPointerReleased(e);
+        if (!_draggingGuide) return;
+        _draggingGuide = false;
+        Target?.EndGuideDrag(e.GetPosition(Target));
+        e.Pointer.Capture(null);
+    }
+
+    protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+    {
+        base.OnPointerCaptureLost(e);
+        if (!_draggingGuide) return;
+        _draggingGuide = false;
+        // Keep the guide where it was last shown; removing it needs a deliberate release.
+        Target?.FinishGuideDrag();
+    }
 
     public override void Render(DrawingContext context)
     {
@@ -77,6 +127,20 @@ public sealed class RulerBar : Control
                 double mu = u + i * minorStep;
                 if (mu < startUnit - minorStep || mu > endUnit + minorStep) continue;
                 DrawTick(context, horizontal, mu, pxPerUnit, zoom, originComponent, length, major: false);
+            }
+        }
+
+        if (target.ShowGuides)
+        {
+            foreach (Guide guide in target.Guides.All)
+            {
+                // A guide shows on the ruler that runs across it: vertical lines on the top ruler.
+                if (guide.Horizontal == horizontal) continue;
+                double screenPos = Math.Round(originComponent + guide.Position * zoom) + 0.5;
+                if (screenPos < 0 || screenPos > length) continue;
+                context.DrawLine(GuideMarker,
+                    horizontal ? new Point(screenPos, 0) : new Point(0, screenPos),
+                    horizontal ? new Point(screenPos, Bounds.Height) : new Point(Bounds.Width, screenPos));
             }
         }
 

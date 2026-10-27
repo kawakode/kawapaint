@@ -199,6 +199,13 @@ public sealed class WorkspaceSettings
 
     public bool ShowRulers { get; set; } = true;
 
+    /// <summary>Lines between pixels at high zoom (see SurfaceView.PixelGridMinZoom).</summary>
+    public bool ShowPixelGrid { get; set; } = true;
+
+    public bool ShowGuides { get; set; } = true;
+
+    public bool SnapToGuides { get; set; } = true;
+
     /// <summary>Show composited thumbnails in timeline frame cards.</summary>
     public bool ShowFramePreviews { get; set; } = true;
 

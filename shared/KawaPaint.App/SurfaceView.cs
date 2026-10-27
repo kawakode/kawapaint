@@ -15,7 +15,7 @@ using KawaPaint.Engine.MailMerge;
 
 namespace KawaPaint.App;
 
-public sealed class SurfaceView : Control
+public sealed partial class SurfaceView : Control
 {
     private Document? _document;
     private Surface? _composite;
@@ -176,6 +176,8 @@ public sealed class SurfaceView : Control
         Document? old = Adopt(document);
         old?.Dispose();
         History.Clear();
+        _draggedGuide = null;
+        ClearGuides();
     }
 
     /// <summary>
@@ -491,6 +493,7 @@ public sealed class SurfaceView : Control
         var dest = new Rect(_origin.X, _origin.Y, w, h);
         DrawCheckerboard(context, dest);
         context.DrawImage(_bitmap, new Rect(0, 0, _composite.Width, _composite.Height), dest);
+        DrawPixelGrid(context, _composite.Width, _composite.Height);
 
         if (Selection is { IsActive: true })
             DrawMarchingAnts(context);
@@ -515,6 +518,7 @@ public sealed class SurfaceView : Control
         if (CurrentTool is PenTool { HasPath: true } pen) DrawPenPath(context, pen);
 
         context.DrawRectangle(null, EdgePen, dest);
+        DrawGuides(context);
 
         if (_cursorScreen is Point cs && ShowsBrushCursor && !_panning)
         {
@@ -922,9 +926,16 @@ public sealed class SurfaceView : Control
             _capturedPointer = e.Pointer;
             e.Pointer.Capture(this);
         }
+        else if (pt.Properties.IsLeftButtonPressed && GuideUnder(pt.Position) is { } guide)
+        {
+            _draggedGuide = guide;
+            _capturedPointer = e.Pointer;
+            e.Pointer.Capture(this);
+            InvalidateVisual();
+        }
         else if (pt.Properties.IsLeftButtonPressed && ActiveLayer is not null && _composite is not null)
         {
-            Point img = ControlToImage(pt.Position);
+            Point img = SnapToGuide(ControlToImage(pt.Position));
             bool ctrl = e.KeyModifiers.HasFlag(KeyModifiers.Control);
             ToolPointerSample sample = PointerSample(pt, img);
 
@@ -1117,6 +1128,13 @@ public sealed class SurfaceView : Control
             if (hoverTool.PointerHover(hp.X, hp.Y, _zoom > 0 ? 1 / _zoom : 1)) InvalidateVisual();
         }
 
+        if (_draggedGuide is not null)
+        {
+            MoveGuideDrag(p);
+            return;
+        }
+        if (!_drawing && !_panning) UpdateGuideCursor(p);
+
         if (_panning)
         {
             _origin += p - _lastPointer;
@@ -1127,7 +1145,7 @@ public sealed class SurfaceView : Control
         else if (_drawing && _toolCtx is not null)
         {
             var pt = e.GetCurrentPoint(this);
-            Point img = ControlToImage(p);
+            Point img = SnapToGuide(ControlToImage(p));
             ToolPointerSample sample = PointerSample(pt, img);
             ExtendStroke(sample);
             StrokeExtended?.Invoke(sample);
@@ -1220,6 +1238,13 @@ public sealed class SurfaceView : Control
             e.Handled = true;
             return;
         }
+        if (_draggedGuide is not null)
+        {
+            EndGuideDrag(e.GetPosition(this));
+            e.Pointer.Capture(null);
+            _capturedPointer = null;
+            return;
+        }
         bool wasActive = _panning || _drawing;
         bool wasDrawing = _drawing;
         FinishGesture();
@@ -1243,6 +1268,7 @@ public sealed class SurfaceView : Control
             _touches.Clear();
             return;
         }
+        FinishGuideDrag();   // leave a guide in flight where it last was
         bool wasDrawing = _drawing;
         _capturedPointer = null;
         FinishGesture();

@@ -42,6 +42,7 @@ internal static class UiSmokeTest
         Check("selection changes are undoable", UndoableSelection);
         Check("rotate image dialog previews the new size", RotateImageDialogSize);
         Check("grow, shrink and feather selection", SelectionModify);
+        Check("guides from rulers, snapping and pixel grid", RulerGuides);
         Check("modal shortcuts and focus", ModalInput);
         Check("inline text editing", InlineTextEditing);
         Check("adjustment cancellation", AdjustmentCancellation);
@@ -592,6 +593,62 @@ internal static class UiSmokeTest
         Assert(size.Text == "New size: 200 × 400" && dialog.ResultAngle == 90 && dialog.ResultExpand, "90°: " + size.Text);
         expand.IsChecked = false;
         Assert(size.Text == "New size: 400 × 200" && !dialog.ResultExpand, "kept canvas: " + size.Text);
+    }
+
+    private static void RulerGuides()
+    {
+        WithView(900, 700, (view, window) =>
+        {
+            var canvas = view.FindControl<SurfaceView>("Canvas")!;
+            var doc = new Document(400, 300);
+            doc.AddLayer();
+            canvas.SetDocument(doc);
+            Pump();
+            canvas.ZoomToFit();
+            canvas.ZoomActual();
+            canvas.ShowGuides = true;
+            canvas.SnapToGuides = true;
+            Pump();
+            Point OnCanvas(double x, double y) => canvas.TranslatePoint(canvas.Origin + new Vector(x, y) * canvas.Zoom, window)!.Value;
+
+            // Drag out of the top ruler: a horizontal guide lands where the pointer is released.
+            var ruler = view.FindControl<RulerBar>("HRuler")!;
+            var rulerPoint = ruler.TranslatePoint(new Point(ruler.Bounds.Width / 2, ruler.Bounds.Height / 2), window)!.Value;
+            window.MouseDown(rulerPoint, MouseButton.Left);
+            window.MouseMove(OnCanvas(100, 40), RawInputModifiers.LeftMouseButton);
+            window.MouseMove(OnCanvas(100, 50), RawInputModifiers.LeftMouseButton);
+            window.MouseUp(OnCanvas(100, 50), MouseButton.Left);
+            Pump();
+            Assert(canvas.Guides.Count == 1 && canvas.Guides.All[0] is { Horizontal: true, Position: 50 },
+                "ruler drag did not make a guide at y=50: " + string.Join(",", canvas.Guides.All.Select(g => $"{g.Horizontal}:{g.Position}")));
+
+            // A rectangle selection started 3 px off the guide snaps onto it.
+            Invoke(view, "SelectTool", "RectSel");
+            window.MouseDown(OnCanvas(20, 53), MouseButton.Left);
+            window.MouseMove(OnCanvas(80, 120), RawInputModifiers.LeftMouseButton);
+            window.MouseUp(OnCanvas(80, 120), MouseButton.Left);
+            Pump();
+            Assert(canvas.Selection!.GetBounds().Y == 50, "selection did not snap to the guide: " + canvas.Selection.GetBounds());
+
+            // The Move tool picks the guide up; dropping it on the ruler removes it.
+            Invoke(view, "SelectTool", "Move");
+            window.MouseDown(OnCanvas(200, 50), MouseButton.Left);
+            window.MouseMove(OnCanvas(200, 70), RawInputModifiers.LeftMouseButton);
+            Assert(canvas.DraggedGuide is { Position: 70 }, "Move tool did not drag the guide");
+            window.MouseMove(rulerPoint, RawInputModifiers.LeftMouseButton);
+            window.MouseUp(rulerPoint, MouseButton.Left);
+            Pump();
+            Assert(canvas.Guides.Count == 0 && canvas.Selection.GetBounds().Y == 50, "guide was not removed, or the drag moved pixels");
+
+            canvas.Guides.Add(horizontal: false, 200);
+            doc.Layers[0].Surface.ClearRect(190, 140, 20, 20, ColorBgra.FromBgra(40, 160, 230, 255));
+            canvas.RenderComposite();
+            while (canvas.Zoom < SurfaceView.PixelGridMinZoom) canvas.ZoomIn();
+            Pump();
+            Assert(canvas.Zoom >= SurfaceView.PixelGridMinZoom, "zoom did not reach the pixel grid: " + canvas.Zoom);
+            Assert(canvas.ShowGuides && canvas.Guides.Count == 1, $"guides hidden? {canvas.ShowGuides} {canvas.Guides.Count}");
+            Screenshot(window, "pixel-grid");
+        });
     }
 
     private static void SelectionModify()

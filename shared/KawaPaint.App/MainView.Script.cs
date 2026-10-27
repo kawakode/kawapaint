@@ -130,20 +130,7 @@ public partial class MainView
             {
                 workingDoc = await DecodeAsync(target);
                 var steps = ScriptExecutor.Run(ref workingDoc, script, policy);
-
-                if (options.InPlace)
-                {
-                    await using var outStream = await target.OpenWriteAsync();
-                    Encode(workingDoc, outStream, target.Name);
-                }
-                else
-                {
-                    var outFile = await options.OutputFolder!.CreateFileAsync(target.Name)
-                        ?? throw new IOException("Could not create the output file.");
-                    await using var outStream = await outFile.OpenWriteAsync();
-                    Encode(workingDoc, outStream, target.Name);
-                }
-
+                await SaveBatchResultAsync(workingDoc, target, options.InPlace ? null : options.OutputFolder!);
                 results.Add((target.Name, null, steps));
             }
             catch (Exception ex)
@@ -160,6 +147,26 @@ public partial class MainView
         int failed = results.Count(r => r.Error is not null);
         StatusText.Text = $"Batch apply: {results.Count - failed}/{results.Count} saved";
         await new BatchResultsDialog(summary).ShowDialog(owner);
+    }
+
+    /// <summary>
+    /// Writes one batch result: over <paramref name="target"/> itself when
+    /// <paramref name="outputFolder"/> is null, else as a same-named file in that folder. The image
+    /// is fully encoded before anything is opened for writing, and an overwrite goes through a
+    /// temp file, so an encoder failure (or a crash mid-write) leaves the original untouched rather
+    /// than truncated.
+    /// </summary>
+    private static async Task SaveBatchResultAsync(Document document, IStorageFile target, IStorageFolder? outputFolder)
+    {
+        byte[] bytes;
+        using (var buffer = new MemoryStream())
+        {
+            Encode(document, buffer, target.Name);
+            bytes = buffer.ToArray();
+        }
+
+        if (outputFolder is null) await WriteInPlaceAsync(target, bytes);
+        else await WriteCopyAsync(outputFolder, target.Name, bytes);
     }
 
     private async Task<Document> DecodeAsync(IStorageFile file)

@@ -24,6 +24,8 @@ public sealed partial class JxlCodec : IImageCodec
     public bool CanDecode => true;
     public bool CanEncode => true;
 
+    static JxlCodec() => NativeCodecLibraries.EnsureRegistered();
+
     private bool? _available;
     public bool IsAvailable => _available ??= Probe();
 
@@ -148,6 +150,13 @@ public sealed partial class JxlCodec : IImageCodec
             if (Native.JxlEncoderSetBasicInfo(enc, ref info) != Native.JXL_ENC_SUCCESS)
                 throw new InvalidOperationException("JxlEncoderSetBasicInfo failed.");
 
+            // Surface pixels are sRGB. Newer libjxl releases assume so when this is left out, but
+            // 0.7 (Ubuntu 24.04, Debian 12) refuses every frame until it is stated.
+            var colorEncoding = new Native.JxlColorEncoding();
+            Native.JxlColorEncodingSetToSRGB(ref colorEncoding, 0);
+            if (Native.JxlEncoderSetColorEncoding(enc, ref colorEncoding) != Native.JXL_ENC_SUCCESS)
+                throw new InvalidOperationException("JxlEncoderSetColorEncoding failed.");
+
             IntPtr settings = Native.JxlEncoderFrameSettingsCreate(enc, IntPtr.Zero);
 
             if (options.Lossless)
@@ -157,7 +166,7 @@ public sealed partial class JxlCodec : IImageCodec
             }
             else
             {
-                float distance = Native.JxlEncoderDistanceFromQuality(Math.Clamp(options.Quality, 1, 100));
+                float distance = DistanceFromQuality(Math.Clamp(options.Quality, 1, 100));
                 if (Native.JxlEncoderSetFrameDistance(settings, distance) != Native.JXL_ENC_SUCCESS)
                     throw new InvalidOperationException("JxlEncoderSetFrameDistance failed.");
             }
@@ -190,6 +199,15 @@ public sealed partial class JxlCodec : IImageCodec
             NativeMemory.Free(rgba);
         }
     }
+
+    /// <summary>
+    /// The quality-to-distance curve of libjxl's JxlEncoderDistanceFromQuality (the one cjxl uses
+    /// for -q). That function only exists from libjxl 0.9, so it is reproduced here rather than
+    /// imported: 100 is mathematically lossless, 90 is distance 1 (visually lossless).
+    /// </summary>
+    internal static float DistanceFromQuality(float quality) => quality >= 100 ? 0f
+        : quality >= 30 ? 0.1f + (100 - quality) * 0.09f
+        : 53f / 3000f * quality * quality - 23f / 20f * quality + 25f;
 
     /// <summary>RGBA &lt;-&gt; BGRA: swapping R and B is its own inverse, so one routine serves both directions.</summary>
     private static unsafe void Swizzle(byte* src, byte* dst, int pixelCount)
@@ -255,6 +273,23 @@ public sealed partial class JxlCodec : IImageCodec
             public unsafe fixed byte padding[100];
         }
 
+        /// <summary>jxl/color_encoding.h. Enums are C ints; the doubles keep their natural 8-byte
+        /// alignment on both sides, so the sequential layout matches the C struct (104 bytes).</summary>
+        [StructLayout(LayoutKind.Sequential)]
+        public struct JxlColorEncoding
+        {
+            public int color_space;
+            public int white_point;
+            public double white_point_x, white_point_y;
+            public int primaries;
+            public double primaries_red_x, primaries_red_y;
+            public double primaries_green_x, primaries_green_y;
+            public double primaries_blue_x, primaries_blue_y;
+            public int transfer_function;
+            public double gamma;
+            public int rendering_intent;
+        }
+
         [StructLayout(LayoutKind.Sequential)]
         public struct JxlPixelFormat
         {
@@ -288,7 +323,8 @@ public sealed partial class JxlCodec : IImageCodec
         [LibraryImport(Lib)] public static partial int JxlEncoderSetBasicInfo(IntPtr enc, ref JxlBasicInfo info);
         [LibraryImport(Lib)] public static partial int JxlEncoderSetFrameLossless(IntPtr frameSettings, int lossless);
         [LibraryImport(Lib)] public static partial int JxlEncoderSetFrameDistance(IntPtr frameSettings, float distance);
-        [LibraryImport(Lib)] public static partial float JxlEncoderDistanceFromQuality(float quality);
+        [LibraryImport(Lib)] public static partial void JxlColorEncodingSetToSRGB(ref JxlColorEncoding colorEncoding, int isGray);
+        [LibraryImport(Lib)] public static partial int JxlEncoderSetColorEncoding(IntPtr enc, ref JxlColorEncoding colorEncoding);
         [LibraryImport(Lib)] public static partial int JxlEncoderUseContainer(IntPtr enc, int useContainer);
         [LibraryImport(Lib)]
         public static unsafe partial int JxlEncoderAddImageFrame(IntPtr frameSettings, ref JxlPixelFormat format, byte* buffer, nuint size);

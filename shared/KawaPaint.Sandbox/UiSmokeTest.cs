@@ -35,6 +35,7 @@ internal static class UiSmokeTest
         Check("marching ants", MarchingAnts);
         Check("undo recomposites the changed area", PartialUndoComposite);
         Check("gesture backdrop", GestureBackdrop);
+        Check("batch overwrite keeps the original on failure", BatchOverwriteFailure);
         Check("modal shortcuts and focus", ModalInput);
         Check("inline text editing", InlineTextEditing);
         Check("adjustment cancellation", AdjustmentCancellation);
@@ -571,6 +572,59 @@ internal static class UiSmokeTest
                     if (composite[x, y] != expected[x, y]) differing++;
             Assert(differing == 0, $"{differing} pixels differ from a full flatten {when}");
         }
+    }
+
+    /// <summary>Issue #26: a batch result that cannot be encoded must leave the file it was going to
+    /// overwrite exactly as it was, and a successful one must replace it completely.</summary>
+    private static void BatchOverwriteFailure()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "kawapaint-batch-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var window = new Window();
+        window.Show();
+        try
+        {
+            using var document = new Document(8, 8);
+            document.AddLayer().Surface.Clear(ColorBgra.FromBgra(0, 0, 255, 255));
+            byte[] original = Enumerable.Range(0, 4096).Select(i => (byte)i).ToArray();
+
+            // No codec handles this extension, so encoding throws.
+            string unsupported = Path.Combine(directory, "picture.nocodec");
+            File.WriteAllBytes(unsupported, original);
+            var target = StorageFile(window, unsupported);
+            bool threw = false;
+            try { Wait(SaveBatchResult(document, target)); }
+            catch (Exception) { threw = true; }
+            Assert(threw, "encoding to an unknown format did not fail");
+            Assert(File.ReadAllBytes(unsupported).SequenceEqual(original), "the original was changed by a failed batch save");
+
+            string png = Path.Combine(directory, "picture.png");
+            File.WriteAllBytes(png, original);
+            Wait(SaveBatchResult(document, StorageFile(window, png)));
+            using var reread = File.OpenRead(png);
+            using var decoded = KawaPaint.Engine.Codecs.CodecRegistry.Decode(reread, "picture.png");
+            Assert(decoded.Width == 8 && decoded[3, 3] == ColorBgra.FromBgra(0, 0, 255, 255), "the overwrite did not hold the new image");
+            Assert(Directory.GetFiles(directory).Length == 2, "a temp file was left behind");
+        }
+        finally
+        {
+            window.Close();
+            Pump();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static Task SaveBatchResult(Document document, Avalonia.Platform.Storage.IStorageFile target)
+    {
+        var save = typeof(MainView).GetMethod("SaveBatchResultAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
+        return (Task)save.Invoke(null, new object?[] { document, target, null })!;
+    }
+
+    private static Avalonia.Platform.Storage.IStorageFile StorageFile(Window window, string path)
+    {
+        var task = window.StorageProvider.TryGetFileFromPathAsync(new Uri(path));
+        Wait(task);
+        return task.Result ?? throw new Exception("the headless storage provider cannot open " + path);
     }
 
     /// <summary>The ants are 1px lines on the selection's edge, at any zoom, and they move.</summary>

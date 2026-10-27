@@ -69,15 +69,19 @@ internal static class AnimatedGifSmokeTest
         AnimatedGifEncoder.Encode(new[] { noise }, noiseStream);
         noiseStream.Position = 0;
         using var noiseDecoded = Surface.Decode(noiseStream);
-        for (int y = 0; y < noise.Height; y += 17)
-        for (int x = 0; x < noise.Width; x += 19)
+        // 255 colours cannot represent uniform noise, so single pixels can land far off; a broken
+        // code stream shows up as a large mean error instead.
+        long noiseError = 0;
+        for (int y = 0; y < noise.Height; y++)
+        for (int x = 0; x < noise.Width; x++)
         {
             ColorBgra expected = noise[x, y];
             ColorBgra actual = noiseDecoded[x, y];
-            Assert(Math.Abs(expected.R - actual.R) <= 36 && Math.Abs(expected.G - actual.G) <= 36 &&
-                   Math.Abs(expected.B - actual.B) <= 85,
-                $"high-entropy GIF pixel ({x},{y}) was corrupt: {expected} -> {actual}");
+            noiseError += Math.Abs(expected.R - actual.R) + Math.Abs(expected.G - actual.G) +
+                          Math.Abs(expected.B - actual.B);
         }
+        double meanNoiseError = noiseError / (3.0 * noise.Width * noise.Height);
+        Assert(meanNoiseError < 16, $"high-entropy GIF was corrupt: mean channel error {meanNoiseError:0.0}");
         Console.WriteLine($"ANIMATED GIF SMOKE OK - 2 frames, {bytes.Length} bytes, import/export through Skia");
     }
 

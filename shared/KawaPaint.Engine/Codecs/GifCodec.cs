@@ -308,6 +308,7 @@ internal sealed class GifPalette
     private readonly ColorBgra[] _colors;
     private readonly bool _transparent;
     private readonly int[] _nearestCache = Enumerable.Repeat(-1, 32 * 32 * 32).ToArray();
+    private readonly Dictionary<int, int> _exactIndex = new();
 
     private GifPalette(ColorBgra[] colors, bool transparent)
     {
@@ -319,6 +320,8 @@ internal sealed class GifPalette
             Bytes[index * 3] = colors[index].R;
             Bytes[index * 3 + 1] = colors[index].G;
             Bytes[index * 3 + 2] = colors[index].B;
+            if (index >= (transparent ? 1 : 0))
+                _exactIndex.TryAdd((colors[index].R << 16) | (colors[index].G << 8) | colors[index].B, index);
         }
     }
 
@@ -339,7 +342,21 @@ internal sealed class GifPalette
 
     public static unsafe GifPalette Build(IReadOnlyList<Surface> frames, bool transparent)
     {
+        int availableColors = transparent ? 255 : 256;
+        if (ExactColors(frames, transparent, availableColors) is { } exact)
+        {
+            var exactColors = new ColorBgra[256];
+            int index = transparent ? 1 : 0;
+            foreach (int rgb in exact) exactColors[index++] = FromRgb(rgb);
+            ColorBgra fill = exactColors[Math.Max(transparent ? 1 : 0, index - 1)];
+            while (index < exactColors.Length) exactColors[index++] = fill;
+            return new GifPalette(exactColors, transparent);
+        }
+
+        // Bin on 5 bits per channel to keep the median cut small, but remember the real colours in
+        // each bin so that palette entries are averages of actual pixels, not bin centres.
         var histogram = new int[32 * 32 * 32];
+        var sums = new long[32 * 32 * 32 * 3];
         long totalPixels = frames.Sum(frame => (long)frame.Width * frame.Height);
         int stride = Math.Max(1, (int)Math.Sqrt(Math.Max(1, totalPixels / 1_000_000.0)));
         foreach (Surface frame in frames)
@@ -350,7 +367,11 @@ internal sealed class GifPalette
                 {
                     ColorBgra color = row[x];
                     if (transparent && color.A < 128) continue;
-                    histogram[((color.R >> 3) << 10) | ((color.G >> 3) << 5) | (color.B >> 3)]++;
+                    int bin = ((color.R >> 3) << 10) | ((color.G >> 3) << 5) | (color.B >> 3);
+                    histogram[bin]++;
+                    sums[bin * 3] += color.R;
+                    sums[bin * 3 + 1] += color.G;
+                    sums[bin * 3 + 2] += color.B;
                 }
             }
 
@@ -360,13 +381,12 @@ internal sealed class GifPalette
             int count = histogram[code];
             if (count == 0) continue;
             points.Add(new Point(
-                (byte)((((code >> 10) & 31) * 255 + 15) / 31),
-                (byte)((((code >> 5) & 31) * 255 + 15) / 31),
-                (byte)(((code & 31) * 255 + 15) / 31), count));
+                (byte)((sums[code * 3] + count / 2) / count),
+                (byte)((sums[code * 3 + 1] + count / 2) / count),
+                (byte)((sums[code * 3 + 2] + count / 2) / count), count));
         }
         if (points.Count == 0) points.Add(new Point(0, 0, 0, 1));
 
-        int availableColors = transparent ? 255 : 256;
         var boxes = new List<Box> { new(points) };
         while (boxes.Count < availableColors)
         {
@@ -398,14 +418,44 @@ internal sealed class GifPalette
         {
             long count = box.Population;
             colors[destination++] = ColorBgra.FromBgra(
-                (byte)(box.Points.Sum(point => (long)point.B * point.Count) / count),
-                (byte)(box.Points.Sum(point => (long)point.G * point.Count) / count),
-                (byte)(box.Points.Sum(point => (long)point.R * point.Count) / count), 255);
+                (byte)((box.Points.Sum(point => (long)point.B * point.Count) + count / 2) / count),
+                (byte)((box.Points.Sum(point => (long)point.G * point.Count) + count / 2) / count),
+                (byte)((box.Points.Sum(point => (long)point.R * point.Count) + count / 2) / count), 255);
         }
         ColorBgra padding = colors[Math.Max(transparent ? 1 : 0, destination - 1)];
         while (destination < colors.Length) colors[destination++] = padding;
         return new GifPalette(colors, transparent);
     }
+
+    /// <summary>The distinct opaque colours of every frame, in order of first appearance, or null
+    /// when there are more than <paramref name="limit"/>.</summary>
+    private static unsafe List<int>? ExactColors(IReadOnlyList<Surface> frames, bool transparent, int limit)
+    {
+        var seen = new HashSet<int>();
+        var ordered = new List<int>();
+        foreach (Surface frame in frames)
+            for (int y = 0; y < frame.Height; y++)
+            {
+                ColorBgra* row = (ColorBgra*)frame.GetRowPointer(y);
+                int previous = -1;
+                for (int x = 0; x < frame.Width; x++)
+                {
+                    ColorBgra color = row[x];
+                    if (transparent && color.A < 128) continue;
+                    int rgb = (color.R << 16) | (color.G << 8) | color.B;
+                    if (rgb == previous) continue;
+                    previous = rgb;
+                    if (!seen.Add(rgb)) continue;
+                    if (ordered.Count == limit) return null;
+                    ordered.Add(rgb);
+                }
+            }
+        if (ordered.Count == 0) ordered.Add(0);
+        return ordered;
+    }
+
+    private static ColorBgra FromRgb(int rgb) =>
+        ColorBgra.FromBgra((byte)rgb, (byte)(rgb >> 8), (byte)(rgb >> 16), 255);
 
     public unsafe void Quantize(Surface frame, byte[] destination, bool dither)
     {
@@ -446,6 +496,9 @@ internal sealed class GifPalette
 
     private int FindNearest(int red, int green, int blue)
     {
+        // The cache is keyed on 5-bit bins, so a colour that is in the palette is looked up exactly
+        // first; otherwise two palette entries sharing a bin would collapse onto one.
+        if (_exactIndex.TryGetValue((red << 16) | (green << 8) | blue, out int exact)) return exact;
         int cacheKey = ((red >> 3) << 10) | ((green >> 3) << 5) | (blue >> 3);
         if (_nearestCache[cacheKey] >= 0) return _nearestCache[cacheKey];
         int first = _transparent ? 1 : 0, best = first, bestDistance = int.MaxValue;

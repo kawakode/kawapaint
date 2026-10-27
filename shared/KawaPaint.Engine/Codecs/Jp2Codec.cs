@@ -117,50 +117,64 @@ public sealed partial class Jp2Codec : IImageCodec
             if (width <= 0 || height <= 0 || numComps < 1)
                 throw new InvalidOperationException("JPEG 2000 image has invalid dimensions or no components.");
 
+            // Components may be smaller than the image (dx/dy > 1, as in 4:2:0 sYCC), so every
+            // plane is checked and read through its own grid rather than assumed full size.
+            for (int c = 0; c < numComps; c++)
+            {
+                var comp = image->comps[c];
+                if (comp.data == null || comp.w == 0 || comp.h == 0 || comp.dx == 0 || comp.dy == 0
+                    || comp.prec is 0 or > 31)
+                    throw new InvalidOperationException("JPEG 2000 component has invalid dimensions.");
+            }
+
             surface = new Surface(width, height);
             byte* dst = (byte*)surface.Scan0;
+            int originX = (int)image->x0, originY = (int)image->y0;
 
-            int pixelCount = width * height;
-            static byte Sample(Native.OpjImageComp comp, int p)
+            byte Sample(int c, int x, int y)
             {
-                int shift = comp.prec > 8 ? (int)comp.prec - 8 : 0;
-                int v = shift > 0 ? comp.data[p] >> shift : comp.data[p];
-                return (byte)Math.Clamp(v, 0, 255);
+                var comp = image->comps[c];
+                int cx = Math.Clamp((originX + x) / (int)comp.dx - (int)comp.x0, 0, (int)comp.w - 1);
+                int cy = Math.Clamp((originY + y) / (int)comp.dy - (int)comp.y0, 0, (int)comp.h - 1);
+                long v = comp.data[(long)cy * comp.w + cx];
+                if (comp.sgnd != 0) v += 1L << ((int)comp.prec - 1);
+                long max = (1L << (int)comp.prec) - 1;
+                return (byte)Math.Clamp((v * 255 + max / 2) / max, 0, 255);
             }
 
-            if (numComps < 3)
+            bool color = numComps >= 3;
+            bool alpha = numComps == 2 || numComps >= 4;
+            // Like opj_decompress, treat an unlabelled 3-plane image with subsampled chroma as sYCC.
+            bool sycc = color && (image->color_space == Native.OPJ_CLRSPC_SYCC
+                || (image->color_space == Native.OPJ_CLRSPC_UNSPECIFIED && numComps == 3
+                    && image->comps[0].dx == 1 && image->comps[0].dy == 1 && image->comps[1].dx != 1));
+            for (int y = 0; y < height; y++)
             {
-                // Grayscale (numComps 1) or grayscale+alpha (numComps 2): replicate the luma
-                // plane across R,G,B.
-                var luma = image->comps[0];
-                for (int p = 0; p < pixelCount; p++)
+                byte* row = dst + (long)y * surface.Stride;
+                for (int x = 0; x < width; x++)
                 {
-                    byte v = Sample(luma, p);
-                    dst[p * 4 + 0] = v; dst[p * 4 + 1] = v; dst[p * 4 + 2] = v;
+                    byte* px = row + x * 4;
+                    if (!color)
+                    {
+                        byte v = Sample(0, x, y);
+                        px[0] = v; px[1] = v; px[2] = v;
+                    }
+                    else if (sycc)
+                    {
+                        int luma = Sample(0, x, y), cb = Sample(1, x, y) - 128, cr = Sample(2, x, y) - 128;
+                        px[2] = ClampByte(luma + 1.402 * cr);
+                        px[1] = ClampByte(luma - 0.344136 * cb - 0.714136 * cr);
+                        px[0] = ClampByte(luma + 1.772 * cb);
+                    }
+                    else
+                    {
+                        // Component order is R,G,B; Surface is BGRA.
+                        px[2] = Sample(0, x, y);
+                        px[1] = Sample(1, x, y);
+                        px[0] = Sample(2, x, y);
+                    }
+                    px[3] = alpha ? Sample(numComps == 2 ? 1 : 3, x, y) : (byte)255;
                 }
-            }
-            else
-            {
-                // Component order is R,G,B,[A] per OPJ_CLRSPC_SRGB; Surface is BGRA, so this both
-                // gathers the planes into an interleaved buffer and does the R/B swap in one pass.
-                Span<int> dstOffset = stackalloc[] { 2, 1, 0 };
-                for (int c = 0; c < 3; c++)
-                {
-                    var comp = image->comps[c];
-                    int off = dstOffset[c];
-                    for (int p = 0; p < pixelCount; p++)
-                        dst[p * 4 + off] = Sample(comp, p);
-                }
-            }
-
-            if (numComps == 2 || numComps >= 4)
-            {
-                var alpha = image->comps[numComps == 2 ? 1 : 3];
-                for (int p = 0; p < pixelCount; p++) dst[p * 4 + 3] = Sample(alpha, p);
-            }
-            else
-            {
-                for (int p = 0; p < pixelCount; p++) dst[p * 4 + 3] = 255;
             }
 
             return surface;
@@ -178,6 +192,8 @@ public sealed partial class Jp2Codec : IImageCodec
             if (stateHandle.IsAllocated) stateHandle.Free();
         }
     }
+
+    private static byte ClampByte(double value) => (byte)Math.Clamp((int)Math.Round(value), 0, 255);
 
     public unsafe void Encode(Surface surface, Stream stream, EncodeOptions options)
     {
@@ -274,7 +290,9 @@ public sealed partial class Jp2Codec : IImageCodec
         private const string Lib = "openjp2";
 
         public const int OPJ_CODEC_JP2 = 2;
+        public const int OPJ_CLRSPC_UNSPECIFIED = 0;
         public const int OPJ_CLRSPC_SRGB = 1;
+        public const int OPJ_CLRSPC_SYCC = 3;
 
         [StructLayout(LayoutKind.Sequential)]
         public struct OpjImageCmptParm

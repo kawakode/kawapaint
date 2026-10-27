@@ -85,18 +85,25 @@ public sealed partial class JxlCodec : IImageCodec
                     {
                         if (Native.JxlDecoderGetBasicInfo(dec, ref info) != Native.JXL_DEC_SUCCESS)
                             throw new InvalidOperationException("JxlDecoderGetBasicInfo failed.");
+                        // Orientation is applied by libjxl, which then also reports the oriented size.
                         surface = new Surface((int)info.xsize, (int)info.ysize);
                     }
                     else if (status == Native.JXL_DEC_NEED_IMAGE_OUT_BUFFER)
                     {
+                        if (surface is null || rgba != null)
+                            throw new InvalidOperationException("Unexpected JPEG XL decoder state.");
                         if (Native.JxlDecoderImageOutBufferSize(dec, ref format, out nuint size) != Native.JXL_DEC_SUCCESS)
                             throw new InvalidOperationException("JxlDecoderImageOutBufferSize failed.");
+                        if (size < (nuint)surface.Width * (nuint)surface.Height * 4)
+                            throw new InvalidOperationException("JPEG XL output buffer is smaller than the image.");
                         rgba = (byte*)NativeMemory.Alloc(size);
                         if (Native.JxlDecoderSetImageOutBuffer(dec, ref format, rgba, size) != Native.JXL_DEC_SUCCESS)
                             throw new InvalidOperationException("JxlDecoderSetImageOutBuffer failed.");
                     }
-                    else if (status == Native.JXL_DEC_SUCCESS)
+                    else if (status is Native.JXL_DEC_FULL_IMAGE or Native.JXL_DEC_SUCCESS)
                     {
+                        // An animation is opened as its first frame; decoding on would only
+                        // overwrite it with later ones.
                         break;
                     }
                 }

@@ -41,6 +41,15 @@ jobs:
           cache: true
           cache-dependency-path: '**/*.csproj'
 
+      # The stock runtime packages only, as on a user's desktop: JPEG XL / JPEG 2000 must be found
+      # under their versioned sonames, without the -dev symlinks.
+      - name: Install native codec libraries
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libjxl0.7 libopenjp2-7
+          echo "KAWAPAINT_REQUIRE_NATIVE_CODECS=1" >> "$GITHUB_ENV"
+
       - name: Build ${{ matrix.platform }} app
         run: dotnet build ${{ matrix.app }} -c Release
 

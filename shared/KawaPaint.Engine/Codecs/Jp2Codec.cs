@@ -39,6 +39,8 @@ public sealed partial class Jp2Codec : IImageCodec
     public bool CanDecode => true;
     public bool CanEncode => true;
 
+    static Jp2Codec() => NativeCodecLibraries.EnsureRegistered();
+
     private bool? _available;
     public bool IsAvailable => _available ??= Probe();
 

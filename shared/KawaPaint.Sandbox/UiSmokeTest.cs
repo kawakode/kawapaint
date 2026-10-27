@@ -30,6 +30,7 @@ internal static class UiSmokeTest
         Check("session follows canvas operations", SessionFollowsDocumentSwaps);
         Check("project save is atomic", ProjectSaveIsAtomic);
         Check("unhandled UI exceptions", UnhandledUiException);
+        Check("paste growing the canvas", PasteGrowingCanvas);
         Check("modal shortcuts and focus", ModalInput);
         Check("inline text editing", InlineTextEditing);
         Check("adjustment cancellation", AdjustmentCancellation);
@@ -368,6 +369,29 @@ internal static class UiSmokeTest
             Pump();
             var status = view.FindControl<TextBlock>("StatusText")!;
             Assert(status.Text?.Contains("boom from a handler") == true, "unhandled exception was not reported");
+        });
+    }
+
+    /// <summary>Issue #11: Paste (Grow Canvas) pastes into the active layer, which stays active.</summary>
+    private static void PasteGrowingCanvas()
+    {
+        WithView(1100, 760, (view, _) =>
+        {
+            var canvas = view.FindControl<SurfaceView>("Canvas")!;
+            Invoke(view, "OnAddLayer", null!, new Avalonia.Interactivity.RoutedEventArgs());
+            var document = canvas.Document!;
+            var bottom = document.Layers[0];
+            canvas.SetActiveLayer(bottom);
+            using var pasted = new Surface(document.Width + 40, document.Height + 10);
+            pasted.Clear(ColorBgra.Black);
+
+            Invoke(view, "PasteGrowingCanvas", pasted);
+
+            var grown = canvas.Document!;
+            Assert(grown.Width == pasted.Width && grown.Height == pasted.Height, "canvas did not grow");
+            Assert(grown.Layers[0].Surface[pasted.Width - 1, 0] == ColorBgra.Black, "image was not pasted into the active layer");
+            Assert(grown.Layers[^1].Surface[pasted.Width - 1, 0].A == 0, "image was pasted into the top layer");
+            Assert(canvas.ActiveLayer == grown.Layers[0], "active layer changed");
         });
     }
 

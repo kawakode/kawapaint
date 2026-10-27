@@ -238,7 +238,13 @@ public sealed class EraserTool : ITool
 public sealed class ColorPickerTool : ITool
 {
     public string Name => "Color Picker";
-    public void PointerDown(ToolContext c) => c.SetPrimaryColor(c.SampleComposite(c.IX, c.IY));
+    public void PointerDown(ToolContext c)
+    {
+        // Off the image there is nothing to sample; picking "transparent" there just lost the
+        // user's color to a slightly-missed click.
+        if ((uint)c.IX >= (uint)c.Layer.Surface.Width || (uint)c.IY >= (uint)c.Layer.Surface.Height) return;
+        c.SetPrimaryColor(c.SampleComposite(c.IX, c.IY));
+    }
     public void PointerMove(ToolContext c) { }
     public void PointerUp(ToolContext c) { }
 }
@@ -344,10 +350,15 @@ public abstract class ShapeToolBase : ITool
 
     protected abstract void Draw(ToolContext c, double x0, double y0, double x1, double y1);
 
-    private static (int X, int Y, int Width, int Height) BoundsFor(
+    /// <summary>How far the drawn shape can reach outside the box spanned by the drag, in pixels.
+    /// The preview restores and redraws only that box plus this, so anything drawn beyond it is
+    /// left behind as the drag moves on.</summary>
+    protected virtual double Overhang(ToolContext c) => c.BrushWidth / 2.0;
+
+    private (int X, int Y, int Width, int Height) BoundsFor(
         ToolContext c, double x0, double y0, double x1, double y1)
     {
-        int margin = Math.Max(2, (int)Math.Ceiling(c.BrushWidth / 2.0) + 2);
+        int margin = Math.Max(2, (int)Math.Ceiling(Overhang(c)) + 2);
         int left = Math.Max(0, (int)Math.Floor(Math.Min(x0, x1)) - margin);
         int top = Math.Max(0, (int)Math.Floor(Math.Min(y0, y1)) - margin);
         int right = Math.Min(c.Layer.Surface.Width, (int)Math.Ceiling(Math.Max(x0, x1)) + margin + 1);
@@ -399,14 +410,32 @@ public sealed class DynamicTextTool : ITool
     public void PointerUp(ToolContext c) { }
 }
 
-/// <summary>Move tool: drags the whole active layer's content.</summary>
-public sealed class MoveTool : ITool
+/// <summary>
+/// A tool that deals with the selection itself. The view normally restores everything outside the
+/// selection after each step of a gesture; a tool that moves the selection along with the pixels
+/// would have that undo its own work.
+/// </summary>
+public interface IHandlesSelection
+{
+    /// <summary>True while the current gesture is managing the selection itself.</summary>
+    bool HandlesSelection { get; }
+}
+
+/// <summary>Move tool: drags the active layer's content - only the selected pixels, carrying the
+/// selection along, when there is a selection.</summary>
+public sealed class MoveTool : ITool, IHandlesSelection
 {
     private double _sx, _sy;
     private bool _pushed;
+    private Selection? _startSelection;   // selection where the drag began; null = move the whole layer
     public string Name => "Move";
+    public bool HandlesSelection => _startSelection is not null;
 
-    public void PointerDown(ToolContext c) { _sx = c.X; _sy = c.Y; _pushed = false; }
+    public void PointerDown(ToolContext c)
+    {
+        _sx = c.X; _sy = c.Y; _pushed = false;
+        _startSelection = c.Selection is { IsActive: true } selection ? selection.Clone() : null;
+    }
 
     public void PointerMove(ToolContext c)
     {
@@ -422,11 +451,20 @@ public sealed class MoveTool : ITool
         // Once a gesture is underway, always re-shift from PreStroke - including back to (0,0) -
         // so dragging back to the start restores the original position instead of leaving the
         // surface at whatever the last non-zero offset was.
-        SurfaceOps.ShiftInto(c.Layer.Surface, c.PreStroke, dx, dy);
+        if (_startSelection is { } start)
+        {
+            SurfaceOps.MoveSelectedPixels(c.Layer.Surface, c.PreStroke, start, dx, dy);
+            c.Selection.CopyShifted(start, dx, dy);
+            c.SelectionChanged();
+        }
+        else
+        {
+            SurfaceOps.ShiftInto(c.Layer.Surface, c.PreStroke, dx, dy);
+        }
         c.Composite();
     }
 
-    public void PointerUp(ToolContext c) { }
+    public void PointerUp(ToolContext c) => _startSelection = null;
 }
 
 public sealed class EllipseTool : ShapeToolBase
@@ -1042,6 +1080,11 @@ public sealed class ArrowTool : ShapeToolBase
         else ShapeOps.DrawPolygon(c.Layer.Surface, points, c.BrushWidth / 2, c.PrimaryColor, c.Antialias);
     }
 
+    // The head spreads sideways past the drag line by headHalf, plus the outline's own width.
+    protected override double Overhang(ToolContext c) => HeadHalfWidth(c.BrushWidth) + c.BrushWidth / 2.0;
+
+    private static double HeadHalfWidth(int brushWidth) => Math.Max(2, brushWidth * 0.6) * 2.5;
+
     /// <summary>Seven-point arrow polygon: a shaft of half-width scaled to the brush, capped by a
     /// triangular head sized off that same shaft so thicker brushes draw proportionally bigger heads.</summary>
     private static List<(double X, double Y)> ArrowPoints(double x0, double y0, double x1, double y1, int brushWidth)
@@ -1052,7 +1095,7 @@ public sealed class ArrowTool : ShapeToolBase
         double nx = -uy, ny = ux;
 
         double shaftHalf = Math.Max(2, brushWidth * 0.6);
-        double headHalf = shaftHalf * 2.5;
+        double headHalf = HeadHalfWidth(brushWidth);
         double headLen = Math.Min(len * 0.5, headHalf * 2);
         double bx = x1 - ux * headLen, by = y1 - uy * headLen;
 

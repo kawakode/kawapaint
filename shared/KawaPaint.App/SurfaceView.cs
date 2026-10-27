@@ -290,14 +290,18 @@ public sealed class SurfaceView : Control
         InvalidateVisual();
     }
 
+    private bool GestureHandlesSelection => _gestureTool is IHandlesSelection { HandlesSelection: true };
+
     private void ClipToSelection()
     {
+        if (GestureHandlesSelection) return;
         if (Selection is { IsActive: true } && ActiveLayer is not null && _preStroke is not null)
             Selection.Clip(ActiveLayer.Surface, _preStroke);
     }
 
     private void ClipToSelection(int x, int y, int width, int height)
     {
+        if (GestureHandlesSelection) return;
         if (Selection is { IsActive: true } && ActiveLayer is not null && _preStroke is not null)
             Selection.Clip(ActiveLayer.Surface, _preStroke, x, y, width, height);
     }

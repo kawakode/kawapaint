@@ -21,7 +21,7 @@ public partial class MainView
     private sealed record SizeValues(int Width, int Height);
     private sealed record CanvasSizeValues(int Width, int Height, CanvasAnchor Anchor);
     private sealed record TextValues(string Text, int Size);
-    private sealed record AnimationValues(int DelayMs, bool Loop);
+    private sealed record AnimationValues(bool Loop);
     private readonly record struct CanvasChoice<T>(string Label, T Value, bool IsDefault = false);
 
     /// <summary>Single-view/browser replacement for Window.ShowDialog. The shade is added last to
@@ -305,23 +305,21 @@ public partial class MainView
         return NullableForm("Add Text", body, () => new TextValues(text.Text ?? "", (int)(size.Value ?? 48)));
     }
 
+    /// <summary>Browser counterpart of <see cref="AnimationExportDialog"/>: frames come from the
+    /// timeline with their own durations, so only looping is asked.</summary>
     private Task<AnimationValues?> ShowCanvasAnimationSettingsAsync(int frameCount)
     {
-        var delay = Number(100, 10, 60_000);
-        delay.Increment = 10;
         var loop = new CheckBox { Content = "Loop forever", IsChecked = true };
         var body = new StackPanel
         {
             Spacing = 8,
             Children =
             {
-                new TextBlock { Text = $"Each of the {frameCount} visible layers becomes one frame." },
-                Form(("Delay (ms)", delay)),
+                new TextBlock { Text = $"Export {frameCount} timeline frame(s) using their individual durations." },
                 loop
             }
         };
-        return NullableForm("Export Animated GIF", body,
-            () => new AnimationValues((int)(delay.Value ?? 100), loop.IsChecked ?? true));
+        return NullableForm("Export Animation", body, () => new AnimationValues(loop.IsChecked ?? true));
     }
 
     private async Task<T?> NullableForm<T>(string title, Control body, Func<T> capture) where T : class

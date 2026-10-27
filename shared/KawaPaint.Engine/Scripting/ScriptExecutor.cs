@@ -67,6 +67,18 @@ public static class ScriptExecutor
                 return Ok();
             }
 
+            case "image.rotate180": DocumentOps.Rotate180(doc); return Ok();
+
+            case "image.rotate":
+            {
+                if (step.Args.Count < 1) return Skip("missing rotation angle");
+                var turned = DocumentOps.Rotate(doc, step.Args[0], step.Args.Count < 2 || step.Args[1] != 0);
+                doc.Dispose();
+                doc = turned;
+                currentLayer = Math.Clamp(currentLayer, 0, doc.LayerCount - 1);
+                return Ok();
+            }
+
             case "image.flatten":
                 if (doc.LayerCount <= 1) return Skip("already a single layer");
                 var flattened = DocumentOps.Flatten(doc);

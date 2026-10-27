@@ -873,6 +873,34 @@ public partial class MainView : UserControl
         StatusText.Text = cw ? "Rotated 90° CW" : "Rotated 90° CCW";
     }
 
+    private void OnRotate180(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document; if (doc is null) return;
+        RecordAction("image.rotate180");
+        DocumentOps.Rotate180(doc);
+        Canvas.History.Push(new DelegateMemento("Rotate 180°",
+            () => DocumentOps.Rotate180(doc), () => DocumentOps.Rotate180(doc)));
+        RefreshDocument();
+        StatusText.Text = "Rotated 180°";
+    }
+
+    private async void OnRotateArbitrary(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var doc = Canvas.Document;
+        if (doc is null || OwnerWindow is not { } owner) return;
+        var dlg = new RotateImageDialog(doc.Width, doc.Height);
+        if (!await dlg.ShowDialog<bool>(owner)) return;
+        RotateImage(dlg.ResultAngle, dlg.ResultExpand);
+    }
+
+    private void RotateImage(double degrees, bool expand)
+    {
+        if (degrees % 360 == 0) return;
+        RecordParameterizedAction("image.rotate", new[] { degrees, expand ? 1.0 : 0.0 });
+        ApplyDocumentOp($"Rotate {degrees:0.##}°", d => DocumentOps.Rotate(d, degrees, expand));
+        StatusText.Text = $"Rotated {degrees:0.##}°";
+    }
+
     private void OnFlatten(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         var doc = Canvas.Document;
@@ -987,6 +1015,14 @@ public partial class MainView : UserControl
             }, v => new TileEffect(v[0], v[1], v[2])),
 
             "frostedglass" => CreateFrostedGlassDialog(),
+
+            "rotatezoom" => new AdjustmentDialog(Canvas, "Rotate / Zoom Layer", new[]
+            {
+                new AdjustmentDialog.SliderSpec("Angle", -180, 180, 0, "0"),
+                new AdjustmentDialog.SliderSpec("Zoom", 0.1, 4, 1, "0.00"),
+                new AdjustmentDialog.SliderSpec("Pan X (%)", -100, 100, 0, "0"),
+                new AdjustmentDialog.SliderSpec("Pan Y (%)", -100, 100, 0, "0")
+            }, v => new RotateZoomEffect(v[0], v[1], v[2], v[3])),
 
             "pixelate" => new AdjustmentDialog(Canvas, "Pixelate", new[]
             {

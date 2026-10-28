@@ -245,7 +245,8 @@ public partial class MainView
     private const double RadialSpacing = 60;   // centre to centre along the ring
     private const double RadialMinRadius = 80;
 
-    private Point _radialCenter;
+    private Point _radialPress;    // where the finger was
+    private Point _radialCenter;   // the ring's centre: the press point, or moved on screen
     private Canvas? _radialCanvas;
     private Border? _radialValuePanel;
 
@@ -258,7 +259,8 @@ public partial class MainView
     /// </summary>
     private void ShowQuickMenu(Point canvasPoint)
     {
-        _radialCenter = Canvas.TranslatePoint(canvasPoint, RootPanel) ?? canvasPoint;
+        _radialPress = Canvas.TranslatePoint(canvasPoint, RootPanel) ?? canvasPoint;
+        _radialCenter = _radialPress;
         _radialCanvas = new Canvas { Name = "QuickMenu" };
         _radialValuePanel = null;
         ShowTouchOverlay(_radialCanvas, shade: false);
@@ -387,10 +389,10 @@ public partial class MainView
         };
         ToolTip.SetTip(hub, "Close");
         hub.Click += (_, _) => CloseTouchOverlay();
-        Place(hub, _radialCenter, 36);
-
         double width = RootPanel.Bounds.Width, height = RootPanel.Bounds.Height;
-        foreach (var (item, centre) in items.Zip(RingPositions(items.Count, _radialCenter, width, height)))
+        var positions = RingPositions(items.Count, _radialPress, width, height, out _radialCenter);
+        Place(hub, _radialCenter, 36);
+        foreach (var (item, centre) in items.Zip(positions))
             Place(item, centre, item.Width);
 
         void Place(Control control, Point centre, double size)
@@ -404,11 +406,17 @@ public partial class MainView
     /// <summary>
     /// Button centres for a ring of <paramref name="count"/> around <paramref name="centre"/>: a
     /// full circle starting at the top when it fits on screen, otherwise a half circle (or as
-    /// much as fits) facing the middle of the screen, as the finger is near an edge.
+    /// much as fits) facing the middle of the screen, as the finger is near an edge. When no arc
+    /// fits either (a long ring such as the palette on a phone), the full circle moves on screen
+    /// and <paramref name="hub"/> says where its centre went.
     /// </summary>
-    public static List<Point> RingPositions(int count, Point centre, double width, double height)
+    public static List<Point> RingPositions(int count, Point centre, double width, double height) =>
+        RingPositions(count, centre, width, height, out _);
+
+    public static List<Point> RingPositions(int count, Point centre, double width, double height, out Point hub)
     {
         const double inset = 8 + RadialButtonSize / 2;
+        hub = centre;
         double radius = Math.Max(RadialMinRadius, count * RadialSpacing / (2 * Math.PI));
         var circle = Arc(-Math.PI / 2, 2 * Math.PI, radius, closed: true);
         if (circle.All(Fits)) return circle;
@@ -422,7 +430,14 @@ public partial class MainView
             best = arc;
             if (arc.All(Fits)) return arc;
         }
-        // A tiny screen: keep the last arc and pull stragglers inside.
+        // Move the whole circle away from the edges, keeping the finger's side where it can.
+        double reach = radius + inset;
+        hub = centre = new Point(
+            Math.Clamp(centre.X, reach, Math.Max(reach, width - reach)),
+            Math.Clamp(centre.Y, reach, Math.Max(reach, height - reach)));
+        best = Arc(-Math.PI / 2, 2 * Math.PI, radius, closed: true);
+        if (best.All(Fits)) return best;
+        // A tiny screen: keep the circle and pull stragglers inside.
         return best.Select(p => new Point(
             Math.Clamp(p.X, inset, Math.Max(inset, width - inset)),
             Math.Clamp(p.Y, inset, Math.Max(inset, height - inset)))).ToList();

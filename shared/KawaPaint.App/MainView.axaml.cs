@@ -2630,6 +2630,15 @@ public partial class MainView : UserControl
         FillShapesCheck.IsEnabled = tag is "Rect" or "Ellipse" or "RoundRect" or "Freeform" or "Star" or "Arrow";
         BucketGroup.IsEnabled = tag is "Fill" or "Wand" or "Recolor";
         SelectGroup.IsEnabled = tag is "RectSel" or "EllipseSel" or "Lasso" or "Wand" or "Pen";
+
+        // Greyed-out fields are close to unreadable on a phone or tablet, and the row has no room
+        // to spare there: show only what the tool uses.
+        if (_formFactor != FormFactor.Desktop)
+        {
+            foreach (var group in new Control[] { SizeGroup, BrushGroup, ShapeGroup, BucketGroup, SelectGroup })
+                group.IsVisible = group.IsEnabled;
+            FillShapesCheck.IsVisible = FillShapesCheck.IsEnabled;
+        }
     }
 
     private void OnSelectionCombineMode(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

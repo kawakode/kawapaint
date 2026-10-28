@@ -893,6 +893,9 @@ internal static class UiSmokeTest
             // A long ring (the palette) that fits neither round the finger nor as an arc moves on
             // screen whole, without buttons piling up against the edges.
             var ring = MainView.RingPositions(14, new Point(270, 515), 412, 915, out var ringCentre);
+            // Near the edge it is a whole circle too, not an arc swinging out of the thumb's reach.
+            var leftRing = MainView.RingPositions(14, new Point(25, 500), 412, 915, out var leftCentre);
+            Assert(leftRing.All(p => Distance(p, leftCentre) < 160 && p.X >= 30), "the palette ring near the edge is too wide or off screen");
             Assert(ring.All(p => p.X >= 30 && p.X <= 412 - 30 && p.Y >= 30 && p.Y <= 915 - 30), "the palette ring runs off the screen");
             Assert(ring.All(p => ring.All(q => p == q || Distance(p, q) >= 52)), "the palette ring's buttons overlap");
             Assert(ring.All(p => Math.Abs(Distance(p, ringCentre) - Distance(ring[0], ringCentre)) < 0.5), "the palette ring is not centred on its hub");

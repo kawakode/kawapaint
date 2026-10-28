@@ -244,6 +244,7 @@ public partial class MainView
     private const double RadialButtonSize = 52;
     private const double RadialSpacing = 60;   // centre to centre along the ring
     private const double RadialMinRadius = 80;
+    private const double RadialMaxArcRadius = 160;   // further than this is out of the thumb's reach
 
     private Point _radialPress;    // where the finger was
     private Point _radialCenter;   // the ring's centre: the press point, or moved on screen
@@ -389,8 +390,12 @@ public partial class MainView
         };
         ToolTip.SetTip(hub, "Close");
         hub.Click += (_, _) => CloseTouchOverlay();
-        double width = RootPanel.Bounds.Width, height = RootPanel.Bounds.Height;
-        var positions = RingPositions(items.Count, _radialPress, width, height, out _radialCenter);
+        // Keep the ring over the canvas, off the toolbars and panels, when the canvas has room.
+        var area = new Rect(RootPanel.Bounds.Size);
+        var canvasArea = Canvas.TranslatePoint(default, RootPanel) is { } origin ? new Rect(origin, Canvas.Bounds.Size).Intersect(area) : area;
+        double diameter = 2 * (RingRadius(items.Count) + 8 + RadialButtonSize / 2);
+        if (canvasArea.Width >= diameter && canvasArea.Height >= diameter && canvasArea.Contains(_radialPress)) area = canvasArea;
+        var positions = RingPositions(items.Count, _radialPress, area, out _radialCenter);
         Place(hub, _radialCenter, 36);
         foreach (var (item, centre) in items.Zip(positions))
             Place(item, centre, item.Width);
@@ -405,44 +410,49 @@ public partial class MainView
 
     /// <summary>
     /// Button centres for a ring of <paramref name="count"/> around <paramref name="centre"/>: a
-    /// full circle starting at the top when it fits on screen, otherwise a half circle (or as
-    /// much as fits) facing the middle of the screen, as the finger is near an edge. When no arc
-    /// fits either (a long ring such as the palette on a phone), the full circle moves on screen
-    /// and <paramref name="hub"/> says where its centre went.
+    /// full circle starting at the top when it fits in <paramref name="area"/>, otherwise a half
+    /// circle (or as much as fits) facing the middle of the area, as the finger is near an edge.
+    /// An arc that would have to swing wider than a thumb reaches (a long ring such as the
+    /// palette) is not used: the full circle moves inside the area instead, and
+    /// <paramref name="hub"/> says where its centre went.
     /// </summary>
     public static List<Point> RingPositions(int count, Point centre, double width, double height) =>
-        RingPositions(count, centre, width, height, out _);
+        RingPositions(count, centre, new Rect(0, 0, width, height), out _);
 
-    public static List<Point> RingPositions(int count, Point centre, double width, double height, out Point hub)
+    public static List<Point> RingPositions(int count, Point centre, double width, double height, out Point hub) =>
+        RingPositions(count, centre, new Rect(0, 0, width, height), out hub);
+
+    private static double RingRadius(int count) => Math.Max(RadialMinRadius, count * RadialSpacing / (2 * Math.PI));
+
+    public static List<Point> RingPositions(int count, Point centre, Rect area, out Point hub)
     {
         const double inset = 8 + RadialButtonSize / 2;
         hub = centre;
-        double radius = Math.Max(RadialMinRadius, count * RadialSpacing / (2 * Math.PI));
+        double radius = RingRadius(count);
         var circle = Arc(-Math.PI / 2, 2 * Math.PI, radius, closed: true);
         if (circle.All(Fits)) return circle;
 
-        double facing = Math.Atan2(height / 2 - centre.Y, width / 2 - centre.X);
-        List<Point> best = circle;
+        double facing = Math.Atan2(area.Center.Y - centre.Y, area.Center.X - centre.X);
         foreach (double span in new[] { Math.PI, Math.PI * 0.75, Math.PI * 0.5 })
         {
             double arcRadius = Math.Max(RadialMinRadius, (count - 1) * RadialSpacing / span);
+            if (arcRadius > RadialMaxArcRadius) break;
             var arc = Arc(facing - span / 2, span, arcRadius, closed: false);
-            best = arc;
             if (arc.All(Fits)) return arc;
         }
         // Move the whole circle away from the edges, keeping the finger's side where it can.
         double reach = radius + inset;
         hub = centre = new Point(
-            Math.Clamp(centre.X, reach, Math.Max(reach, width - reach)),
-            Math.Clamp(centre.Y, reach, Math.Max(reach, height - reach)));
-        best = Arc(-Math.PI / 2, 2 * Math.PI, radius, closed: true);
-        if (best.All(Fits)) return best;
+            Math.Clamp(centre.X, area.Left + reach, Math.Max(area.Left + reach, area.Right - reach)),
+            Math.Clamp(centre.Y, area.Top + reach, Math.Max(area.Top + reach, area.Bottom - reach)));
+        circle = Arc(-Math.PI / 2, 2 * Math.PI, radius, closed: true);
+        if (circle.All(Fits)) return circle;
         // A tiny screen: keep the circle and pull stragglers inside.
-        return best.Select(p => new Point(
-            Math.Clamp(p.X, inset, Math.Max(inset, width - inset)),
-            Math.Clamp(p.Y, inset, Math.Max(inset, height - inset)))).ToList();
+        return circle.Select(p => new Point(
+            Math.Clamp(p.X, area.Left + inset, Math.Max(area.Left + inset, area.Right - inset)),
+            Math.Clamp(p.Y, area.Top + inset, Math.Max(area.Top + inset, area.Bottom - inset)))).ToList();
 
-        bool Fits(Point p) => p.X >= inset && p.Y >= inset && p.X <= width - inset && p.Y <= height - inset;
+        bool Fits(Point p) => p.X >= area.Left + inset && p.Y >= area.Top + inset && p.X <= area.Right - inset && p.Y <= area.Bottom - inset;
 
         List<Point> Arc(double start, double span, double r, bool closed)
         {

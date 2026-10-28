@@ -31,9 +31,11 @@ The remaining entries require hardware, registered API applications, or an expli
 - **Publishing live validation:** register Tumblr, DeviantArt and Meta applications, approve the
   loopback redirect URI, and exercise real accounts. Mocked multipart requests and all failure
   semantics are covered; no client IDs or test accounts were available in this pass.
-- **Major product expansions (gated):** branching/replayable history and Paint.NET GPU effects
-  each need explicit scope approval (UV/texture painting shipped 2026-10-27 and the light live 3D
-  layer 2026-10-28, see 5.3; a full 3D scene with materials and a GPU renderer stays out of scope). Paint.NET v5 CPU effects
+- **Major product expansions (gated):** Paint.NET GPU effects need explicit scope approval
+  (UV/texture painting shipped 2026-10-27, the light live 3D layer and branching history
+  2026-10-28, see 5.3 and below; a full 3D scene with materials and a GPU renderer stays out of
+  scope). Per-item deletion of a middle history step and git as the literal undo timeline still
+  need a replayable command log and stay gated. Paint.NET v5 CPU effects
   cannot be hosted through its public API; the classic plugin tier is complete.
 - **Product posture decisions:** whether browser and Android should become design-centre,
   first-class targets rather than graceful-parity ports remains a product choice, not unfinished
@@ -41,6 +43,32 @@ The remaining entries require hardware, registered API applications, or an expli
 
 Everything else below is retained as implementation history and rationale; headings and old plans
 are not a second active backlog.
+
+## Branching history (undo tree) - done 2026-10-28
+
+Chosen by the user over per-item deletion and a full command log. Undoing and then editing no
+longer destroys the undone steps: `HistoryStack` is a tree, the new edit starts a sibling branch,
+and the History panel marks a row with `(+N branch[es])` and lists them under "Branches from here"
+in its right-click menu (also on the Start row). Choosing one moves to that branch's tip.
+
+- **Why no command log was needed** (the 1.5(b)/4.1 premise was wrong for branching): every
+  memento is its own inverse relative to its parent's state, and that state is identical whichever
+  branch reached it, so switching = undo to the common ancestor + redo down the other side.
+  Per-item deletion of a middle step genuinely does need replay and is still not built.
+- **Linear API unchanged:** `Count`/`Position`/`Steps()`/`JumpTo`/`TruncateFrom` act on the
+  "timeline" - the applied path plus, past the caret, the most recently used child of each step.
+  `TotalCount`, `AlternativesAt`, `BranchesAt`, `SwitchBranch` are the new tree surface.
+- **Budget:** `MaxSteps` counts every branch. Trim lets go of the least recently used abandoned
+  branch before touching the timeline (memory: only branches still holding resident bytes);
+  spilling takes branches first. Dropping an applied front step also drops the branches beside it.
+- **Ownership fix that branching forced:** `DelegateMemento`'s `approximateBytes`/`dispose` now get
+  the step's applied flag instead of asking `Document.OwnsLayer`/`IndexOfFrame`. With branches, a
+  redo-side "Delete Layer" discarded with an abandoned branch could see its layer detached by the
+  *current* branch and free it under that branch's step. Every call site was updated.
+- Settings > History > "Keep undone steps as a branch" (`HistorySettings.KeepBranches`, default on)
+  restores plain-stack behaviour. Demo records `history.branch.<position>.<branch>`.
+- Tests: `HistoryBranchTests` (pixel-exact nested switching, truncate, LRU pruning, budget, the
+  ownership case) and the headless UI check "history branches in the panel".
 
 ## Art-platform publishing - implemented 2026-08-26; live-account validation pending
 
@@ -2630,9 +2658,9 @@ code.
   notes at the end for the `PATH` situation, which this entry originally described incorrectly.
 
 ### 4.x - Deferred, gated on other decisions
-Branching/non-linear history and git-as-literal-undo-timeline are gated on revisiting the
-snapshot-vs-command-log ruling above - don't build without an explicit go-ahead, the user
-prioritized git-compat truncate-only over this.
+Branching history shipped 2026-10-28 on top of snapshots (see the section near the top). Per-item
+deletion and git-as-literal-undo-timeline are still gated on revisiting the snapshot-vs-command-log
+ruling above - don't build without an explicit go-ahead.
 
 ## Open decisions (assumed defaults below; flag if the user should be asked explicitly)
 - Is the browser/WASM build first-class? Assumed: demo target, features gracefully absent there.

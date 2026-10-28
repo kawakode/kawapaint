@@ -430,6 +430,17 @@ public sealed partial class SurfaceView : Control
     }
 
     /// <summary>
+    /// Continues the timeline from caret <paramref name="position"/> into another branch and moves
+    /// to its tip (see HistoryStack.SwitchBranch).
+    /// </summary>
+    public void SwitchHistoryBranch(int position, int branch)
+    {
+        EndPointerGesture();
+        History.SwitchBranch(position, branch);
+        AfterHistoryChange(History.LastChangedArea);
+    }
+
+    /// <summary>
     /// Drops a step and everything after it (see HistoryStack.TruncateFrom for why this can't be
     /// a single arbitrary item instead).
     /// </summary>

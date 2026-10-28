@@ -42,6 +42,7 @@ internal static class UiSmokeTest
         Check("batch progress cancel and size memory warning", BatchProgressAndMemory);
         Check("resize by percentage and keep proportions", ResizeProportions);
         Check("selection changes are undoable", UndoableSelection);
+        Check("history branches in the panel", HistoryBranchesPanel);
         Check("rotate image dialog previews the new size", RotateImageDialogSize);
         Check("grow, shrink and feather selection", SelectionModify);
         Check("guides from rulers, snapping and pixel grid", RulerGuides);
@@ -1130,6 +1131,49 @@ internal static class UiSmokeTest
         Assert(Sel().IsSelected(15, 15), "undoing a stroke changed the selection");
         canvas.History.Clear();
         document.Dispose();
+    }
+
+    /// <summary>Drawing after an undo keeps the undone stroke as a branch the History panel offers.</summary>
+    private static void HistoryBranchesPanel()
+    {
+        WithView(1100, 760, (view, _) =>
+        {
+            var canvas = view.FindControl<SurfaceView>("Canvas")!;
+            var list = view.FindControl<ListBox>("HistoryList")!;
+            var layer = canvas.ActiveLayer!;
+            canvas.History.Clear();
+            Invoke(view, "SelectTool", "Pencil");
+
+            void Stroke(int y)
+            {
+                canvas.BeginStroke(5, y, false);
+                canvas.ExtendStroke(40, y);
+                canvas.EndStroke();
+            }
+
+            Stroke(5);
+            Stroke(20);
+            canvas.Undo();
+            Stroke(35);
+            Pump();
+
+            Assert(canvas.History.Count == 2 && canvas.History.TotalCount == 3, "the undone stroke was not kept");
+            string label = (list.Items[1] as ListBoxItem)?.Content as string ?? "";
+            Assert(label.EndsWith("(+1 branch)"), $"step 1 row reads '{label}'");
+
+            var menu = new ContextMenu();
+            Invoke(view, "AddBranchItems", menu, 1);
+            Assert(menu.Items.Count == 3, $"branch menu has {menu.Items.Count} items, expected a header and 2 branches");
+
+            var before = layer.Surface[20, 20];
+            Invoke(view, "SwitchHistoryBranch", 1, 0);
+            Pump();
+            Assert(layer.Surface[20, 20] != before && layer.Surface[20, 35].A == 0, "switching did not restore the first branch");
+            Assert(canvas.History.Position == 2, "switching did not land on the branch tip");
+            label = (list.Items[1] as ListBoxItem)?.Content as string ?? "";
+            Assert(label.EndsWith("(+1 branch)"), $"after switching, step 1 row reads '{label}'");
+            canvas.History.Clear();
+        });
     }
 
     private static void ResizeProportions()

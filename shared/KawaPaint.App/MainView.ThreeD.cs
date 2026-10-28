@@ -57,8 +57,8 @@ public partial class MainView
             Canvas.History.Push(new DelegateMemento("Import 3D Model",
                 undo: () => { doc.RemoveLayer(layer); Canvas.SetActiveLayer(doc.Layers[^1]); },
                 redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); },
-                approximateBytes: () => !doc.OwnsLayer(layer) ? SurfaceBytes(layer.Surface) : 0,
-                dispose: () => { if (!doc.OwnsLayer(layer)) layer.Dispose(); }));
+                approximateBytes: applied => applied ? 0 : SurfaceBytes(layer.Surface),
+                dispose: applied => { if (!applied) layer.Dispose(); }));
             RefreshDocument();
             StatusText.Text = live
                 ? $"Live 3D layer: {mesh.Triangles.Count:N0} triangles (right-click the layer for its 3D properties)"

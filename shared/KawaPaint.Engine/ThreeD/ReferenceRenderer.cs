@@ -18,6 +18,24 @@ public sealed record ReferenceRenderOptions
     /// <summary>Texture shown on UV-mapped faces (repeating outside 0..1), composited over
     /// <see cref="Color"/> so transparent texels show the bare model. Unmapped faces use Color.</summary>
     public Surface? Texture { get; init; }
+
+    /// <summary>Fixed placement instead of fit-to-frame (used by live 3D layers, whose model must
+    /// not change size as it turns). <see cref="PaddingFraction"/> and <see cref="Zoom"/> are then
+    /// ignored.</summary>
+    public ReferencePlacement? Placement { get; init; }
+}
+
+/// <summary>
+/// Where a model sits in the output, in output pixels: the centre of its bounding box lands on
+/// (<paramref name="CenterX"/>, <paramref name="CenterY"/>) and its bounding sphere spans
+/// <paramref name="Diameter"/> pixels, whatever the camera angle. The mirror flags reflect the
+/// render (lighting included) about that centre, which is what flipping the canvas does to it.
+/// </summary>
+public readonly record struct ReferencePlacement(float CenterX, float CenterY, float Diameter,
+    bool MirrorX = false, bool MirrorY = false)
+{
+    internal ReferencePlacement Scaled(float factor) =>
+        this with { CenterX = CenterX * factor, CenterY = CenterY * factor, Diameter = Diameter * factor };
 }
 
 /// <summary>
@@ -77,6 +95,8 @@ public static class ReferenceRenderer
         int renderWidth = checked(width * samples);
         int renderHeight = checked(height * samples);
         var uv = new Vector2[checked(renderWidth * renderHeight)];
+        if (options.Placement is { } placement)
+            options = options with { Placement = placement.Scaled(samples) };
         using Surface highResolution = RenderCore(mesh, renderWidth, renderHeight, options, uv);
         uvMap = new UvMap(uv, width, height, samples);
         if (samples == 1) return highResolution.Clone();
@@ -90,14 +110,49 @@ public static class ReferenceRenderer
                              Matrix4x4.CreateRotationZ(Degrees(options.RollDegrees));
 
         var transformed = new Vector3[mesh.Vertices.Count];
-        Vector3 sourceMin = new(float.PositiveInfinity), sourceMax = new(float.NegativeInfinity);
-        foreach (Vector3 vertex in mesh.Vertices)
-        {
-            sourceMin = Vector3.Min(sourceMin, vertex);
-            sourceMax = Vector3.Max(sourceMax, vertex);
-        }
-        Vector3 center = (sourceMin + sourceMax) * 0.5f;
+        Vector3 center = BoundingCenter(mesh);
 
+        if (options.Placement is { } placement)
+            PlaceFixed(mesh, rotation, center, placement, transformed);
+        else
+            PlaceFitted(mesh, rotation, center, width, height, options, transformed);
+
+        Vector3[] generatedNormals = GenerateNormals(mesh);
+        Vector3 light = Vector3.Normalize(new Vector3(-0.35f, 0.55f, 1));
+        float ambient = Math.Clamp(options.Ambient, 0, 1);
+        var depth = new float[checked(width * height)];
+        Array.Fill(depth, float.NegativeInfinity);
+        Array.Fill(uvOut, new Vector2(float.NaN));
+        var surface = new Surface(width, height);
+        Surface? texture = mesh.HasTexCoords ? options.Texture : null;
+        Vector2 noUv = new(float.NaN);
+        // A mirrored placement reflects the lighting with the silhouette, so it matches flipping
+        // the rendered pixels.
+        Vector3 mirror = new(options.Placement is { MirrorX: true } ? -1 : 1,
+            options.Placement is { MirrorY: true } ? -1 : 1, 1);
+
+        foreach (ObjTriangle triangle in mesh.Triangles)
+        {
+            Vector3 a = transformed[triangle.A], b = transformed[triangle.B], c = transformed[triangle.C];
+            float area = Edge(a, b, c.X, c.Y);
+            if (MathF.Abs(area) < 1e-8f) continue;
+
+            Vector3 na = RotateNormal(NormalFor(mesh, generatedNormals, triangle.NA, triangle.A), rotation) * mirror;
+            Vector3 nb = RotateNormal(NormalFor(mesh, generatedNormals, triangle.NB, triangle.B), rotation) * mirror;
+            Vector3 nc = RotateNormal(NormalFor(mesh, generatedNormals, triangle.NC, triangle.C), rotation) * mirror;
+            bool mapped = triangle.HasTexCoords;
+            Vector2 ta = mapped ? mesh.TexCoords[triangle.TA] : noUv;
+            Vector2 tb = mapped ? mesh.TexCoords[triangle.TB] : noUv;
+            Vector2 tc = mapped ? mesh.TexCoords[triangle.TC] : noUv;
+            Rasterize(surface, depth, uvOut, a, b, c, na, nb, nc, ta, tb, tc, area, light, ambient, options.Color,
+                mapped ? texture : null);
+        }
+        return surface;
+    }
+
+    private static void PlaceFitted(ObjMesh mesh, Matrix4x4 rotation, Vector3 center, int width, int height,
+        ReferenceRenderOptions options, Vector3[] transformed)
+    {
         Vector2 min = new(float.PositiveInfinity), max = new(float.NegativeInfinity);
         for (int i = 0; i < transformed.Length; i++)
         {
@@ -127,34 +182,43 @@ public static class ReferenceRenderer
                 height * 0.5f - (p.Y - projectedCenterY) * scale,
                 p.Z);
         }
+    }
 
-        Vector3[] generatedNormals = GenerateNormals(mesh);
-        Vector3 light = Vector3.Normalize(new Vector3(-0.35f, 0.55f, 1));
-        float ambient = Math.Clamp(options.Ambient, 0, 1);
-        var depth = new float[checked(width * height)];
-        Array.Fill(depth, float.NegativeInfinity);
-        Array.Fill(uvOut, new Vector2(float.NaN));
-        var surface = new Surface(width, height);
-        Surface? texture = mesh.HasTexCoords ? options.Texture : null;
-        Vector2 noUv = new(float.NaN);
-
-        foreach (ObjTriangle triangle in mesh.Triangles)
+    private static void PlaceFixed(ObjMesh mesh, Matrix4x4 rotation, Vector3 center, ReferencePlacement placement,
+        Vector3[] transformed)
+    {
+        float radius = BoundingRadius(mesh, center);
+        if (radius <= 1e-12f) throw new InvalidDataException("Model has no renderable spatial extent.");
+        float scale = MathF.Max(placement.Diameter, 0) / (2 * radius);
+        float sx = placement.MirrorX ? -scale : scale;
+        float sy = placement.MirrorY ? -scale : scale;
+        for (int i = 0; i < transformed.Length; i++)
         {
-            Vector3 a = transformed[triangle.A], b = transformed[triangle.B], c = transformed[triangle.C];
-            float area = Edge(a, b, c.X, c.Y);
-            if (MathF.Abs(area) < 1e-8f) continue;
-
-            Vector3 na = RotateNormal(NormalFor(mesh, generatedNormals, triangle.NA, triangle.A), rotation);
-            Vector3 nb = RotateNormal(NormalFor(mesh, generatedNormals, triangle.NB, triangle.B), rotation);
-            Vector3 nc = RotateNormal(NormalFor(mesh, generatedNormals, triangle.NC, triangle.C), rotation);
-            bool mapped = triangle.HasTexCoords;
-            Vector2 ta = mapped ? mesh.TexCoords[triangle.TA] : noUv;
-            Vector2 tb = mapped ? mesh.TexCoords[triangle.TB] : noUv;
-            Vector2 tc = mapped ? mesh.TexCoords[triangle.TC] : noUv;
-            Rasterize(surface, depth, uvOut, a, b, c, na, nb, nc, ta, tb, tc, area, light, ambient, options.Color,
-                mapped ? texture : null);
+            Vector3 p = Vector3.Transform(mesh.Vertices[i] - center, rotation);
+            transformed[i] = new Vector3(placement.CenterX + p.X * sx, placement.CenterY - p.Y * sy, p.Z);
         }
-        return surface;
+    }
+
+    /// <summary>Distance from the bounding-box centre to the farthest vertex: the rotation-invariant
+    /// size a fixed <see cref="ReferencePlacement"/> scales to.</summary>
+    public static float BoundingRadius(ObjMesh mesh, Vector3 center)
+    {
+        float radiusSquared = 0;
+        foreach (Vector3 vertex in mesh.Vertices)
+            radiusSquared = MathF.Max(radiusSquared, Vector3.DistanceSquared(vertex, center));
+        return MathF.Sqrt(radiusSquared);
+    }
+
+    /// <summary>Centre of the model's bounding box, the pivot every camera rotation turns about.</summary>
+    public static Vector3 BoundingCenter(ObjMesh mesh)
+    {
+        Vector3 min = new(float.PositiveInfinity), max = new(float.NegativeInfinity);
+        foreach (Vector3 vertex in mesh.Vertices)
+        {
+            min = Vector3.Min(min, vertex);
+            max = Vector3.Max(max, vertex);
+        }
+        return (min + max) * 0.5f;
     }
 
     private static Vector3[] GenerateNormals(ObjMesh mesh)

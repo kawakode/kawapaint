@@ -1,10 +1,13 @@
 // KawaPaint - native layered document format (.kwp). A ZIP archive holding a JSON manifest
 // plus one lossless PNG per layer (layers/0.png = bottom). Portable and inspectable, and it
-// preserves layer names, opacity, visibility, and blend mode.
+// preserves layer names, opacity, visibility, and blend mode. A live 3D layer also stores its
+// settings in the manifest and its mesh under models/N.kpmesh; its PNG is the last render, so
+// builds that predate live layers open the file with the layer as ordinary pixels.
 
 using System.IO.Compression;
 using System.Text.Json;
 using KawaPaint.Engine.MailMerge;
+using KawaPaint.Engine.ThreeD;
 
 namespace KawaPaint.Engine;
 
@@ -40,6 +43,40 @@ public static class DocumentFile
         public byte Opacity { get; set; } = 255;
         public bool Visible { get; set; } = true;
         public string BlendMode { get; set; } = nameof(KawaPaint.Engine.BlendMode.Normal);
+        public Guid? Id { get; set; }
+        public LiveModelInfo? Model3D { get; set; }
+    }
+
+    private sealed class LiveModelInfo
+    {
+        public string Mesh { get; set; } = "";
+        public string SourceName { get; set; } = "";
+        public float Yaw { get; set; }
+        public float Pitch { get; set; }
+        public float Roll { get; set; }
+        public float CenterX { get; set; }
+        public float CenterY { get; set; }
+        public float Diameter { get; set; }
+        public bool MirrorX { get; set; }
+        public bool MirrorY { get; set; }
+        public float Ambient { get; set; }
+        public string Color { get; set; } = "";
+        public Guid? TextureLayerId { get; set; }
+    }
+
+    /// <summary>Meshes to write beside the manifest, one entry per distinct mesh (frames copied
+    /// from each other share theirs).</summary>
+    private sealed class MeshTable
+    {
+        private readonly Dictionary<ObjMesh, string> _paths = new(ReferenceEqualityComparer.Instance);
+        public IEnumerable<KeyValuePair<ObjMesh, string>> Entries => _paths;
+
+        public string PathFor(ObjMesh mesh)
+        {
+            if (!_paths.TryGetValue(mesh, out string? path))
+                _paths[mesh] = path = $"models/{_paths.Count}.kpmesh";
+            return path;
+        }
     }
 
     /// <summary>
@@ -68,7 +105,8 @@ public static class DocumentFile
     public static void Save(Document doc, Stream stream, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var manifest = CreateManifest(doc);
+        var meshes = new MeshTable();
+        var manifest = CreateManifest(doc, meshes);
         var encodedLayers = doc.Frames.Select(frame => new byte[frame.Layers.Count][]).ToArray();
 
         // PNG encoding is CPU-heavy and independent per layer. Finish every encode before writing
@@ -100,6 +138,13 @@ public static class DocumentFile
                 using var es = entry.Open();
                 es.Write(encodedLayers[frameIndex][layerIndex]);
             }
+        }
+
+        foreach (var (mesh, path) in meshes.Entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var es = zip.CreateEntry(path, CompressionLevel.Optimal).Open();
+            MeshBinary.Write(mesh, es);
         }
     }
 
@@ -162,7 +207,20 @@ public static class DocumentFile
                     File.Delete(existing);
             }
 
-            var manifest = CreateManifest(doc);
+            var meshes = new MeshTable();
+            var manifest = CreateManifest(doc, meshes);
+            if (meshes.Entries.Any())
+            {
+                Directory.CreateDirectory(Path.Combine(directoryPath, "models"));
+                foreach (var (mesh, relative) in meshes.Entries)
+                {
+                    string destination = Path.Combine(directoryPath, relative);
+                    string temp = destination + $".{Guid.NewGuid():N}.tmp";
+                    tempPaths.Add((temp, destination));   // cleaned up by the finally if the write fails
+                    using (var fs = File.Create(temp)) MeshBinary.Write(mesh, fs);
+                    File.Move(temp, destination, overwrite: true);
+                }
+            }
 
             string manifestPath = Path.Combine(directoryPath, "manifest.json");
             string manifestTemp = Path.Combine(directoryPath, $".manifest.json.{Guid.NewGuid():N}.tmp");
@@ -199,10 +257,20 @@ public static class DocumentFile
         }
         else
         {
+            var meshes = new Dictionary<string, ObjMesh?>();
             LoadFrames(doc, manifest, (frameIndex, layerIndex, info) =>
             {
                 string relative = Path.Combine("frames", frameIndex.ToString(), "layers", $"{layerIndex}.png");
-                return LoadLayer(Path.Combine(directoryPath, relative), relative, info);
+                Layer layer = LoadLayer(Path.Combine(directoryPath, relative), relative, info);
+                AttachLiveModel(layer, info, meshes, path =>
+                {
+                    string full = Path.GetFullPath(Path.Combine(directoryPath, path));
+                    string root = Path.GetFullPath(directoryPath) + Path.DirectorySeparatorChar;
+                    if (!full.StartsWith(root, StringComparison.Ordinal) || !File.Exists(full))
+                        return null;
+                    return File.OpenRead(full);
+                });
+                return layer;
             });
         }
         foreach (var zone in manifest.DynamicTextZones) doc.DynamicTextZones.Add(zone);
@@ -234,10 +302,13 @@ public static class DocumentFile
         }
         else
         {
+            var meshes = new Dictionary<string, ObjMesh?>();
             LoadFrames(doc, manifest, (frameIndex, layerIndex, info) =>
             {
                 string relative = $"frames/{frameIndex}/layers/{layerIndex}.png";
-                return LoadLayer(zip, relative, info);
+                Layer layer = LoadLayer(zip, relative, info);
+                AttachLiveModel(layer, info, meshes, path => zip.GetEntry(path)?.Open());
+                return layer;
             });
         }
         foreach (var zone in manifest.DynamicTextZones) doc.DynamicTextZones.Add(zone);
@@ -245,7 +316,7 @@ public static class DocumentFile
         return doc;
     }
 
-    private static Manifest CreateManifest(Document doc)
+    private static Manifest CreateManifest(Document doc, MeshTable meshes)
     {
         var manifest = new Manifest
         {
@@ -265,7 +336,24 @@ public static class DocumentFile
                     Name = layer.Name,
                     Opacity = layer.Opacity,
                     Visible = layer.Visible,
-                    BlendMode = layer.BlendMode.ToString()
+                    BlendMode = layer.BlendMode.ToString(),
+                    Id = layer.Id,
+                    Model3D = layer.LiveModel is { } live ? new LiveModelInfo
+                    {
+                        Mesh = meshes.PathFor(live.Mesh),
+                        SourceName = live.SourceName,
+                        Yaw = live.Settings.YawDegrees,
+                        Pitch = live.Settings.PitchDegrees,
+                        Roll = live.Settings.RollDegrees,
+                        CenterX = live.Settings.CenterX,
+                        CenterY = live.Settings.CenterY,
+                        Diameter = live.Settings.Diameter,
+                        MirrorX = live.Settings.MirrorX,
+                        MirrorY = live.Settings.MirrorY,
+                        Ambient = live.Settings.Ambient,
+                        Color = live.Settings.Color.ToUInt32().ToString("X8"),
+                        TextureLayerId = live.Settings.TextureLayerId
+                    } : null
                 });
             }
             manifest.Frames.Add(frameInfo);
@@ -316,8 +404,57 @@ public static class DocumentFile
         return CreateLayer(Surface.Decode(buffer), info);
     }
 
+    /// <summary>
+    /// Makes a loaded layer live again when the manifest says it was. A missing or damaged mesh is
+    /// not fatal: the saved PNG is the last render, so the layer simply opens as ordinary pixels.
+    /// </summary>
+    private static void AttachLiveModel(Layer layer, LayerInfo info, Dictionary<string, ObjMesh?> cache,
+        Func<string, Stream?> open)
+    {
+        if (info.Model3D is not { } live || string.IsNullOrEmpty(live.Mesh)) return;
+        if (!cache.TryGetValue(live.Mesh, out ObjMesh? mesh))
+        {
+            try
+            {
+                using Stream? stream = open(live.Mesh);
+                if (stream is null) mesh = null;
+                else
+                {
+                    using var buffer = new MemoryStream();
+                    stream.CopyTo(buffer);
+                    buffer.Position = 0;
+                    mesh = MeshBinary.Read(buffer);
+                }
+            }
+            catch (InvalidDataException) { mesh = null; }
+            cache[live.Mesh] = mesh;
+        }
+        if (mesh is null || !float.IsFinite(live.CenterX) || !float.IsFinite(live.CenterY) ||
+            !float.IsFinite(live.Diameter) || live.Diameter <= 0)
+            return;
+        ColorBgra color = uint.TryParse(live.Color, System.Globalization.NumberStyles.HexNumber, null, out uint argb)
+            ? ColorBgra.FromUInt32(argb) : new LiveModelSettings().Color;
+        layer.LiveModel = new LiveModel(mesh, live.SourceName, new LiveModelSettings
+        {
+            YawDegrees = Finite(live.Yaw),
+            PitchDegrees = Finite(live.Pitch),
+            RollDegrees = Finite(live.Roll),
+            CenterX = live.CenterX,
+            CenterY = live.CenterY,
+            Diameter = live.Diameter,
+            MirrorX = live.MirrorX,
+            MirrorY = live.MirrorY,
+            Ambient = Math.Clamp(Finite(live.Ambient), 0, 1),
+            Color = color,
+            TextureLayerId = live.TextureLayerId
+        });
+    }
+
+    private static float Finite(float value) => float.IsFinite(value) ? value : 0;
+
     private static Layer CreateLayer(Surface surface, LayerInfo info) => new(surface, info.Name)
     {
+        Id = info.Id ?? Guid.NewGuid(),
         Opacity = info.Opacity,
         Visible = info.Visible,
         BlendMode = Enum.TryParse<BlendMode>(info.BlendMode, out BlendMode mode) ? mode : BlendMode.Normal

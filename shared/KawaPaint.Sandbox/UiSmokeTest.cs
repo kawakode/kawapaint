@@ -46,6 +46,7 @@ internal static class UiSmokeTest
         Check("grow, shrink and feather selection", SelectionModify);
         Check("guides from rulers, snapping and pixel grid", RulerGuides);
         Check("painting on a 3D model", TexturePaintPanel);
+        Check("live 3D layer", LiveModelLayer);
         Check("one-finger drawing and two-finger zoom", TouchDrawing);
         Check("modal shortcuts and focus", ModalInput);
         Check("inline text editing", InlineTextEditing);
@@ -648,6 +649,83 @@ internal static class UiSmokeTest
             Pump();
             Assert(doc.LayerCount == 2 && doc.Layers[1].Name == "UV Layout", "UV layout layer was not added");
         });
+    }
+
+    private static void LiveModelLayer()
+    {
+        WithView(1100, 760, (view, window) =>
+        {
+            var canvas = view.FindControl<SurfaceView>("Canvas")!;
+            var doc = new Document(64, 64);
+            Layer texture = doc.AddLayer();
+            texture.Name = "Texture";
+            var mesh = KawaPaint.Engine.ThreeD.ObjMesh.Parse(new StringReader(
+                "v -1 -1 0\nv 1 -1 0\nv 1 1 0\nv -1 1 0\nvt 0 0\nvt 1 0\nvt 1 1\nvt 0 1\nf 1/1 2/2 3/3 4/4\n"));
+            var settings = KawaPaint.Engine.ThreeD.LiveModelSettings.Centered(64, 64) with
+            {
+                YawDegrees = 0, PitchDegrees = 0, Ambient = 1, TextureLayerId = texture.Id
+            };
+            var model = new KawaPaint.Engine.ThreeD.LiveModel(mesh, "plane.obj", settings);
+            var live = new Layer(KawaPaint.Engine.ThreeD.LiveModelRenderer.Render(model, 64, 64, texture.Surface), "Plane 3D")
+            {
+                LiveModel = model
+            };
+            doc.AddLayer(live);
+            canvas.SetDocument(doc);
+            canvas.SetActiveLayer(live);
+            Invoke(view, "RefreshDocument");
+            Pump();
+
+            // The layers panel marks the live layer and offers its 3D commands.
+            var row = view.FindControl<ListBox>("LayerList")!.Items.OfType<ListBoxItem>().Single(i => ReferenceEquals(i.Tag, live));
+            Assert(row.ContextMenu is { } menu && menu.Items.Count == 2, "the live layer row has no 3D menu");
+            Assert(row.GetLogicalDescendants().OfType<TextBlock>().Any(t => t.Text == "3D"), "the live layer row has no 3D badge");
+
+            // Editing the texture layer re-renders the model wearing it, without a history step of its own.
+            canvas.SetActiveLayer(texture);
+            canvas.BrushColor = ColorBgra.FromBgra(0, 200, 0, 255);
+            int before = canvas.History.Count;
+            using (Surface snapshot = texture.Surface.Clone())
+            {
+                texture.Surface.Clear(ColorBgra.FromBgra(0, 200, 0, 255));
+                canvas.History.Push(TileDeltaMemento.Create(texture, snapshot, "Fill"));
+            }
+            WaitFor(() => live.Surface[32, 32].G > 150, "the 3D layer did not follow its texture: " + live.Surface[32, 32]);
+            Assert(canvas.History.Count == before + 1, "the texture refresh added history steps");
+            Assert(ReferenceEquals(live.LiveModel, model), "the texture refresh changed the model");
+
+            // Painting on the live layer turns it into pixels; undo makes it live again.
+            canvas.SetActiveLayer(live);
+            Invoke(view, "SelectTool", "Pencil");
+            canvas.BeginStroke(2, 2, false);
+            canvas.ExtendStroke(10, 2);
+            canvas.EndStroke();
+            Pump();
+            Assert(live.LiveModel is null, "painting did not rasterize the live layer");
+            canvas.Undo();
+            Pump();
+            Assert(ReferenceEquals(live.LiveModel, model), "undo did not make the layer live again");
+
+            // The properties dialog reproduces the settings when nothing changes, and moves the model when X changes.
+            var dialog = new ThreeDLayerDialog(mesh, "plane.obj", 64, 64, settings,
+                new[] { new TextureChoice(texture.Id, texture.Name, texture.Surface) }, importing: false);
+            Assert(dialog.ResultSettings == settings, "an untouched dialog changed the settings");
+            dialog.GetLogicalDescendants().OfType<NumericUpDown>().ElementAt(4).Value = 20;
+            Assert(dialog.ResultSettings.CenterX == 20 && dialog.ResultSettings.TextureLayerId == texture.Id,
+                "the dialog lost the X position or the texture link");
+            dialog.Close();
+        });
+    }
+
+    private static void WaitFor(Func<bool> condition, string message)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!condition())
+        {
+            if (DateTime.UtcNow > deadline) throw new Exception(message);
+            Pump();
+            Thread.Sleep(10);
+        }
     }
 
     private static void TouchDrawing()

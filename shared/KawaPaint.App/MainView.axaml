@@ -73,8 +73,8 @@
                 <MenuItem Header="_New" Click="OnNew" InputGesture="Ctrl+N" Icon="{app:Icon New}" />
                 <MenuItem Header="_Open Image…" Click="OnOpen" InputGesture="Ctrl+O" Icon="{app:Icon Open}" />
                 <MenuItem Header="Open _Project…" Click="OnOpenProject" InputGesture="Ctrl+Shift+O" Icon="{app:Icon OpenProject}" />
-                <MenuItem Header="Import _3D Reference..." Click="OnImport3DReference"
-                          ToolTip.Tip="Rasterize an OBJ, glTF or GLB model into a normal layer" />
+                <MenuItem Header="Import _3D Model…" Click="OnImport3DReference"
+                          ToolTip.Tip="Add an OBJ, glTF or GLB model as a live 3D layer (or as plain pixels)" />
                 <MenuItem Header="Paint on 3D _Model…" Click="OnOpenPaintModel"
                           ToolTip.Tip="Open a UV-mapped model in the 3D Paint panel, textured with this image" />
                 <MenuItem x:Name="RecentFilesMenu" Header="_Recent Files">
@@ -260,6 +260,11 @@
                 <MenuItem Header="Rotate 1_80°" Click="OnRotate180" />
                 <MenuItem Header="R_otate…" Click="OnRotateArbitrary" />
                 <MenuItem Header="Rotate / _Zoom Layer…" Tag="rotatezoom" Click="OnAdjust" />
+                <Separator />
+                <MenuItem Header="3D _Layer Properties…" Click="OnLiveLayerProperties"
+                          ToolTip.Tip="Change the pose, size, light or texture of the active live 3D layer" />
+                <MenuItem Header="Rasteri_ze 3D Layer" Click="OnRasterizeLiveLayer"
+                          ToolTip.Tip="Turn the active live 3D layer into plain pixels" />
                 <Separator />
                 <MenuItem Header="_Flatten Image" Click="OnFlatten" Icon="{app:Icon Flatten}" />
             </MenuItem>

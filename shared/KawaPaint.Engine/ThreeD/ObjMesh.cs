@@ -38,7 +38,7 @@ public sealed class ObjMesh
     }
 
     public static ObjMesh Create(IEnumerable<Vector3> vertices, IEnumerable<ObjTriangle> triangles,
-        IEnumerable<Vector2>? texCoords = null)
+        IEnumerable<Vector2>? texCoords = null, IEnumerable<Vector3>? normals = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(triangles);
@@ -60,7 +60,11 @@ public sealed class ObjMesh
             if (triangle.HasTexCoords && ((uint)triangle.TA >= (uint)texCoordList.Count ||
                 (uint)triangle.TB >= (uint)texCoordList.Count || (uint)triangle.TC >= (uint)texCoordList.Count))
                 throw new ArgumentException("Mesh texture coordinate index is out of range.", nameof(triangles));
-        return new ObjMesh(vertexList, new List<Vector3>(), triangleList, texCoordList);
+        var normalList = normals?.ToList() ?? new List<Vector3>();
+        foreach (ObjTriangle triangle in triangleList)
+            if (triangle.NA >= normalList.Count || triangle.NB >= normalList.Count || triangle.NC >= normalList.Count)
+                throw new ArgumentException("Mesh normal index is out of range.", nameof(triangles));
+        return new ObjMesh(vertexList, normalList, triangleList, texCoordList);
     }
 
     public static ObjMesh Load(Stream stream)

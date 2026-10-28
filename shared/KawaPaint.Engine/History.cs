@@ -12,6 +12,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using KawaPaint.Engine.ThreeD;
 
 namespace KawaPaint.Engine;
 
@@ -121,6 +122,9 @@ public sealed class TileDeltaMemento : HistoryMemento, ISpillableMemento
     private readonly List<Tile> _tiles;
     private string? _spillPath;
 
+    // The live 3D model to put back on undo: a pixel edit rasterizes a live layer (see Layer.LiveModel).
+    private LiveModel? _liveModel;
+
     private readonly (int X, int Y, int Width, int Height) _area;
 
     private TileDeltaMemento(Layer layer, List<Tile> tiles, string name) : base(name)
@@ -187,7 +191,10 @@ public sealed class TileDeltaMemento : HistoryMemento, ISpillableMemento
             }
         }
 
-        return tiles.Count == 0 ? null : new TileDeltaMemento(layer, tiles, name);
+        if (tiles.Count == 0) return null;
+        var memento = new TileDeltaMemento(layer, tiles, name) { _liveModel = layer.LiveModel };
+        layer.LiveModel = null;
+        return memento;
     }
 
     /// <summary>
@@ -260,7 +267,9 @@ public sealed class TileDeltaMemento : HistoryMemento, ISpillableMemento
             WriteTile(_layer.Surface, tile);
         }
 
-        return new TileDeltaMemento(_layer, inverse, Name);
+        LiveModel? current = _layer.LiveModel;
+        _layer.LiveModel = _liveModel;
+        return new TileDeltaMemento(_layer, inverse, Name) { _liveModel = current };
     }
 
     public void SpillTo(string directory)
@@ -334,17 +343,23 @@ public sealed class LayerSurfaceMemento : HistoryMemento
 {
     private readonly Layer _layer;
     private Surface? _saved;
+    private LiveModel? _liveModel;   // see TileDeltaMemento._liveModel
 
-    public LayerSurfaceMemento(Layer layer, string name = "Edit") : base(name)
-    {
-        _layer = layer;
-        _saved = layer.Surface.Clone();
-    }
+    public LayerSurfaceMemento(Layer layer, string name = "Edit") : this(layer, layer.Surface.Clone(), name) { }
 
     private LayerSurfaceMemento(Layer layer, Surface saved, string name) : base(name)
     {
         _layer = layer;
         _saved = saved;
+        _liveModel = layer.LiveModel;
+        layer.LiveModel = null;
+    }
+
+    private LayerSurfaceMemento(Layer layer, Surface saved, LiveModel? liveModel, string name) : base(name)
+    {
+        _layer = layer;
+        _saved = saved;
+        _liveModel = liveModel;
     }
 
     /// <summary>
@@ -359,7 +374,8 @@ public sealed class LayerSurfaceMemento : HistoryMemento
     public override HistoryMemento Undo()
     {
         if (_saved is null) throw new ObjectDisposedException(nameof(LayerSurfaceMemento));
-        var redo = new LayerSurfaceMemento(_layer, _layer.Surface.Clone(), Name);
+        var redo = new LayerSurfaceMemento(_layer, _layer.Surface.Clone(), _layer.LiveModel, Name);
+        _layer.LiveModel = _liveModel;
         _layer.Surface.CopyFrom(_saved);
         _saved.Dispose();
         _saved = null;

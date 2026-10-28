@@ -55,6 +55,7 @@ internal static class UiSmokeTest
         Check("narrow menu layout", MenuLayout);
         Check("tablet interface", TabletInterface);
         Check("phone interface", PhoneInterface);
+        Check("phone relaunch", PhoneRelaunch);
         if (failures.Count > 0) throw new Exception(string.Join(Environment.NewLine, failures));
         Console.WriteLine("UI SMOKE OK - drawing history, modal input, adjustment cancellation and responsive layout");
 
@@ -755,6 +756,19 @@ internal static class UiSmokeTest
             Assert(toolButton.Bounds.Width >= 40, "tool buttons are too small for a finger: " + toolButton.Bounds);
             Assert(view.FindControl<RulerBar>("HRuler")!.Bounds.Height < 1, "rulers are shown on a tablet");
             Screenshot(window, "tablet");
+        });
+    }
+
+    private static void PhoneRelaunch()
+    {
+        // A sheet left open when the app was quit does not come back on the next launch.
+        WithInterface("Phone", 412, 915, (view, window) =>
+        {
+            view.FindControl<ToggleButton>("ToggleLayers")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump();
+            Assert(view.FindControl<Border>("LayersBorder")!.IsEffectivelyVisible, "layers did not open");
+            WithView(412, 915, (relaunched, _) =>
+                Assert(!relaunched.FindControl<Border>("LayersBorder")!.IsEffectivelyVisible, "the layers sheet came back on relaunch"));
         });
     }
 

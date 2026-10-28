@@ -1441,7 +1441,10 @@ public partial class MainView : UserControl
         if (FormFactorLayoutName is { } formLayout) workspace.ActiveLayout = formLayout;
         else if (IsFormFactorLayoutName(workspace.ActiveLayout)) workspace.ActiveLayout = "Default";
 
-        bool createdLayout = !workspace.Layouts.TryGetValue(workspace.ActiveLayout, out var layout) || layout is null;
+        // Phone and tablet start from their preset every launch, so a sheet or floating panel
+        // left open last time does not cover the canvas; the desktop keeps its arrangement.
+        bool createdLayout = !workspace.Layouts.TryGetValue(workspace.ActiveLayout, out var layout) || layout is null
+            || _formFactor != FormFactor.Desktop;
         if (createdLayout)
         {
             layout = new WorkspaceLayout();

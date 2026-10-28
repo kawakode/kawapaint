@@ -223,8 +223,8 @@ public partial class MainView
                 Canvas.SetActiveFrame(Math.Min(previousActive, document.FrameCount - 1));
             },
             redo: () => { document.InsertFrame(index, frame); Canvas.SetActiveFrame(index); },
-            approximateBytes: () => document.IndexOfFrame(frame) < 0 ? FrameBytes(frame) : 0,
-            dispose: () => document.ReleaseDetachedFrame(frame)));
+            approximateBytes: applied => applied ? 0 : FrameBytes(frame),
+            dispose: applied => { if (!applied) document.ReleaseDetachedFrame(frame); }));
     }
 
     private void OnDeleteFrame(object? sender, RoutedEventArgs e)
@@ -247,8 +247,8 @@ public partial class MainView
                 document.DetachFrameAt(document.IndexOfFrame(frame));
                 Canvas.SetActiveFrame(document.ActiveFrameIndex);
             },
-            approximateBytes: () => document.IndexOfFrame(frame) < 0 ? FrameBytes(frame) : 0,
-            dispose: () => document.ReleaseDetachedFrame(frame)));
+            approximateBytes: applied => applied ? FrameBytes(frame) : 0,
+            dispose: applied => { if (applied) document.ReleaseDetachedFrame(frame); }));
         MarkDirty();
         StatusText.Text = $"Deleted frame {removed + 1}";
     }

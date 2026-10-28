@@ -83,8 +83,8 @@ public partial class MainView
         Canvas.History.Push(new DelegateMemento("Add UV Layout",
             undo: () => { doc.RemoveLayer(layer); Canvas.SetActiveLayer(doc.Layers[^1]); },
             redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); },
-            approximateBytes: () => !doc.OwnsLayer(layer) ? SurfaceBytes(layer.Surface) : 0,
-            dispose: () => { if (!doc.OwnsLayer(layer)) layer.Dispose(); }));
+            approximateBytes: applied => applied ? 0 : SurfaceBytes(layer.Surface),
+            dispose: applied => { if (!applied) layer.Dispose(); }));
         RefreshDocument();
         StatusText.Text = "Added the UV layout as a layer - hide it before exporting the texture";
     }

@@ -36,6 +36,7 @@ public sealed class SettingsDialog : Window
     private readonly NumericUpDown _historyMaxSteps = new() { Minimum = 0, Maximum = 10000, Increment = 10 };
     private readonly NumericUpDown _historyBudget = new() { Minimum = 16, Maximum = 65536, Increment = 128 };
     private readonly CheckBox _historySpill = new() { Content = "Park steps past the budget on disk instead of dropping them" };
+    private readonly CheckBox _historyBranches = new() { Content = "Keep undone steps as a branch when drawing after an undo" };
 
     // Drawing / tablet
     private readonly ComboBox _pencilPressure = PressureCombo();
@@ -147,8 +148,11 @@ public sealed class SettingsDialog : Window
         Row("Undo steps to keep", _historyMaxSteps, "(0 = no step limit)"),
         Row("Memory budget", _historyBudget, "MB"),
         _historySpill,
+        _historyBranches,
         Note("The budget is a soft ceiling on undo data held in memory. Steps past it either move " +
-              "to the on-disk cache or, with that off, are discarded oldest-first."));
+              "to the on-disk cache or, with that off, are discarded oldest-first. Kept branches " +
+              "count toward both limits and are the first to go; switch between them from a " +
+              "History row's right-click menu."));
 
     private StackPanel DrawingPage()
     {
@@ -278,6 +282,7 @@ public sealed class SettingsDialog : Window
         _historyMaxSteps.Value = s.History.MaxSteps;
         _historyBudget.Value = s.History.MemoryBudgetMegabytes;
         _historySpill.IsChecked = s.History.SpillToDisk;
+        _historyBranches.IsChecked = s.History.KeepBranches;
 
         _pencilPressure.SelectedIndex = PressureIndex(s.Drawing.PencilPressure);
         _paintbrushPressure.SelectedIndex = PressureIndex(s.Drawing.PaintbrushPressure);
@@ -314,6 +319,7 @@ public sealed class SettingsDialog : Window
             s.History.MaxSteps = Int(_historyMaxSteps, s.History.MaxSteps);
             s.History.MemoryBudgetMegabytes = Int(_historyBudget, s.History.MemoryBudgetMegabytes);
             s.History.SpillToDisk = _historySpill.IsChecked ?? true;
+            s.History.KeepBranches = _historyBranches.IsChecked ?? true;
 
             s.Drawing.PencilPressure = PressureValue(_pencilPressure);
             s.Drawing.PaintbrushPressure = PressureValue(_paintbrushPressure);

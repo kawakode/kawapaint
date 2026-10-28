@@ -196,7 +196,7 @@ internal static class EngineOptimizationSmokeTest
 
     private static void HistoryResidentBytesStayExact()
     {
-        var history = new HistoryStack { MemoryBudgetBytes = 0 };
+        var history = new HistoryStack { MemoryBudgetBytes = 0, KeepBranches = false };
         history.Push(new FixedMemento(10));
         history.Push(new FixedMemento(20));
         Assert(history.ResidentBytes == 30, "history push accounting mismatch");
@@ -206,9 +206,8 @@ internal static class EngineOptimizationSmokeTest
         history.Push(new FixedMemento(5)); // discards the 20-byte redo branch
         Assert(history.ResidentBytes == 15, "history redo-branch accounting mismatch");
 
-        bool detached = false;
-        history.Push(new DelegateMemento("dynamic", () => detached = true, () => detached = false,
-            () => detached ? 100 : 0));
+        history.Push(new DelegateMemento("dynamic", () => { }, () => { },
+            applied => applied ? 0 : 100));
         Assert(history.ResidentBytes == 15, "dynamic memento initial accounting mismatch");
         history.Undo();
         Assert(history.ResidentBytes == 115, "dynamic memento undo accounting mismatch");

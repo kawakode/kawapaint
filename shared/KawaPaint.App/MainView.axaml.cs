@@ -1415,6 +1415,7 @@ public partial class MainView : UserControl
         Canvas.History.MaxSteps = Math.Max(0, history.MaxSteps);
         Canvas.History.MemoryBudgetBytes = Math.Max(0L, history.MemoryBudgetMegabytes) * 1024 * 1024;
         Canvas.History.SpillDirectory = history.SpillToDisk ? AppPaths.HistorySpillDirectory : null;
+        Canvas.History.KeepBranches = history.KeepBranches;
     }
 
     private void ApplyDrawingSettings()
@@ -3050,7 +3051,9 @@ public partial class MainView : UserControl
 
         var steps = history.Steps();
         if (HistoryList.Items.Count == 0)
-            HistoryList.Items.Add(new ListBoxItem { Content = "Start", Tag = 0 });
+            HistoryList.Items.Add(CreateHistoryRow(0, "Start"));
+        if (HistoryList.Items[0] is ListBoxItem start)
+            start.Content = HistoryRowLabel(0, "Start", history.AlternativesAt(0));
 
         // Keep the unchanged prefix of controls. Undo/redo now updates opacity/selection in place;
         // a push appends one row; truncating a redo branch removes only that tail.
@@ -3058,7 +3061,7 @@ public partial class MainView : UserControl
         while (matching < steps.Count && matching + 1 < HistoryList.Items.Count)
         {
             if (HistoryList.Items[matching + 1] is not ListBoxItem item ||
-                !Equals(item.Content, $"{matching + 1}. {steps[matching].Name}")) break;
+                !Equals(item.Content, HistoryRowLabel(matching + 1, steps[matching].Name, steps[matching].Alternatives))) break;
             matching++;
         }
 
@@ -3066,7 +3069,7 @@ public partial class MainView : UserControl
             HistoryList.Items.RemoveAt(HistoryList.Items.Count - 1);
 
         for (int i = matching; i < steps.Count; i++)
-            HistoryList.Items.Add(CreateHistoryRow(i + 1, steps[i].Name));
+            HistoryList.Items.Add(CreateHistoryRow(i + 1, HistoryRowLabel(i + 1, steps[i].Name, steps[i].Alternatives)));
 
         for (int i = 0; i < steps.Count; i++)
             if (HistoryList.Items[i + 1] is ListBoxItem item)
@@ -3095,18 +3098,75 @@ public partial class MainView : UserControl
     /// row 3 while the highlight still says row 5. It is also only navigation - cancelling leaves
     /// the later steps intact and redoable, one click away on their own rows.
     /// </summary>
-    private ListBoxItem CreateHistoryRow(int position, string name)
+    private ListBoxItem CreateHistoryRow(int position, string label)
     {
-        var row = new ListBoxItem { Content = $"{position}. {name}", Tag = position };
+        var row = new ListBoxItem { Content = label, Tag = position };
 
-        var truncate = new MenuItem { Header = "Delete From Here…" };
-        truncate.Click += (_, _) => _ = TruncateHistoryAsync(position);
-        ToolTip.SetTip(truncate, "Drop this step and every step after it");
-
+        // Filled on opening rather than here: which branches leave this row changes with every
+        // edit and switch, while the row itself is kept for as long as its label matches.
         var menu = new ContextMenu();
-        menu.Items.Add(truncate);
+        menu.Opening += (_, e) =>
+        {
+            menu.Items.Clear();
+            AddBranchItems(menu, position);
+            if (position > 0)
+            {
+                if (menu.Items.Count > 0) menu.Items.Add(new Separator());
+                var truncate = new MenuItem { Header = "Delete From Here…" };
+                truncate.Click += (_, _) => _ = TruncateHistoryAsync(position);
+                ToolTip.SetTip(truncate, "Drop this step and every step after it");
+                menu.Items.Add(truncate);
+            }
+            if (menu.Items.Count == 0) e.Cancel = true;   // the Start row with nothing branching off it
+        };
         row.ContextMenu = menu;
         return row;
+    }
+
+    /// <summary>
+    /// The row text. A row that other branches leave from says how many, since nothing else on
+    /// the panel shows that undone work is still there to go back to.
+    /// </summary>
+    private static string HistoryRowLabel(int position, string name, int alternatives)
+    {
+        string label = position == 0 ? name : $"{position}. {name}";
+        return alternatives switch
+        {
+            0 => label,
+            1 => label + "   (+1 branch)",
+            _ => $"{label}   (+{alternatives} branches)",
+        };
+    }
+
+    /// <summary>
+    /// One item per branch leaving the state at <paramref name="position"/>, when there is more
+    /// than the timeline itself. Choosing one moves to its tip - the picture as it was left.
+    /// </summary>
+    private void AddBranchItems(ContextMenu menu, int position)
+    {
+        var branches = Canvas.History.BranchesAt(position);
+        if (branches.Count == 0 || (branches.Count == 1 && branches[0].IsCurrent)) return;
+
+        menu.Items.Add(new MenuItem { Header = "Branches from here", IsEnabled = false });
+        foreach (var branch in branches)
+        {
+            string steps = branch.Length == 1 ? "1 step" : $"{branch.Length} steps";
+            var item = new MenuItem
+            {
+                Header = $"{branch.Index + 1}. {branch.Name} ({steps}){(branch.IsCurrent ? "  - current" : "")}",
+            };
+            int index = branch.Index;
+            item.Click += (_, _) => SwitchHistoryBranch(position, index);
+            ToolTip.SetTip(item, "Go to the end of this branch");
+            menu.Items.Add(item);
+        }
+    }
+
+    private void SwitchHistoryBranch(int position, int branch)
+    {
+        RecordAction($"history.branch.{position}.{branch}");
+        Canvas.SwitchHistoryBranch(position, branch);
+        StatusText.Text = $"Switched to branch {branch + 1} after {(position == 0 ? "Start" : $"step {position}")}";
     }
 
     /// <summary>
@@ -3127,6 +3187,13 @@ public partial class MainView : UserControl
             ? $"Delete {step}? The image goes back to how it was before it, and this can't be undone."
             : $"Delete {step} and the {dropped - 1} step(s) after it? The image goes back to how it " +
               "was before that step, and this can't be undone.";
+
+        // Branches growing out of the doomed steps go with them; say so rather than surprise.
+        int branched = 0;
+        for (int p = position; p <= history.Count; p++) branched += history.AlternativesAt(p);
+        if (branched > 0)
+            message += branched == 1 ? " The branch leaving from those steps goes too."
+                                     : $" The {branched} branches leaving from those steps go too.";
 
         if (!await ConfirmAsync("Delete History Steps", message, confirmLabel: "Delete")) return;
 
@@ -3522,8 +3589,8 @@ public partial class MainView : UserControl
         Canvas.History.Push(new DelegateMemento("Paste Into New Layer",
             undo: () => { doc.RemoveLayer(layer); Canvas.SetActiveLayer(doc.Layers[^1]); },
             redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); },
-            approximateBytes: () => !doc.OwnsLayer(layer) ? SurfaceBytes(layer.Surface) : 0,
-            dispose: () => { if (!doc.OwnsLayer(layer)) layer.Dispose(); }));
+            approximateBytes: applied => applied ? 0 : SurfaceBytes(layer.Surface),
+            dispose: applied => { if (!applied) layer.Dispose(); }));
 
         RefreshDocument();
         StatusText.Text = $"Pasted {pasted.Width}×{pasted.Height} into a new layer";
@@ -3557,8 +3624,8 @@ public partial class MainView : UserControl
             Canvas.History.Push(new DelegateMemento("Import Layer",
                 undo: () => { doc.RemoveLayer(layer); Canvas.SetActiveLayer(doc.Layers[^1]); },
                 redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); },
-                approximateBytes: () => !doc.OwnsLayer(layer) ? SurfaceBytes(layer.Surface) : 0,
-                dispose: () => { if (!doc.OwnsLayer(layer)) layer.Dispose(); }));
+                approximateBytes: applied => applied ? 0 : SurfaceBytes(layer.Surface),
+                dispose: applied => { if (!applied) layer.Dispose(); }));
 
             RefreshDocument();
             StatusText.Text = $"Imported {imported.Width}×{imported.Height} as a new layer";
@@ -3636,14 +3703,15 @@ public partial class MainView : UserControl
         var layer = doc.AddLayer();
         Canvas.SetActiveLayer(layer);
 
-        // approximateBytes/dispose are live queries against doc.OwnsLayer, not captured values: which
-        // side (undo or redo) currently holds `layer` detached from the document flips with every
-        // toggle, and Dispose() must never free a Surface the Document still owns.
+        // `layer` is this step's own: detached from the document exactly while the step is undone,
+        // so that is when it costs history memory and when dropping the step may free it. Deciding
+        // by the applied flag rather than by asking the document matters once history branches -
+        // see DelegateMemento.
         Canvas.History.Push(new DelegateMemento("Add Layer",
             undo: () => { doc.RemoveLayer(layer); Canvas.SetActiveLayer(doc.Layers[^1]); },
             redo: () => { doc.AddLayer(layer); Canvas.SetActiveLayer(layer); },
-            approximateBytes: () => !doc.OwnsLayer(layer) ? SurfaceBytes(layer.Surface) : 0,
-            dispose: () => { if (!doc.OwnsLayer(layer)) layer.Dispose(); }));
+            approximateBytes: applied => applied ? 0 : SurfaceBytes(layer.Surface),
+            dispose: applied => { if (!applied) layer.Dispose(); }));
 
         RefreshDocument();
     }
@@ -3662,8 +3730,8 @@ public partial class MainView : UserControl
         Canvas.History.Push(new DelegateMemento("Delete Layer",
             undo: () => { doc.InsertLayer(idx, active); Canvas.SetActiveLayer(active); },
             redo: () => { doc.RemoveLayer(active); Canvas.SetActiveLayer(doc.Layers[Math.Clamp(idx, 0, doc.LayerCount - 1)]); },
-            approximateBytes: () => !doc.OwnsLayer(active) ? SurfaceBytes(active.Surface) : 0,
-            dispose: () => { if (!doc.OwnsLayer(active)) active.Dispose(); }));
+            approximateBytes: applied => applied ? SurfaceBytes(active.Surface) : 0,
+            dispose: applied => { if (applied) active.Dispose(); }));
 
         RefreshDocument();
     }
@@ -3683,8 +3751,8 @@ public partial class MainView : UserControl
         Canvas.History.Push(new DelegateMemento("Duplicate Layer",
             undo: () => { doc.RemoveLayer(dup); Canvas.SetActiveLayer(active); },
             redo: () => { doc.InsertLayer(idx + 1, dup); Canvas.SetActiveLayer(dup); },
-            approximateBytes: () => !doc.OwnsLayer(dup) ? SurfaceBytes(dup.Surface) : 0,
-            dispose: () => { if (!doc.OwnsLayer(dup)) dup.Dispose(); }));
+            approximateBytes: applied => applied ? 0 : SurfaceBytes(dup.Surface),
+            dispose: applied => { if (!applied) dup.Dispose(); }));
 
         RefreshDocument();
     }
@@ -3705,14 +3773,13 @@ public partial class MainView : UserControl
         Canvas.SetActiveLayer(below);
 
         // belowBefore is owned by this memento for its whole lifetime (both directions - it's
-        // needed for undo whether or not the step is currently applied), unlike `active`, whose
-        // detached/attached state - and so whether it's this memento's to count/dispose - flips
-        // with every toggle.
+        // needed for undo whether or not the step is currently applied), unlike `active`, which is
+        // this memento's to count/dispose only while the merge is applied and it sits detached.
         Canvas.History.Push(new DelegateMemento("Merge Down",
             undo: () => { below.Surface.CopyFrom(belowBefore); doc.InsertLayer(idx, active); Canvas.SetActiveLayer(active); },
             redo: () => { LayerOps.MergeInto(below, active); doc.RemoveLayer(active); Canvas.SetActiveLayer(below); },
-            approximateBytes: () => SurfaceBytes(belowBefore) + (!doc.OwnsLayer(active) ? SurfaceBytes(active.Surface) : 0),
-            dispose: () => { belowBefore.Dispose(); if (!doc.OwnsLayer(active)) active.Dispose(); }));
+            approximateBytes: applied => SurfaceBytes(belowBefore) + (applied ? SurfaceBytes(active.Surface) : 0),
+            dispose: applied => { belowBefore.Dispose(); if (applied) active.Dispose(); }));
 
         RefreshDocument();
     }

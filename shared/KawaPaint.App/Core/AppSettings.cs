@@ -163,6 +163,12 @@ public sealed class HistorySettings
 
     public bool SpillToDisk { get; set; } = true;
 
+    /// <summary>
+    /// Keep undone steps as a branch when a new edit is made after undoing, instead of
+    /// discarding them. Branches count toward the limits above and are let go first.
+    /// </summary>
+    public bool KeepBranches { get; set; } = true;
+
     /// <summary>Show a per-step thumbnail in the History panel.</summary>
     public bool ShowThumbnails { get; set; } = true;
 }

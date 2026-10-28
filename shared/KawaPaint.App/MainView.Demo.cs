@@ -561,6 +561,14 @@ public partial class MainView
             return;
         }
 
+        // Recorded as "<caret position>.<branch index>", see SwitchHistoryBranch.
+        if (TrySplit(id, "history.branch.", out arg) && arg.Split('.') is [var at, var which] &&
+            int.TryParse(at, out int forkAt) && int.TryParse(which, out int branchIndex))
+        {
+            Canvas.SwitchHistoryBranch(forkAt, branchIndex);
+            return;
+        }
+
         // Recorded as a caret position, same as history.jump; TruncateFrom takes a step index.
         // Driven directly rather than through TruncateHistoryAsync, which prompts.
         if (TrySplit(id, "history.truncate.", out arg) && int.TryParse(arg, out int truncateAt))

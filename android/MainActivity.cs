@@ -1,5 +1,6 @@
 using Android.App;
 using Android.Content.PM;
+using Android.OS;
 using Avalonia.Android;
 
 namespace KawaPaint.Android;
@@ -12,7 +13,7 @@ namespace KawaPaint.Android;
     ConfigurationChanges = ConfigChanges.Orientation | ConfigChanges.ScreenSize | ConfigChanges.UiMode)]
 public sealed class MainActivity : AvaloniaMainActivity
 {
-    protected override void OnCreate(Android.OS.Bundle? savedInstanceState)
+    protected override void OnCreate(Bundle? savedInstanceState)
     {
         // Back with unsaved changes asks first (MainView.OnBackRequested), then quits through this.
         KawaPaint.App.App.QuitApp = Finish;

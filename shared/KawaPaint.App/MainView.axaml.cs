@@ -214,6 +214,7 @@ public partial class MainView : UserControl
         // reproduced and confirmed via a live repro before this fix). Posting lets the click's
         // own dispatch finish first. See the identical DocumentChanged/RebuildLayerPanel fix above.
         Canvas.History.Changed += (_, _) => Dispatcher.UIThread.Post(RebuildHistoryPanel);
+        Canvas.History.Changed += (_, _) => Dispatcher.UIThread.Post(OnHistoryChangedForLiveLayers);
         RebuildHistoryPanel();
         RebuildCustomDock();
         SetClean(null);
@@ -2914,6 +2915,25 @@ public partial class MainView : UserControl
             panel.Children.Add(new TextBlock { Text = layer.Name, VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.White });
 
             var item = new ListBoxItem { Content = panel, Tag = layer };
+            if (layer.LiveModel is not null)
+            {
+                var badge = new Border
+                {
+                    Background = new SolidColorBrush(Color.FromRgb(58, 96, 150)),
+                    CornerRadius = new CornerRadius(3),
+                    Padding = new Thickness(4, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Child = new TextBlock { Text = "3D", FontSize = 10, Foreground = Brushes.White }
+                };
+                ToolTip.SetTip(badge, "Live 3D layer: right-click for its 3D properties");
+                panel.Children.Add(badge);
+
+                var properties = new MenuItem { Header = "3D Layer Properties…" };
+                properties.Click += (_, _) => { Canvas.SetActiveLayer(capturedLayer); OnLiveLayerProperties(this, new()); };
+                var rasterize = new MenuItem { Header = "Rasterize 3D Layer" };
+                rasterize.Click += (_, _) => { Canvas.SetActiveLayer(capturedLayer); OnRasterizeLiveLayer(this, new()); };
+                item.ContextMenu = new ContextMenu { Items = { properties, rasterize } };
+            }
             item.DoubleTapped += async (_, _) =>
             {
                 string? name;
@@ -3677,6 +3697,7 @@ public partial class MainView : UserControl
 
         int idx = doc.IndexOf(active);
         var dup = active.Clone();
+        dup.Id = Guid.NewGuid();   // a new layer, not a snapshot of this one: texture links keep pointing at the original
         doc.InsertLayer(idx + 1, dup);
         Canvas.SetActiveLayer(dup);
 
@@ -3700,7 +3721,9 @@ public partial class MainView : UserControl
 
         var below = doc.Layers[idx - 1];
         var belowBefore = below.Surface.Clone();
+        var belowModel = below.LiveModel;   // merged pixels no longer match a live 3D model
         LayerOps.MergeInto(below, active);
+        below.LiveModel = null;
         doc.RemoveLayer(active);
         Canvas.SetActiveLayer(below);
 
@@ -3709,8 +3732,8 @@ public partial class MainView : UserControl
         // detached/attached state - and so whether it's this memento's to count/dispose - flips
         // with every toggle.
         Canvas.History.Push(new DelegateMemento("Merge Down",
-            undo: () => { below.Surface.CopyFrom(belowBefore); doc.InsertLayer(idx, active); Canvas.SetActiveLayer(active); },
-            redo: () => { LayerOps.MergeInto(below, active); doc.RemoveLayer(active); Canvas.SetActiveLayer(below); },
+            undo: () => { below.Surface.CopyFrom(belowBefore); below.LiveModel = belowModel; doc.InsertLayer(idx, active); Canvas.SetActiveLayer(active); },
+            redo: () => { LayerOps.MergeInto(below, active); below.LiveModel = null; doc.RemoveLayer(active); Canvas.SetActiveLayer(below); },
             approximateBytes: () => SurfaceBytes(belowBefore) + (!doc.OwnsLayer(active) ? SurfaceBytes(active.Surface) : 0),
             dispose: () => { belowBefore.Dispose(); if (!doc.OwnsLayer(active)) active.Dispose(); }));
 

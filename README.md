@@ -93,15 +93,19 @@ Instagram is export-only: the default presets include **Instagram Square**, **In
 4x5**, and **Instagram Landscape**. ArtStation publishing is not included because ArtStation does
 not offer an official public publishing API.
 
-## Tablet input and 3D reference layers
+## Tablet input and 3D layers
 
 Pen pressure can control brush size, opacity, or both; inverted/eraser tips are recognized
 automatically. Touch input pans and pinch-zooms instead of painting. Configure this under
 **Preferences > Drawing**.
 
-Choose **File > Import 3D Reference** to load an OBJ, glTF or GLB model, pose its yaw, pitch and roll
-in the live preview, and render it into a normal antialiased raster layer. The resulting pixels
-support the usual layer tools and undo/redo; the source model is not stored as a live scene.
+Choose **File > Import 3D Model** to load an OBJ, glTF or GLB model, then set its pose, size,
+position, light and (for UV-mapped models) a texture layer in the live preview. By default it
+becomes a **live 3D layer**: the model is saved in the `.kwp`, **Image > 3D Layer Properties** (or
+right-clicking the layer) changes it later as one undo step, a texture layer's edits show up on the
+model, and crop, resize, flips and rotations keep it sharp. Painting or applying an effect on it
+turns it into ordinary pixels (undo brings the 3D layer back); **Image > Rasterize 3D Layer** does
+this explicitly. Untick "Keep editable" to import plain pixels straight away.
 
 ### Mail merge from CSV
 

@@ -1,5 +1,7 @@
 // KawaPaint - document-level operations that produce a new Document.
 
+using KawaPaint.Engine.ThreeD;
+
 namespace KawaPaint.Engine;
 
 /// <summary>Where the existing content lands within a larger or smaller canvas. See DocumentOps.ResizeCanvas.</summary>
@@ -16,13 +18,8 @@ public static class DocumentOps
     public static Document Crop(Document doc, int x, int y, int w, int h)
     {
         var result = NewTransformedDocument(doc, w, h);
-        TransformFrames(doc, result, layer =>
-            new Layer(layer.Surface.Crop(x, y, w, h), layer.Name)
-            {
-                Opacity = layer.Opacity,
-                Visible = layer.Visible,
-                BlendMode = layer.BlendMode
-            });
+        TransformFrames(doc, result, layer => Carry(layer, layer.Surface.Crop(x, y, w, h),
+            live => live.Shifted(-x, -y)));
         foreach (var source in doc.DynamicTextZones)
         {
             int left = Math.Max(0, source.X - x), top = Math.Max(0, source.Y - y);
@@ -70,14 +67,9 @@ public static class DocumentOps
     public static Document Resize(Document doc, int w, int h)
     {
         var result = NewTransformedDocument(doc, w, h);
-        TransformFrames(doc, result, layer =>
-            new Layer(layer.Surface.Resized(w, h), layer.Name)
-            {
-                Opacity = layer.Opacity,
-                Visible = layer.Visible,
-                BlendMode = layer.BlendMode
-            });
         double sx = (double)w / doc.Width, sy = (double)h / doc.Height;
+        TransformFrames(doc, result, layer => Carry(layer, layer.Surface.Resized(w, h),
+            live => live.Scaled(sx, sy)));
         foreach (var source in doc.DynamicTextZones)
         {
             var zone = source.Clone();
@@ -104,12 +96,7 @@ public static class DocumentOps
         {
             var placed = new Surface(w, h);
             SurfaceOps.ShiftInto(placed, layer.Surface, dx, dy);
-            return new Layer(placed, layer.Name)
-            {
-                Opacity = layer.Opacity,
-                Visible = layer.Visible,
-                BlendMode = layer.BlendMode
-            };
+            return Carry(layer, placed, live => live.Shifted(dx, dy));
         });
         foreach (var source in doc.DynamicTextZones)
         {
@@ -141,26 +128,33 @@ public static class DocumentOps
     public static void FlipHorizontal(Document doc)
     {
         foreach (DocumentFrame frame in doc.Frames)
-            foreach (Layer layer in frame.Layers) SurfaceOps.FlipHorizontal(layer.Surface);
+            foreach (Layer layer in frame.Layers)
+            {
+                SurfaceOps.FlipHorizontal(layer.Surface);
+                if (layer.LiveModel is { } live)
+                    layer.LiveModel = live.WithSettings(live.Settings.FlippedHorizontally(doc.Width));
+            }
+        RefreshLive(doc);
     }
 
     public static void FlipVertical(Document doc)
     {
         foreach (DocumentFrame frame in doc.Frames)
-            foreach (Layer layer in frame.Layers) SurfaceOps.FlipVertical(layer.Surface);
+            foreach (Layer layer in frame.Layers)
+            {
+                SurfaceOps.FlipVertical(layer.Surface);
+                if (layer.LiveModel is { } live)
+                    layer.LiveModel = live.WithSettings(live.Settings.FlippedVertically(doc.Height));
+            }
+        RefreshLive(doc);
     }
 
     /// <summary>Returns a new document rotated 90 degrees; canvas dimensions swap.</summary>
     public static Document Rotate90(Document doc, bool clockwise)
     {
         var result = NewTransformedDocument(doc, doc.Height, doc.Width);
-        TransformFrames(doc, result, layer =>
-            new Layer(SurfaceOps.Rotate90(layer.Surface, clockwise), layer.Name)
-            {
-                Opacity = layer.Opacity,
-                Visible = layer.Visible,
-                BlendMode = layer.BlendMode
-            });
+        TransformFrames(doc, result, layer => Carry(layer, SurfaceOps.Rotate90(layer.Surface, clockwise),
+            live => live.Rotated(clockwise ? 90 : -90, doc.Width, doc.Height, doc.Height, doc.Width)));
         foreach (var source in doc.DynamicTextZones)
         {
             var zone = source.Clone();
@@ -189,7 +183,10 @@ public static class DocumentOps
             {
                 SurfaceOps.FlipHorizontal(layer.Surface);
                 SurfaceOps.FlipVertical(layer.Surface);
+                if (layer.LiveModel is { } live)
+                    layer.LiveModel = live.WithSettings(live.Settings.Rotated(180, doc.Width, doc.Height, doc.Width, doc.Height));
             }
+        RefreshLive(doc);
         foreach (var zone in doc.DynamicTextZones)
         {
             zone.X = doc.Width - zone.X - zone.Width;
@@ -206,13 +203,8 @@ public static class DocumentOps
     {
         var (w, h) = expandCanvas ? Surface.RotatedBounds(doc.Width, doc.Height, degrees) : (doc.Width, doc.Height);
         var result = NewTransformedDocument(doc, w, h);
-        TransformFrames(doc, result, layer =>
-            new Layer(layer.Surface.Rotated(degrees, w, h), layer.Name)
-            {
-                Opacity = layer.Opacity,
-                Visible = layer.Visible,
-                BlendMode = layer.BlendMode
-            });
+        TransformFrames(doc, result, layer => Carry(layer, layer.Surface.Rotated(degrees, w, h),
+            live => live.Rotated(degrees, doc.Width, doc.Height, w, h)));
         // Text zones stay upright: each keeps its size and follows its centre around the turn.
         double radians = degrees * Math.PI / 180, cos = Math.Cos(radians), sin = Math.Sin(radians);
         foreach (var source in doc.DynamicTextZones)
@@ -273,6 +265,28 @@ public static class DocumentOps
             }
         }
         destination.SetActiveFrame(source.ActiveFrameIndex);
+        RefreshLive(destination);
+    }
+
+    /// <summary>
+    /// The transformed copy of <paramref name="source"/> around <paramref name="surface"/>: same
+    /// identity and compositing properties, and a live 3D model moved the way the canvas moved, so
+    /// the layer stays live and is re-rendered sharp instead of resampled.
+    /// </summary>
+    private static Layer Carry(Layer source, Surface surface, Func<LiveModelSettings, LiveModelSettings> live) =>
+        new(surface, source.Name)
+        {
+            Id = source.Id,
+            LiveModel = source.LiveModel is { } model ? model.WithSettings(live(model.Settings)) : null,
+            Opacity = source.Opacity,
+            Visible = source.Visible,
+            BlendMode = source.BlendMode
+        };
+
+    private static void RefreshLive(Document doc)
+    {
+        if (doc.Frames.Any(frame => frame.Layers.Any(layer => layer.LiveModel is not null)))
+            LiveModelRenderer.RefreshAll(doc);
     }
 
     private static Document NewTransformedDocument(Document source, int width, int height) => new(width, height)

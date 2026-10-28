@@ -31,9 +31,9 @@ The remaining entries require hardware, registered API applications, or an expli
 - **Publishing live validation:** register Tumblr, DeviantArt and Meta applications, approve the
   loopback redirect URI, and exercise real accounts. Mocked multipart requests and all failure
   semantics are covered; no client IDs or test accounts were available in this pass.
-- **Major product expansions (gated):** live 3D layers, branching/replayable history, and
-  Paint.NET GPU effects each need explicit scope approval (UV/texture painting was approved and
-  shipped 2026-10-27, see 5.3). Paint.NET v5 CPU effects
+- **Major product expansions (gated):** branching/replayable history and Paint.NET GPU effects
+  each need explicit scope approval (UV/texture painting shipped 2026-10-27 and the light live 3D
+  layer 2026-10-28, see 5.3; a full 3D scene with materials and a GPU renderer stays out of scope). Paint.NET v5 CPU effects
   cannot be hosted through its public API; the classic plugin tier is complete.
 - **Product posture decisions:** whether browser and Android should become design-centre,
   first-class targets rather than graceful-parity ports remains a product choice, not unfinished
@@ -1774,7 +1774,24 @@ The cost is everything around the port, and each of these is a real item:
 tablet or foldable with a pressure pen. True hinge-aware dual-pane UI and Android JXL/JP2 ABI packs
 remain separate optional scopes.
 
-### 5.3 - 3D model support (`Support modeles 3D`) - reference layer **DONE 2026-08-25**; UV painting **DONE 2026-10-27**; live mode gated
+### 5.3 - 3D model support (`Support modeles 3D`) - reference layer **DONE 2026-08-25**; UV painting **DONE 2026-10-27**; light live layer **DONE 2026-10-28**
+
+Option (b), in its light form, shipped 2026-10-28 at Sébastien's request ("Calque 3D léger"): one
+model per layer on the same CPU renderer, so it works on desktop, browser and Android alike.
+File > Import 3D Model creates a live 3D layer by default (`Layer.LiveModel`: the mesh plus
+`LiveModelSettings` - yaw/pitch/roll, centre and bounding-sphere diameter in canvas pixels, mirror
+flags, light, colour and an optional texture layer referenced by the new `Layer.Id`). The pixels are
+a cache of the render. Image > 3D Layer Properties (or the layer row's context menu, which also
+shows a "3D" badge) re-edits it as one undo step (`LiveModelMemento`); a textured live layer
+re-renders after every history change that alters its texture layer. Crop, canvas size, resize,
+flips and rotations move the model instead of resampling it, so it stays live and sharp. Any pixel
+edit recorded by `TileDeltaMemento`/`LayerSurfaceMemento` (painting, effects, merge-down into it)
+turns the layer into plain pixels, and undoing that edit makes it live again; Image > Rasterize 3D
+Layer does it explicitly. `.kwp` stays version 3: the manifest gains optional `Id`/`Model3D`
+fields and meshes go to `models/N.kpmesh`, so older builds open the file with the last render as
+ordinary pixels, and a damaged mesh degrades the same way. Not included: several objects per layer,
+materials, multiple lights, perspective camera, moving the layer with the Move tool (use the X/Y
+fields), or a GPU renderer.
 
 Option (c), UV/texture painting, shipped 2026-10-27 at Sébastien's request: OBJ `vt` and glTF
 `TEXCOORD_0` are loaded (stored in image space, V down), the renderer samples a texture with
@@ -2629,9 +2646,9 @@ prioritized git-compat truncate-only over this.
 - **Is Android first-class (new 2026-08-24, from 5.2)?** Assumed: same posture as the browser build -
   a real target, features gracefully absent, but the desktop remains the design centre. If it is
   meant to be first-class instead, the touch UI is the project, not the port.
-- **What does "3D support" mean (new 2026-08-24, from 5.3)?** The default 3D *reference layer*
-  (option (a)) shipped 2026-08-25. UV/texture painting (option (c)) and a live 3D layer type
-  (option (b)) still change the product/document model enough to need an explicit decision.
+- ~~**What does "3D support" mean (new 2026-08-24, from 5.3)?**~~ Resolved: the reference layer
+  (a) shipped 2026-08-25, UV/texture painting (c) 2026-10-27 and a light live 3D layer (b)
+  2026-10-28. A full scene graph with materials and GPU rendering remains out of scope.
 - ~~**Third-party posting (new 2026-08-24, from 2.9):**~~ Resolved 2026-08-26: direct Tumblr,
   DeviantArt and Facebook Page providers are implemented; Instagram is presets-only and ArtStation
   is out of scope. Live provider validation still requires registered applications and accounts.

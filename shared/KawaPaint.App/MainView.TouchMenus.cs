@@ -54,6 +54,54 @@ public partial class MainView
         _touchOverlay = null;
     }
 
+    // ---- back button ------------------------------------------------------------
+
+    private void HookBackButton()
+    {
+        TopLevel? top = null;
+        AttachedToVisualTree += (_, _) =>
+        {
+            top = TopLevel.GetTopLevel(this);
+            if (top is not null) top.BackRequested += OnBackRequested;
+        };
+        DetachedFromVisualTree += (_, _) =>
+        {
+            if (top is not null) top.BackRequested -= OnBackRequested;
+            top = null;
+        };
+    }
+
+    /// <summary>
+    /// Android's Back closes whatever is on top - the ring, the drawer, a bottom sheet - before
+    /// it is allowed to leave the app, and leaving with unsaved changes asks first. Unhandled, it
+    /// finished the activity straight from an open drawer and took the drawing with it.
+    /// </summary>
+    private async void OnBackRequested(object? sender, RoutedEventArgs e)
+    {
+        if (IsTouchOverlayOpen)
+        {
+            CloseTouchOverlay();
+            e.Handled = true;
+            return;
+        }
+        if (_canvasDialogOverlay is not null)
+        {
+            e.Handled = true;   // the dialog's own Cancel closes it
+            return;
+        }
+        if (_panels.Panels.FirstOrDefault(p => _panels.IsSheet(p.Id)) is { } sheet)
+        {
+            _panels.SetPlace(sheet.Id, PanelPlace.Hidden);
+            e.Handled = true;
+            return;
+        }
+        if (!IsDirty || App.QuitApp is not { } quit) return;
+
+        e.Handled = true;
+        if (await ConfirmAsync("Quit KawaPaint", "The image has unsaved changes. Quit without saving them?", "Quit"))
+            quit();
+    }
+
     // ---- ☰ drawer ------------------------------------------------------------
 
     /// <summary>
@@ -321,7 +369,8 @@ public partial class MainView
         _radialCanvas.Children.Clear();
         _radialValuePanel = null;
 
-        // The hub: the current colour where the finger was; tapping it closes the menu.
+        // The hub, where the finger was: a close button, so it cannot be mistaken for the
+        // colour button on the ring.
         var hub = new Button
         {
             Name = "RadialHub",
@@ -329,11 +378,14 @@ public partial class MainView
             Height = 36,
             Padding = new Thickness(0),
             CornerRadius = new CornerRadius(18),
-            BorderBrush = Brushes.White,
-            BorderThickness = new Thickness(2),
-            Background = ColorBrush(Canvas.BrushColor),
-            Classes = { "swatch" }
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x5A, 0x5A, 0x5A)),
+            BorderThickness = new Thickness(1),
+            Background = new SolidColorBrush(Color.FromArgb(0xE0, 0x1C, 0x1C, 0x1C)),
+            Content = Icons.Create("Close", 16)
         };
+        ToolTip.SetTip(hub, "Close");
         hub.Click += (_, _) => CloseTouchOverlay();
         Place(hub, _radialCenter, 36);
 

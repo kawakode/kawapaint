@@ -57,6 +57,7 @@ public partial class MainView
 
         if (_formFactor == FormFactor.Phone) ApplyPhoneChrome();
         Canvas.LongPressed += ShowQuickMenu;
+        HookBackButton();
     }
 
     private void ApplyPhoneChrome()
@@ -84,14 +85,16 @@ public partial class MainView
         OptionsBar.Child = null;
         var optionsRow = new DockPanel();
         optionsRow.Children.Add(menuButton);
-        optionsRow.Children.Add(new ScrollViewer
+        optionsRow.Children.Add(WithScrollFade(new ScrollViewer
         {
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalAlignment = VerticalAlignment.Center,
             Content = OptionsPanel
-        });
+        }, Color.FromRgb(0x28, 0x28, 0x28)));
         OptionsBar.Child = optionsRow;
+        // The colour ring and the bottom bar's colour buttons cover these, and the row needs the room.
+        FgGroup.IsVisible = false;
         OptionsBar.Padding = new Thickness(4, 2, 8, 2);
 
         // Undo, redo and the panel toggles are what a thumb reaches for between strokes, so they
@@ -102,6 +105,7 @@ public partial class MainView
         ToggleDock.IsVisible = false;
         TogglePaint3D.IsVisible = false;
         TopBar.Children.Remove(QuickBar);
+        foreach (var separator in QuickBar.Children.OfType<Separator>()) separator.IsVisible = false;
         QuickBar.HorizontalAlignment = HorizontalAlignment.Center;
         QuickBar.Spacing = 6;
         var thumbBar = new Border
@@ -122,8 +126,45 @@ public partial class MainView
         ToolPalette.Orientation = Orientation.Horizontal;
         ToolScroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
         ToolScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
+        if (ToolScroll.Parent is DockPanel toolsDock)
+        {
+            toolsDock.Children.Remove(ToolScroll);
+            toolsDock.Children.Add(WithScrollFade(ToolScroll, Color.FromRgb(0x26, 0x26, 0x26)));
+        }
         ToolsHeader.IsVisible = false;
         ToolsBorder.BorderThickness = new Thickness(0, 1, 0, 0);
+    }
+
+    /// <summary>
+    /// A sideways-scrolling strip with a fade over its right edge while more lies beyond it, so a
+    /// half-cut button reads as "there is more" rather than as a rendering fault.
+    /// </summary>
+    private static Panel WithScrollFade(ScrollViewer scroller, Color background)
+    {
+        var fade = new Border
+        {
+            Name = "ScrollFade",
+            Width = 36,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            IsHitTestVisible = false,
+            Background = new LinearGradientBrush
+            {
+                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+                EndPoint = new RelativePoint(1, 0, RelativeUnit.Relative),
+                GradientStops =
+                {
+                    new GradientStop(Color.FromArgb(0, background.R, background.G, background.B), 0),
+                    new GradientStop(background, 0.85)
+                }
+            }
+        };
+        void Update() => fade.IsVisible = scroller.Offset.X + scroller.Viewport.Width < scroller.Extent.Width - 1;
+        scroller.ScrollChanged += (_, _) => Update();
+        scroller.LayoutUpdated += (_, _) => Update();
+        var host = new Panel();
+        host.Children.Add(scroller);
+        host.Children.Add(fade);
+        return host;
     }
 
     /// <summary>The rule between two tool groups: across the vertical rail, down the phone strip.</summary>

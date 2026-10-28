@@ -386,7 +386,7 @@
                         <Setter Property="VerticalAlignment" Value="Center" />
                     </Style>
                 </WrapPanel.Styles>
-                <StackPanel Classes="group">
+                <StackPanel x:Name="FgGroup" Classes="group">
                     <TextBlock Text="Fg:" />
                     <Button Classes="swatch" Tag="#000000" Click="OnColor" Background="Black" Width="22" Height="22" />
                     <Button Classes="swatch" Tag="#FFFFFF" Click="OnColor" Background="White" Width="22" Height="22" />

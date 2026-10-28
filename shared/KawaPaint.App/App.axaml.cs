@@ -1,3 +1,4 @@
+using System;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -9,6 +10,12 @@ namespace KawaPaint.App;
 
 public partial class App : Application
 {
+    /// <summary>
+    /// Leaves the app on a host where it cannot just close a window - Android sets it to finish
+    /// the activity. Null elsewhere, and MainView only asks for it after confirming.
+    /// </summary>
+    public static Action? QuitApp { get; set; }
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);

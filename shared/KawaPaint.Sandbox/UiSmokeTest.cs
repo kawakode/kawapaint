@@ -824,6 +824,28 @@ internal static class UiSmokeTest
             Assert(!view.IsTouchOverlayOpen, "the drawer stayed open after picking an item");
             Assert(workspace.ShowRulers != rulers, "the drawer's Rulers item did nothing");
 
+            // Back closes the drawer, then a bottom sheet, rather than leaving the app.
+            menuButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump();
+            var back = new RoutedEventArgs(TopLevel.BackRequestedEvent);
+            window.RaiseEvent(back);
+            Pump();
+            Assert(back.Handled && !view.IsTouchOverlayOpen, "Back did not close the drawer");
+            layersToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump();
+            back = new RoutedEventArgs(TopLevel.BackRequestedEvent);
+            window.RaiseEvent(back);
+            Pump();
+            Assert(back.Handled && !layers.IsEffectivelyVisible, "Back did not close the bottom sheet");
+            back = new RoutedEventArgs(TopLevel.BackRequestedEvent);
+            window.RaiseEvent(back);
+            Assert(!back.Handled, "Back with nothing open and nothing unsaved should leave the app");
+
+            // Only the options the tool uses are on the row: greyed-out fields are unreadable here.
+            Invoke(view, "SelectTool", "Pencil");
+            Assert(view.FindControl<StackPanel>("SizeGroup")!.IsVisible && !view.FindControl<StackPanel>("BrushGroup")!.IsVisible,
+                "the phone options row shows options the pencil does not use");
+
             // A long press opens the current tool's quick menu, and its slider sets the size.
             Invoke(view, "SelectTool", "Brush");
             Pump();

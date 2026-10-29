@@ -45,14 +45,13 @@ if (-not $sdkBin) { throw 'Windows 10/11 SDK not found (makeappx.exe / makepri.e
 $makepri = Join-Path $sdkBin.FullName 'makepri.exe'
 $makeappx = Join-Path $sdkBin.FullName 'makeappx.exe'
 
-Push-Location $staging
-try {
-    & $makepri createconfig /cf priconfig.xml /dq fr-FR_en-US /o
-    if ($LASTEXITCODE) { throw "makepri createconfig failed ($LASTEXITCODE)" }
-    & $makepri new /pr . /cf priconfig.xml /of resources.pri /mn AppxManifest.xml /o
-    if ($LASTEXITCODE) { throw "makepri new failed ($LASTEXITCODE)" }
-    Remove-Item priconfig.xml
-} finally { Pop-Location }
+# makepri wants absolute paths; the config lives outside the staging folder so it is not packed.
+$priConfig = "$staging.priconfig.xml"
+& $makepri createconfig /cf $priConfig /dq fr-FR_en-US /pv 10.0.0 /o
+if ($LASTEXITCODE) { throw "makepri createconfig failed ($LASTEXITCODE)" }
+& $makepri new /pr $staging /cf $priConfig /mn (Join-Path $staging 'AppxManifest.xml') /of (Join-Path $staging 'resources.pri') /o
+if ($LASTEXITCODE) { throw "makepri new failed ($LASTEXITCODE)" }
+Remove-Item $priConfig
 
 & $makeappx pack /d $staging /p $Output /o
 if ($LASTEXITCODE) { throw "makeappx pack failed ($LASTEXITCODE)" }

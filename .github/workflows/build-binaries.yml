@@ -67,6 +67,32 @@ jobs:
           name: KawaPaint-${{ matrix.rid }}
           path: publish/${{ matrix.rid }}
 
+      # Microsoft Store package. The Store re-signs it, so it is uploaded unsigned and never
+      # trips SmartScreen for Store installs. The identity comes from repository variables
+      # copied from Partner Center (Product identity page); until they are set the package
+      # uses placeholder values that the Store will refuse.
+      - name: Pack Microsoft Store MSIX
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        env:
+          MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME }}
+          MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
+          MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          $version = if ('${{ github.ref_type }}' -eq 'tag') { '${{ github.ref_name }}' } else { '0.0.${{ github.run_number }}' }
+          $identity = @{}
+          if ($env:MSIX_IDENTITY_NAME) { $identity.IdentityName = $env:MSIX_IDENTITY_NAME }
+          if ($env:MSIX_PUBLISHER) { $identity.Publisher = $env:MSIX_PUBLISHER }
+          if ($env:MSIX_PUBLISHER_DISPLAY_NAME) { $identity.PublisherDisplayName = $env:MSIX_PUBLISHER_DISPLAY_NAME }
+          ./win/msix/build-msix.ps1 -PublishDir publish/${{ matrix.rid }} -Version $version -Output KawaPaint-${{ matrix.rid }}.msix @identity
+
+      - name: Upload MSIX artifact
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: KawaPaint-${{ matrix.rid }}-msix
+          path: KawaPaint-${{ matrix.rid }}.msix
+
       - name: Verify Apple Silicon macOS build
         if: matrix.platform == 'macos'
         shell: bash

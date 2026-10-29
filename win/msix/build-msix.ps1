@@ -30,12 +30,12 @@ Copy-Item -Recurse (Join-Path $PSScriptRoot 'Assets') (Join-Path $staging 'Asset
 
 # SecurityElement.Escape keeps an "&" or "<" in a publisher name from breaking the XML.
 $esc = { param($s) [Security.SecurityElement]::Escape($s) }
-$manifest = Get-Content -Raw -Encoding utf8 (Join-Path $PSScriptRoot 'AppxManifest.xml')
-$manifest = $manifest.Replace('$IdentityName$', (& $esc $IdentityName)).
-    Replace('$Publisher$', (& $esc $Publisher)).
-    Replace('$PublisherDisplayName$', (& $esc $PublisherDisplayName)).
-    Replace('$Version$', $msixVersion)
-Set-Content -Encoding utf8 -NoNewline (Join-Path $staging 'AppxManifest.xml') $manifest
+$manifest = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'AppxManifest.xml'))
+$manifest = $manifest.Replace('$IdentityName$', (& $esc $IdentityName))
+$manifest = $manifest.Replace('$Publisher$', (& $esc $Publisher))
+$manifest = $manifest.Replace('$PublisherDisplayName$', (& $esc $PublisherDisplayName))
+$manifest = $manifest.Replace('$Version$', $msixVersion)
+[IO.File]::WriteAllText((Join-Path $staging 'AppxManifest.xml'), $manifest, [Text.UTF8Encoding]::new($false))
 
 # The scale-qualified logo names need a resources.pri so the manifest's unqualified names resolve.
 $sdkBin = Get-Item "${env:ProgramFiles(x86)}\Windows Kits\10\bin\10.*\x64" |

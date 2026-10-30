@@ -378,29 +378,19 @@ public partial class MainView : UserControl
 
     // ---- documents --------------------------------------------------------
 
+    // Same blank image New Image creates with its default values (800×600, white background).
     private void LoadStartupDocument()
     {
-        var doc = new Document(800, 600);
+        Canvas.SetDocument(CreateBlankDocument(800, 600, 96, transparent: false));
+        StatusText.Text = "Ready";
+    }
 
+    private static Document CreateBlankDocument(int width, int height, double dpi, bool transparent)
+    {
+        var doc = new Document(width, height) { Dpi = dpi };
         var bg = doc.AddLayer("Background");
-        unsafe
-        {
-            for (int y = 0; y < doc.Height; y++)
-            {
-                ColorBgra* row = (ColorBgra*)bg.Surface.GetRowPointer(y);
-                for (int x = 0; x < doc.Width; x++)
-                    row[x] = ColorBgra.FromBgra((byte)(x * 255 / doc.Width), (byte)(y * 255 / doc.Height), 80, 255);
-            }
-        }
-
-        var overlay = doc.AddLayer("Overlay");
-        var red = ColorBgra.FromBgra(0, 0, 220, 200);
-        for (int y = 120; y < 400; y++)
-            for (int x = 160; x < 520; x++)
-                overlay.Surface[x, y] = red;
-
-        Canvas.SetDocument(doc);
-        StatusText.Text = "Demo document - left-drag to draw, wheel zoom, middle/right-drag pan, Ctrl+Z undo";
+        if (!transparent) bg.Surface.Clear(ColorBgra.White);
+        return doc;
     }
 
     private async void OnNew(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -424,10 +414,7 @@ public partial class MainView : UserControl
             (w, h, dpi, transparent) = (values.Width, values.Height, values.Dpi, values.Transparent);
         }
 
-        var doc = new Document(w, h) { Dpi = dpi };
-        var bg = doc.AddLayer("Background");
-        if (!transparent) bg.Surface.Clear(ColorBgra.White);
-        Canvas.SetDocument(doc);
+        Canvas.SetDocument(CreateBlankDocument(w, h, dpi, transparent));
         SetClean(null);
         StatusText.Text = $"New {w}×{h} document";
     }

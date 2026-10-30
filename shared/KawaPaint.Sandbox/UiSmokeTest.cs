@@ -1141,6 +1141,7 @@ internal static class UiSmokeTest
             var canvas = view.FindControl<SurfaceView>("Canvas")!;
             var list = view.FindControl<ListBox>("HistoryList")!;
             var layer = canvas.ActiveLayer!;
+            var blank = layer.Surface[60, 60];
             canvas.History.Clear();
             Invoke(view, "SelectTool", "Pencil");
 
@@ -1168,7 +1169,7 @@ internal static class UiSmokeTest
             var before = layer.Surface[20, 20];
             Invoke(view, "SwitchHistoryBranch", 1, 0);
             Pump();
-            Assert(layer.Surface[20, 20] != before && layer.Surface[20, 35].A == 0, "switching did not restore the first branch");
+            Assert(layer.Surface[20, 20] != before && layer.Surface[20, 35] == blank, "switching did not restore the first branch");
             Assert(canvas.History.Position == 2, "switching did not land on the branch tip");
             label = (list.Items[1] as ListBoxItem)?.Content as string ?? "";
             Assert(label.EndsWith("(+1 branch)"), $"after switching, step 1 row reads '{label}'");

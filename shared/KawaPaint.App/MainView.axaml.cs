@@ -40,7 +40,8 @@ public partial class MainView : UserControl
     private Palette _palette = new();
 
     // Under the app directory rather than a path of its own, so enabling git tracking later
-    // covers the palette along with everything else. Null on the browser build (no filesystem).
+    // covers the palette along with everything else. Null on the browser build (no filesystem),
+    // where the palette goes to the settings store under PaletteStoreKey instead.
     private readonly string? _palettePath =
         AppPaths.Root is null ? null : System.IO.Path.Combine(AppPaths.Root, "palette.kwpal");
 
@@ -64,11 +65,47 @@ public partial class MainView : UserControl
     private const int MinTolerance = 0;
     private const int MaxTolerance = 255;
 
-    /// <summary>The window that hosts this view, if any (null under the browser single-view host -
-    /// dialogs that need a Window owner are stubbed out there; see the OwnerWindow guards below).</summary>
+    /// <summary>The window that hosts this view, if any (null under the browser and Android
+    /// single-view hosts). Dialogs don't need it - <see cref="ShowDialogAsync{T}"/> works on every
+    /// host - so it only gates the features that need a desktop filesystem or plugins.</summary>
     private Window? OwnerWindow => TopLevel.GetTopLevel(this) as Window;
 
     private IStorageProvider StorageProvider => TopLevel.GetTopLevel(this)!.StorageProvider;
+
+    /// <summary>Reads a picked file into memory. The browser's file streams only support
+    /// ReadAsync, so a parser that reads synchronously (zip archives, JSON, image codecs) fails
+    /// there on the picker's stream with "Browser supports only ReadAsync".</summary>
+    private static async Task<System.IO.MemoryStream> ReadToMemoryAsync(IStorageFile file)
+    {
+        var buffer = new System.IO.MemoryStream();
+        await using (var stream = await file.OpenReadAsync())
+            await stream.CopyToAsync(buffer);
+        buffer.Position = 0;
+        return buffer;
+    }
+
+    /// <summary>Empties a file opened for writing that still holds an older, longer version.
+    /// Only when there is something to drop: in browsers without the File System Access API
+    /// (Firefox, Safari) the save is a download, whose stream turns a truncate request into the
+    /// text "[object Object]" at the start of the file - every saved project and exported image
+    /// came out corrupt there.</summary>
+    private static void DiscardOldContents(System.IO.Stream stream)
+    {
+        if (stream.CanSeek && stream.Length > 0) stream.SetLength(0);
+    }
+
+    /// <summary>Writes a picked file from an in-memory rendering, for the same reason as
+    /// <see cref="ReadToMemoryAsync"/>: browser file streams only take WriteAsync. Returns the
+    /// number of bytes written.</summary>
+    private static async Task<long> WriteFromMemoryAsync(IStorageFile file, Action<System.IO.Stream> write)
+    {
+        using var buffer = new System.IO.MemoryStream();
+        write(buffer);
+        await using var stream = await file.OpenWriteAsync();
+        DiscardOldContents(stream);
+        await stream.WriteAsync(buffer.GetBuffer().AsMemory(0, (int)buffer.Length));
+        return buffer.Length;
+    }
 
     /// <summary>
     /// True while the Dynamic Text prompt is on screen, preventing repeated canvas clicks from
@@ -135,9 +172,13 @@ public partial class MainView : UserControl
             OnLayerPointerReleased, Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
 
         BuildToolPalette();
-        _palette = _palettePath is null ? Palette.Default() : Palette.LoadOrDefault(_palettePath);
+        _palette = _palettePath is not null ? Palette.LoadOrDefault(_palettePath)
+            : SettingsStore.Current.TryRead(PaletteStoreKey, out string storedPalette)
+                ? Palette.LoadOrDefault(new System.IO.MemoryStream(System.Text.Encoding.UTF8.GetBytes(storedPalette)))
+                : Palette.Default();
         BuildPaletteStrip();
 
+        CombineIntersectBtn.Content = Icons.Create("Intersect", 12);
         ToggleTools.Content = Icons.Create("PanelTools", 15);
         ToggleColors.Content = Icons.Create("PanelColors", 15);
         ToggleColorWheel.Content = Icons.Create("PanelColorWheel", 15);
@@ -348,26 +389,8 @@ public partial class MainView : UserControl
     {
         FinishTextEditing();
         if (!IsDirty) return true;
-        if (OwnerWindow is not { } owner)
-        {
-            var body = new TextBlock
-            {
-                Text = "Save changes to the current image before continuing?",
-                TextWrapping = TextWrapping.Wrap
-            };
-            var browserChoice = await ShowCanvasChoiceAsync("Unsaved Changes", body, SaveChoice.Cancel,
-                new CanvasChoice<SaveChoice>("Cancel", SaveChoice.Cancel),
-                new CanvasChoice<SaveChoice>("Discard", SaveChoice.Discard),
-                new CanvasChoice<SaveChoice>("Save", SaveChoice.Save, true));
-            return browserChoice switch
-            {
-                SaveChoice.Save => await SaveProjectAsync(),
-                SaveChoice.Discard => true,
-                _ => false
-            };
-        }
-        var choice = await new ConfirmSaveDialog("Save changes to the current image before continuing?")
-            .ShowDialog<SaveChoice>(owner);
+        var choice = await ShowDialogAsync<SaveChoice>(
+            new ConfirmSaveDialog("Save changes to the current image before continuing?"));
         return choice switch
         {
             SaveChoice.Save => await SaveProjectAsync(),
@@ -398,21 +421,9 @@ public partial class MainView : UserControl
         RecordSkipped("New Image");
         if (!await ConfirmDiscardAsync()) return;
 
-        int w, h;
-        double dpi;
-        bool transparent;
-        if (OwnerWindow is { } owner)
-        {
-            var dlg = new NewImageDialog();
-            if (!await dlg.ShowDialog<bool>(owner)) return;
-            (w, h, dpi, transparent) = (dlg.ResultWidth, dlg.ResultHeight, dlg.ResultDpi, dlg.Transparent);
-        }
-        else
-        {
-            var values = await ShowCanvasNewImageAsync();
-            if (values is null) return;
-            (w, h, dpi, transparent) = (values.Width, values.Height, values.Dpi, values.Transparent);
-        }
+        var dlg = new NewImageDialog();
+        if (!await ShowDialogAsync<bool>(dlg)) return;
+        var (w, h, dpi, transparent) = (dlg.ResultWidth, dlg.ResultHeight, dlg.ResultDpi, dlg.Transparent);
 
         Canvas.SetDocument(CreateBlankDocument(w, h, dpi, transparent));
         SetClean(null);
@@ -524,7 +535,7 @@ public partial class MainView : UserControl
         try
         {
             Document doc;
-            await using (var stream = await file.OpenReadAsync())
+            using (var stream = await ReadToMemoryAsync(file))
                 doc = DocumentFile.Load(stream);
             Canvas.SetDocument(doc);
             SetClean(file);
@@ -658,7 +669,7 @@ public partial class MainView : UserControl
             return buffer.ToArray();
         });
         await using var stream = await openWrite();
-        stream.SetLength(0);
+        DiscardOldContents(stream);
         await stream.WriteAsync(bytes);
     }
 
@@ -677,10 +688,10 @@ public partial class MainView : UserControl
 
         var options = EncodeOptions.Default;
         string? codecId = CodecRegistry.FindByExtension(file.Name)?.Id;
-        if (codecId is "jpeg" or "webp" && OwnerWindow is { } owner)
+        if (codecId is "jpeg" or "webp")
         {
             var dlg = new SaveOptionsDialog(codecId);
-            if (!await dlg.ShowDialog<bool>(owner)) return;
+            if (!await ShowDialogAsync<bool>(dlg)) return;
             options = dlg.ResultOptions;
         }
 
@@ -692,7 +703,7 @@ public partial class MainView : UserControl
             byte[] bytes = ExifPreserver.Inject(encoded.ToArray(), Canvas.Document.ExifTiff,
                 flat.Width, flat.Height);
             await using var stream = await file.OpenWriteAsync();
-            stream.SetLength(0);
+            DiscardOldContents(stream);
             await stream.WriteAsync(bytes);
             StatusText.Text = "Exported " + file.Name;
         }
@@ -774,18 +785,8 @@ public partial class MainView : UserControl
         var doc = Canvas.Document;
         if (doc is null) return;
         RecordSkipped("Resize Image");
-        if (OwnerWindow is not { } owner)
-        {
-            var values = await ShowCanvasSizeFormAsync("Resize Image", doc.Width, doc.Height);
-            if (values is null) return;
-            int browserWidth = values.Width, browserHeight = values.Height;
-            if (browserWidth == doc.Width && browserHeight == doc.Height) return;
-            ApplyDocumentOp("Resize Image", d => DocumentOps.Resize(d, browserWidth, browserHeight));
-            StatusText.Text = $"Resized to {browserWidth}×{browserHeight}";
-            return;
-        }
         var dlg = new ResizeDialog(doc.Width, doc.Height, doc.LayerCount);
-        if (await dlg.ShowDialog<bool>(owner))
+        if (await ShowDialogAsync<bool>(dlg))
         {
             int w = dlg.ResultWidth, h = dlg.ResultHeight;
             if (w == doc.Width && h == doc.Height) return;
@@ -799,18 +800,8 @@ public partial class MainView : UserControl
         var doc = Canvas.Document;
         if (doc is null) return;
         RecordSkipped("Canvas Size");
-        if (OwnerWindow is not { } owner)
-        {
-            var values = await ShowCanvasCanvasSizeAsync(doc.Width, doc.Height);
-            if (values is null) return;
-            if (values.Width == doc.Width && values.Height == doc.Height) return;
-            ApplyDocumentOp("Canvas Size", d => DocumentOps.ResizeCanvas(
-                d, values.Width, values.Height, values.Anchor));
-            StatusText.Text = $"Canvas resized to {values.Width}×{values.Height}";
-            return;
-        }
         var dlg = new CanvasSizeDialog(doc.Width, doc.Height, doc.LayerCount);
-        if (await dlg.ShowDialog<bool>(owner))
+        if (await ShowDialogAsync<bool>(dlg))
         {
             int w = dlg.ResultWidth, h = dlg.ResultHeight;
             if (w == doc.Width && h == doc.Height) return;
@@ -891,9 +882,9 @@ public partial class MainView : UserControl
     private async void OnRotateArbitrary(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         var doc = Canvas.Document;
-        if (doc is null || OwnerWindow is not { } owner) return;
+        if (doc is null) return;
         var dlg = new RotateImageDialog(doc.Width, doc.Height);
-        if (!await dlg.ShowDialog<bool>(owner)) return;
+        if (!await ShowDialogAsync<bool>(dlg)) return;
         RotateImage(dlg.ResultAngle, dlg.ResultExpand);
     }
 
@@ -952,8 +943,6 @@ public partial class MainView : UserControl
     private async void ModifySelectionAsync(string name, string actionId, Action<Selection, int> modify)
     {
         if (Canvas.Selection is not { IsActive: true } selection) { StatusText.Text = name + " needs an active selection"; return; }
-        if (OwnerWindow is not { } owner) return;
-
         var before = SelectionSnapshot.Capture(selection);
         void Preview(int radius)
         {
@@ -963,7 +952,7 @@ public partial class MainView : UserControl
         }
 
         var dlg = new SelectionRadiusDialog(name, _selectionRadius, Preview);
-        bool ok = await dlg.ShowDialog<bool>(owner);
+        bool ok = await ShowDialogAsync<bool>(dlg);
         before.RestoreTo(selection);
         Canvas.NotifySelectionChanged();
         if (!ok) return;
@@ -1207,11 +1196,7 @@ public partial class MainView : UserControl
             }, v => new GaussianBlurEffect((int)v[0]))
         };
 
-        if (OwnerWindow is { } owner)
-            await dlg.ShowDialog(owner);
-        else
-            await ShowCanvasWindowContentAsync(dlg, dlg.UseCanvasHost,
-                dlg.CancelCanvasHost, dlg.BeginCanvasHost);
+        await ShowDialogAsync(dlg);
         if (dlg.CommittedValues is { } vals)
             RecordParameterizedAction("effect." + tag, vals, tag == "clouds"
                 ? new[] { Canvas.BrushColor.ToHexString(), Canvas.SecondaryColor.ToHexString() }
@@ -1255,11 +1240,7 @@ public partial class MainView : UserControl
     {
         if (Canvas.ActiveLayer is null) return;
         var dialog = new CurvesDialog(Canvas);
-        if (OwnerWindow is { } owner)
-            await dialog.ShowDialog(owner);
-        else
-            await ShowCanvasWindowContentAsync(dialog, dialog.UseCanvasHost,
-                dialog.CancelCanvasHost, dialog.BeginCanvasHost);
+        await ShowDialogAsync(dialog);
         if (dialog.CommittedLut is { } lut)
             RecordParameterizedAction("effect.curves", lut.Select(value => (double)value).ToArray());
         StatusText.Text = "Curves";
@@ -1826,14 +1807,8 @@ public partial class MainView : UserControl
 
     private async void OnCustomizeDock(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (OwnerWindow is not { } owner)
-        {
-            StatusText.Text = "Dock customization isn't available in the browser build yet";
-            return;
-        }
-
         var dlg = new DockEditorDialog(_commands.All, _palette.Colors, _settings.Settings.Workspace.DockCommands);
-        if (!await dlg.ShowDialog<bool>(owner)) return;
+        if (!await ShowDialogAsync<bool>(dlg)) return;
 
         _settings.Settings.Workspace.DockCommands = dlg.ResultEntries.ToList();
         _settings.Save();
@@ -1963,13 +1938,7 @@ public partial class MainView : UserControl
 
     private async void OnPreferences(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (OwnerWindow is not { } owner)
-        {
-            StatusText.Text = "Preferences aren't available in the browser build yet";
-            return;
-        }
-
-        await new SettingsDialog(_settings).ShowDialog(owner);
+        await ShowDialogAsync(new SettingsDialog(_settings));
 
         // AutosaveService and ConfigGitTracker re-read themselves off SettingsService.Changed, but
         // the undo stack's limits are pushed to it rather than pulled, so re-push them here.
@@ -2002,7 +1971,7 @@ public partial class MainView : UserControl
             if (file is null) { StatusText.Text = "Couldn't reopen: " + path; return; }
 
             Document doc;
-            await using (var stream = await file.OpenReadAsync())
+            using (var stream = await ReadToMemoryAsync(file))
                 doc = DocumentFile.Load(stream);
             Canvas.SetDocument(doc);
             SetClean(file);
@@ -2057,12 +2026,9 @@ public partial class MainView : UserControl
 
     private async void OnSaveLayoutPreset(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        var owner = OwnerWindow;
-        if (owner is null) return;   // no dialog host under the browser single-view build
-
         var workspace = _settings.Settings.Workspace;
         var dlg = new PromptDialog("Save Layout As", workspace.ActiveLayout);
-        if (!await dlg.ShowDialog<bool>(owner)) return;
+        if (!await ShowDialogAsync<bool>(dlg)) return;
 
         string name = dlg.ResultText.Trim();
         if (name.Length == 0) return;
@@ -2081,13 +2047,10 @@ public partial class MainView : UserControl
 
     private async void OnRenameLayoutPreset(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        var owner = OwnerWindow;
-        if (owner is null) return;
-
         var workspace = _settings.Settings.Workspace;
         string oldName = workspace.ActiveLayout;
         var dlg = new PromptDialog("Rename Layout", oldName);
-        if (!await dlg.ShowDialog<bool>(owner)) return;
+        if (!await ShowDialogAsync<bool>(dlg)) return;
 
         RenameLayoutPreset(oldName, dlg.ResultText.Trim());
     }
@@ -2146,8 +2109,7 @@ public partial class MainView : UserControl
 
     private async void OnAbout(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (OwnerWindow is not { } owner) return;
-        await new AboutDialog().ShowDialog(owner);
+        await ShowDialogAsync(new AboutDialog());
     }
 
     // ---- toolbar ----------------------------------------------------------
@@ -2328,13 +2290,8 @@ public partial class MainView : UserControl
             var rename = new MenuItem { Header = "Rename…" };
             rename.Click += async (_, _) =>
             {
-                string? name;
-                if (OwnerWindow is { } owner)
-                {
-                    var dlg = new PromptDialog("Name color", e.Name ?? "");
-                    name = await dlg.ShowDialog<bool>(owner) ? dlg.ResultText : null;
-                }
-                else name = await ShowCanvasPromptAsync("Name color", e.Name ?? "");
+                var dlg = new PromptDialog("Name color", e.Name ?? "");
+                string? name = await ShowDialogAsync<bool>(dlg) ? dlg.ResultText : null;
                 if (name is not null) { e.Name = name.Trim(); PersistPalette(); BuildPaletteStrip(); }
             };
             var remove = new MenuItem { Header = "Remove" };
@@ -2364,10 +2321,22 @@ public partial class MainView : UserControl
         RefreshSwatches();
     }
 
+    private const string PaletteStoreKey = "palette.kwpal";
+
     private void PersistPalette()
     {
-        if (_palettePath is null) return;
-        try { _palette.Save(_palettePath); } catch { /* ignore */ }
+        try
+        {
+            if (_palettePath is not null)
+            {
+                _palette.Save(_palettePath);
+                return;
+            }
+            using var json = new System.IO.MemoryStream();
+            _palette.Save(json);
+            SettingsStore.Current.Write(PaletteStoreKey, System.Text.Encoding.UTF8.GetString(json.ToArray()));
+        }
+        catch { /* ignore */ }
     }
 
     private void OnAddPaletteColor(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -2389,8 +2358,7 @@ public partial class MainView : UserControl
         if (file is null) return;
         try
         {
-            await using var stream = await file.OpenWriteAsync();
-            _palette.Save(stream);
+            await WriteFromMemoryAsync(file, _palette.Save);
             StatusText.Text = "Palette saved";
         }
         catch (Exception ex) { StatusText.Text = "Save palette failed: " + ex.Message; }
@@ -2414,7 +2382,7 @@ public partial class MainView : UserControl
         Palette loaded;
         try
         {
-            await using var stream = await file.OpenReadAsync();
+            using var stream = await ReadToMemoryAsync(file);
             loaded = Palette.Load(stream);
         }
         catch (Exception ex)
@@ -2924,13 +2892,8 @@ public partial class MainView : UserControl
             }
             item.DoubleTapped += async (_, _) =>
             {
-                string? name;
-                if (OwnerWindow is { } owner)
-                {
-                    var dlg = new PromptDialog("Rename layer", capturedLayer.Name);
-                    name = await dlg.ShowDialog<bool>(owner) ? dlg.ResultText : null;
-                }
-                else name = await ShowCanvasPromptAsync("Rename layer", capturedLayer.Name);
+                var dlg = new PromptDialog("Rename layer", capturedLayer.Name);
+                string? name = await ShowDialogAsync<bool>(dlg) ? dlg.ResultText : null;
                 if (!string.IsNullOrWhiteSpace(name))
                 {
                     capturedLayer.Name = name.Trim();
@@ -3486,21 +3449,8 @@ public partial class MainView : UserControl
     private async Task<PastePlacement> ChoosePastePlacementAsync(int canvasWidth, int canvasHeight, int imageWidth, int imageHeight)
     {
         if (imageWidth <= canvasWidth && imageHeight <= canvasHeight) return PastePlacement.PasteAsIs;
-        if (OwnerWindow is not { } owner)
-        {
-            var body = new TextBlock
-            {
-                Text = $"The pasted image ({imageWidth}×{imageHeight}) doesn't fit the canvas " +
-                       $"({canvasWidth}×{canvasHeight}). What would you like to do?",
-                TextWrapping = TextWrapping.Wrap
-            };
-            return await ShowCanvasChoiceAsync("Paste", body, PastePlacement.Cancel,
-                new CanvasChoice<PastePlacement>("Cancel", PastePlacement.Cancel),
-                new CanvasChoice<PastePlacement>("Paste As Is", PastePlacement.PasteAsIs),
-                new CanvasChoice<PastePlacement>("Scale to Fit", PastePlacement.ScaleToFit),
-                new CanvasChoice<PastePlacement>("Grow Canvas", PastePlacement.GrowCanvas, true));
-        }
-        return await new PastePlacementDialog(canvasWidth, canvasHeight, imageWidth, imageHeight).ShowDialog<PastePlacement>(owner);
+        return await ShowDialogAsync<PastePlacement>(
+            new PastePlacementDialog(canvasWidth, canvasHeight, imageWidth, imageHeight));
     }
 
     private async void OnPaste(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -3620,7 +3570,7 @@ public partial class MainView : UserControl
 
         try
         {
-            await using var stream = await file.OpenReadAsync();
+            using var stream = await ReadToMemoryAsync(file);
             using var imported = CodecRegistry.Decode(stream, file.Name);
 
             var layer = doc.AddLayer(System.IO.Path.GetFileNameWithoutExtension(file.Name));

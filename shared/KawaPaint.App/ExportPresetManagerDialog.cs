@@ -13,7 +13,7 @@ using KawaPaint.Engine.Exporting;
 
 namespace KawaPaint.App;
 
-public sealed class ExportPresetManagerDialog : Window
+public sealed class ExportPresetManagerDialog : AppDialog
 {
     private readonly IStorageProvider _storage;
     private readonly Dictionary<string, ExportPreset> _presets;

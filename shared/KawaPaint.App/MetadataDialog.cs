@@ -18,7 +18,7 @@ using KawaPaint.Engine.Metadata;
 
 namespace KawaPaint.App;
 
-public sealed class MetadataDialog : Window
+public sealed class MetadataDialog : AppDialog
 {
     private readonly RadioButton _toFolder;
     private readonly RadioButton _inPlace;

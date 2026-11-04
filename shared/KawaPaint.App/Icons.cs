@@ -127,6 +127,9 @@ public static class Icons
         // Misc.
         ["Swap"] = (new[] { "M8 3 4 7l4 4", "M4 7h16", "m16 21 4-4-4-4", "M20 17H4" }, false),
         ["Close"] = (new[] { "M18 6 6 18", "m6 6 12 12" }, false),
+        ["Menu"] = (new[] { "M4 6h16", "M4 12h16", "M4 18h16" }, false),
+        // ∩, drawn: Inter (the only font in the browser) has no glyph for it.
+        ["Intersect"] = (new[] { "M6 20v-8a6 6 0 0 1 12 0v8" }, false),
     };
 
     public static Control Create(string key, double size = 18)

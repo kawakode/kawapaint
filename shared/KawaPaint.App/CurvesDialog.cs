@@ -160,7 +160,7 @@ public sealed class CurveControl : Control
     }
 }
 
-public sealed class CurvesDialog : Window
+public sealed class CurvesDialog : AppDialog
 {
     private readonly SurfaceView _canvas;
     private readonly Layer? _layer;
@@ -168,7 +168,6 @@ public sealed class CurvesDialog : Window
     private Surface? _snapshot;
     private bool _committed;
     private DispatcherTimer? _previewTimer;
-    private Action<bool>? _canvasClose;
     private EffectBounds _previewBounds;
 
     /// <summary>The exact 256-entry curve committed by OK, for deterministic demo/script replay.</summary>
@@ -206,14 +205,13 @@ public sealed class CurvesDialog : Window
         var cancel = new Button { Content = "Cancel", IsCancel = true };
         cancel.Click += (_, _) =>
         {
-            if (_canvasClose is null) Close();
-            else { CancelCanvasHost(); _canvasClose(false); }
+            Close();
         };
         var ok = new Button { Content = "OK", IsDefault = true };
         ok.Click += (_, _) =>
         {
             Commit();
-            if (_canvasClose is null) Close(); else _canvasClose(true);
+            Close();
         };
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8, Margin = new Thickness(0, 12, 0, 0) };
         buttons.Children.Add(reset);
@@ -222,14 +220,6 @@ public sealed class CurvesDialog : Window
 
         Content = new StackPanel { Margin = new Thickness(16), Children = { _curve, hint, buttons } };
         Closed += (_, _) => { _previewTimer?.Stop(); if (!_committed) Revert(); };
-    }
-
-    public void UseCanvasHost(Action<bool> close) => _canvasClose = close;
-    public void BeginCanvasHost() { }
-    public void CancelCanvasHost()
-    {
-        _previewTimer?.Stop();
-        if (!_committed) Revert();
     }
 
     /// <summary>

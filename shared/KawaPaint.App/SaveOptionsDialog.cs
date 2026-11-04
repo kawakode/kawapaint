@@ -8,7 +8,7 @@ using KawaPaint.Engine.Codecs;
 
 namespace KawaPaint.App;
 
-public sealed class SaveOptionsDialog : Window
+public sealed class SaveOptionsDialog : AppDialog
 {
     private readonly Slider _quality;
     private readonly CheckBox? _lossless;

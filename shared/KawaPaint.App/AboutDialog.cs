@@ -11,7 +11,7 @@ using Avalonia.Platform;
 
 namespace KawaPaint.App;
 
-public sealed class AboutDialog : Window
+public sealed class AboutDialog : AppDialog
 {
     public AboutDialog()
     {

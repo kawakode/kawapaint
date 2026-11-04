@@ -80,12 +80,7 @@ public partial class MainView
         return choices;
     }
 
-    private async Task<bool> ShowThreeDLayerDialogAsync(ThreeDLayerDialog dialog)
-    {
-        if (OwnerWindow is { } owner) return await dialog.ShowDialog<bool>(owner);
-        return await ShowCanvasWindowContentAsync(dialog, dialog.UseCanvasHost,
-            dialog.CancelCanvasHost, dialog.BeginCanvasHost);
-    }
+    private Task<bool> ShowThreeDLayerDialogAsync(ThreeDLayerDialog dialog) => ShowDialogAsync<bool>(dialog);
 
     private async void OnLiveLayerProperties(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {

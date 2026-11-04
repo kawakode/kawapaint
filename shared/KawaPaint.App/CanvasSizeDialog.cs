@@ -9,7 +9,7 @@ using KawaPaint.Engine;
 
 namespace KawaPaint.App;
 
-public sealed class CanvasSizeDialog : Window
+public sealed class CanvasSizeDialog : AppDialog
 {
     private readonly NumericUpDown _width;
     private readonly NumericUpDown _height;

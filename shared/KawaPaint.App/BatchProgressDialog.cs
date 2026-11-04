@@ -9,7 +9,7 @@ using Avalonia.Layout;
 
 namespace KawaPaint.App;
 
-public sealed class BatchProgressDialog : Window
+public sealed class BatchProgressDialog : AppDialog
 {
     private readonly CancellationTokenSource _cancel = new();
     private readonly TextBlock _status;

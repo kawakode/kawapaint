@@ -8,7 +8,7 @@ using Avalonia.Layout;
 
 namespace KawaPaint.App;
 
-public sealed class ResizeDialog : Window
+public sealed class ResizeDialog : AppDialog
 {
     private readonly NumericUpDown _width;
     private readonly NumericUpDown _height;

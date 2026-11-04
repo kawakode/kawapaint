@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -24,7 +25,7 @@ public sealed record TextureChoice(Guid Id, string Name, Surface Surface)
 /// Used both to import a model (as a live 3D layer or as plain pixels) and to edit a live 3D
 /// layer's properties; the final render uses exactly the settings previewed.
 /// </summary>
-public sealed class ThreeDLayerDialog : Window
+public sealed class ThreeDLayerDialog : AppDialog
 {
     private const int PreviewWidth = 420;
     private const int PreviewHeight = 320;
@@ -47,7 +48,6 @@ public sealed class ThreeDLayerDialog : Window
     private WriteableBitmap? _previewBitmap;
     private int _previewRevision;
     private bool _closed;
-    private Action<bool>? _canvasClose;
 
     /// <param name="importing">True for File ▸ Import 3D Model (offers "Keep editable"); false
     /// to edit an existing live layer.</param>
@@ -101,22 +101,38 @@ public sealed class ThreeDLayerDialog : Window
             Foreground = Brushes.Gray
         };
 
-        var fields = new Grid
+        var fields = new Grid { ColumnSpacing = 8, RowSpacing = 6 };
+        var cells = new (string Label, Control Input)[]
         {
-            ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,*,Auto,*"),
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto"),
-            ColumnSpacing = 8,
-            RowSpacing = 6
+            ("Yaw", _yaw), ("Pitch", _pitch), ("Roll", _roll), ("Size", _size),
+            ("X", _x), ("Y", _y), ("Light", _light), ("Texture", _texture)
         };
-        AddField(fields, "Yaw", _yaw, 0, 0);
-        AddField(fields, "Pitch", _pitch, 0, 2);
-        AddField(fields, "Roll", _roll, 0, 4);
-        AddField(fields, "Size", _size, 1, 0);
-        AddField(fields, "X", _x, 1, 2);
-        AddField(fields, "Y", _y, 1, 4);
-        AddField(fields, "Light", _light, 2, 0);
-        AddField(fields, "Texture", _texture, 2, 2);
-        Grid.SetColumnSpan(_texture, 3);
+        foreach (var (label, input) in cells)
+        {
+            fields.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
+            fields.Children.Add(input);
+        }
+        // Three fields a row, or two on a phone, where three leave each number box no room for
+        // its digits beside its spinner.
+        int fieldsPerRow = 0;
+        void ArrangeFields(int perRow)
+        {
+            if (perRow == fieldsPerRow) return;
+            fieldsPerRow = perRow;
+            fields.ColumnDefinitions = new ColumnDefinitions(perRow == 3 ? "Auto,*,Auto,*,Auto,*" : "Auto,*,Auto,*");
+            fields.RowDefinitions = new RowDefinitions(string.Join(",", Enumerable.Repeat("Auto", (cells.Length + perRow - 1) / perRow)));
+            for (int i = 0; i < cells.Length; i++)
+            {
+                Control label = fields.Children[2 * i], input = fields.Children[2 * i + 1];
+                Grid.SetRow(label, i / perRow);
+                Grid.SetRow(input, i / perRow);
+                Grid.SetColumn(label, i % perRow * 2);
+                Grid.SetColumn(input, i % perRow * 2 + 1);
+            }
+            Grid.SetColumnSpan(_texture, perRow == 3 ? 3 : 1);
+        }
+        ArrangeFields(3);
+        SizeChanged += (_, e) => ArrangeFields(e.NewSize.Width < 560 ? 2 : 3);
 
         var previewBorder = new Border
         {
@@ -132,11 +148,11 @@ public sealed class ThreeDLayerDialog : Window
         cancel.Click += (_, _) => Finish(false);
         var ok = new Button { Content = importing ? "Import" : "OK", IsDefault = true };
         ok.Click += (_, _) => Finish(true);
-        var buttons = new StackPanel
+        var buttons = new WrapPanel
         {
-            Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
-            Spacing = 8
+            ItemSpacing = 8,
+            LineSpacing = 8
         };
         if (importing)
         {
@@ -199,19 +215,10 @@ public sealed class ThreeDLayerDialog : Window
     /// <summary>Surface of the chosen texture layer, or null.</summary>
     public Surface? ResultTexture => (_texture.SelectedItem as TextureChoice)?.Surface;
 
-    public void UseCanvasHost(Action<bool> close) => _canvasClose = close;
-    public void BeginCanvasHost() { }
-    public void CancelCanvasHost() => StopPreview();
-
     private void Finish(bool accepted)
     {
         Accepted = accepted;
-        if (_canvasClose is null) Close(accepted);
-        else
-        {
-            StopPreview();
-            _canvasClose(accepted);
-        }
+        Close(accepted);
     }
 
     private void StopPreview()
@@ -243,16 +250,6 @@ public sealed class ThreeDLayerDialog : Window
         HorizontalAlignment = HorizontalAlignment.Stretch
     };
 
-    private static void AddField(Grid grid, string label, Control control, int row, int column)
-    {
-        var text = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center };
-        Grid.SetRow(text, row);
-        Grid.SetColumn(text, column);
-        Grid.SetRow(control, row);
-        Grid.SetColumn(control, column + 1);
-        grid.Children.Add(text);
-        grid.Children.Add(control);
-    }
 
     private async void QueuePreview()
     {

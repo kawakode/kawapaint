@@ -24,6 +24,20 @@ try {
         .withApplicationArgumentsFromQuery()
         .create();
 
+    // Backing store for the app's settings (see LocalStorageSettingsStore.cs).
+    dotnetRuntime.setModuleImports("main.js", {
+        storage: {
+            get: key => globalThis.localStorage.getItem(key),
+            set: (key, value) => globalThis.localStorage.setItem(key, value),
+            remove: key => globalThis.localStorage.removeItem(key)
+        },
+        // Lets the app pick its phone or tablet interface on a touch device (see Program.cs).
+        device: {
+            isTouchFirst: () => globalThis.matchMedia("(pointer: coarse)").matches,
+            smallestScreenWidth: () => Math.min(globalThis.screen.width, globalThis.screen.height)
+        }
+    });
+
     const config = dotnetRuntime.getConfig();
 
     await dotnetRuntime.runMain(config.mainAssemblyName, [globalThis.location.href]);

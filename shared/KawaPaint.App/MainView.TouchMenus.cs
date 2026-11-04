@@ -170,11 +170,11 @@ public partial class MainView
             if (children.OfType<MenuItem>().Any())
             {
                 var section = new StackPanel { IsVisible = false };
-                var header = DrawerRow("▸  " + label, depth, bold: depth == 0);
+                var header = DrawerRow("▶  " + label, depth, bold: depth == 0);
                 header.Click += (_, _) =>
                 {
                     section.IsVisible = !section.IsVisible;
-                    ((TextBlock)header.Content!).Text = (section.IsVisible ? "▾  " : "▸  ") + label;
+                    ((TextBlock)header.Content!).Text = (section.IsVisible ? "▼  " : "▶  ") + label;
                     if (section.IsVisible && section.Children.Count == 0)
                         AddDrawerItems(section, menuItem.Items.OfType<object>(), depth + 1);
                 };
@@ -288,7 +288,7 @@ public partial class MainView
             var modes = new[]
             {
                 (SelectionCombineMode.Replace, "New"), (SelectionCombineMode.Add, "+"),
-                (SelectionCombineMode.Subtract, "−"), (SelectionCombineMode.Intersect, "∩")
+                (SelectionCombineMode.Subtract, "−"), (SelectionCombineMode.Intersect, "Both")
             };
             string Label() => modes.First(m => m.Item1 == Canvas.SelectionCombineMode).Item2;
             var text = RadialText(Label());

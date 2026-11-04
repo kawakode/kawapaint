@@ -5,7 +5,20 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <WasmMainJSPath>wwwroot/main.js</WasmMainJSPath>
+    <!-- The WebAssembly SDK turns reflection-based System.Text.Json off by default, and every
+         JSON round-trip in the app is reflection-based (settings, palette, .kwp project manifest,
+         scripts): in the browser each one threw "JsonSerializerIsReflectionDisabled", so
+         settings never loaded or saved and projects could not be saved or opened. -->
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ...and the publish trimmer strips members only that reflection uses, such as the setters
+         of settings and palette properties, so a round-trip silently came back empty. Keep the
+         app's own assemblies whole. -->
+    <TrimmerRootAssembly Include="KawaPaint.App" />
+    <TrimmerRootAssembly Include="KawaPaint.Engine" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Avalonia.Browser" Version="12.1.1" />

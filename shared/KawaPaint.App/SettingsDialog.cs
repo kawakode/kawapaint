@@ -20,7 +20,7 @@ using KawaPaint.App.Core;
 
 namespace KawaPaint.App;
 
-public sealed class SettingsDialog : Window
+public sealed class SettingsDialog : AppDialog
 {
     private readonly SettingsService _settings;
 
@@ -86,17 +86,21 @@ public sealed class SettingsDialog : Window
             Children = { cancel, ok }
         };
 
+        // Recovery snapshots, git tracking and plugins all live in the app's folder; the browser
+        // has none, so those pages would only offer settings that do nothing there.
+        bool hasAppFolder = AppPaths.Root is not null;
         var tabs = new TabControl
         {
             Items =
             {
-                new TabItem { Header = "Autosave", Content = Page(AutosavePage()) },
+                new TabItem { Header = "Autosave", Content = Page(AutosavePage()), IsVisible = hasAppFolder },
                 new TabItem { Header = "History", Content = Page(HistoryPage()) },
                 new TabItem { Header = "Drawing", Content = Page(DrawingPage()) },
-                new TabItem { Header = "Git", Content = Page(GitPage()) },
-                new TabItem { Header = "Plugins", Content = Page(PluginsPage()) }
+                new TabItem { Header = "Git", Content = Page(GitPage()), IsVisible = hasAppFolder },
+                new TabItem { Header = "Plugins", Content = Page(PluginsPage()), IsVisible = hasAppFolder }
             }
         };
+        if (!hasAppFolder) tabs.SelectedIndex = 1;
 
         var root = new DockPanel { Margin = new Thickness(16) };
         DockPanel.SetDock(buttons, Dock.Bottom);

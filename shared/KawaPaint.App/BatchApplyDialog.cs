@@ -11,7 +11,7 @@ using Avalonia.Platform.Storage;
 
 namespace KawaPaint.App;
 
-public sealed class BatchApplyDialog : Window
+public sealed class BatchApplyDialog : AppDialog
 {
     private readonly RadioButton _toFolder;
     private readonly RadioButton _inPlace;

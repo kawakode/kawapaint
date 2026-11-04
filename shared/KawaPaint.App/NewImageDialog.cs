@@ -6,7 +6,7 @@ using Avalonia.Layout;
 
 namespace KawaPaint.App;
 
-public sealed class NewImageDialog : Window
+public sealed class NewImageDialog : AppDialog
 {
     private readonly NumericUpDown _width;
     private readonly NumericUpDown _height;

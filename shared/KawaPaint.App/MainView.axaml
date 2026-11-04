@@ -444,7 +444,7 @@
                                   ToolTip.Tip="Add to the current selection" />
                     <ToggleButton x:Name="CombineSubtractBtn" Content="−" Tag="Subtract" Click="OnSelectionCombineMode"
                                   ToolTip.Tip="Subtract from the current selection" />
-                    <ToggleButton x:Name="CombineIntersectBtn" Content="∩" Tag="Intersect" Click="OnSelectionCombineMode"
+                    <ToggleButton x:Name="CombineIntersectBtn" Tag="Intersect" Click="OnSelectionCombineMode"
                                   ToolTip.Tip="Keep only the overlap with the current selection" />
                 </StackPanel>
             </WrapPanel>
@@ -493,7 +493,7 @@
                 <StackPanel x:Name="ColorsHeader" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                     <ToggleButton x:Name="FloatColorsBtn" Padding="4,0" Tag="Colors" Click="OnPanelFloatToggle" />
                     <Button Content="{app:Icon Close}" Padding="6,0" Tag="Colors:Hidden" Click="OnPanelPlace"
-                            ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                            ToolTip.Tip="Hide (View › Panels to restore)" />
                 </StackPanel>
             </WrapPanel>
         </Border>
@@ -506,7 +506,7 @@
                         <TextBlock Text="Color" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
                         <ToggleButton x:Name="FloatColorWheelBtn" Grid.Column="1" Padding="4,0" Tag="ColorWheel" Click="OnPanelFloatToggle" />
                         <Button Grid.Column="2" Content="{app:Icon Close}" Padding="4,0" Tag="ColorWheel:Hidden" Click="OnPanelPlace"
-                                ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                                ToolTip.Tip="Hide (View › Panels to restore)" />
                     </Grid>
 
                     <!-- Active-target swatches: click to choose which color the wheel edits.
@@ -555,7 +555,7 @@
                     <TextBlock Text="Layers" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
                     <ToggleButton x:Name="FloatLayersBtn" Grid.Column="1" Padding="4,0" Tag="Layers" Click="OnPanelFloatToggle" />
                     <Button Grid.Column="2" Content="{app:Icon Close}" Padding="4,0" Tag="Layers:Hidden" Click="OnPanelPlace"
-                            ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                            ToolTip.Tip="Hide (View › Panels to restore)" />
                 </Grid>
                 <WrapPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
                     <WrapPanel.Styles>
@@ -602,7 +602,7 @@
                     <TextBlock Text="History" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
                     <ToggleButton x:Name="FloatHistoryBtn" Grid.Column="1" Padding="4,0" Tag="History" Click="OnPanelFloatToggle" />
                     <Button Grid.Column="2" Content="{app:Icon Close}" Padding="4,0" Tag="History:Hidden" Click="OnPanelPlace"
-                            ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                            ToolTip.Tip="Hide (View › Panels to restore)" />
                 </Grid>
                 <TextBlock x:Name="HistoryUsageText" DockPanel.Dock="Bottom" Foreground="#808080" FontSize="11"
                            Margin="2,6,2,2" Text="0 steps" />
@@ -624,7 +624,7 @@
                     <TextBlock Text="3D Paint" Foreground="#E0E0E0" FontWeight="Bold" VerticalAlignment="Center" />
                     <ToggleButton x:Name="FloatPaint3DBtn" Grid.Column="1" Padding="4,0" Tag="Paint3D" Click="OnPanelFloatToggle" />
                     <Button Grid.Column="2" Content="{app:Icon Close}" Padding="4,0" Tag="Paint3D:Hidden" Click="OnPanelPlace"
-                            ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                            ToolTip.Tip="Hide (View › Panels to restore)" />
                 </Grid>
                 <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
                     <Button x:Name="Paint3DOpenBtn" Content="Open Model…" Click="OnOpenPaintModel" Margin="0,0,4,4"
@@ -651,7 +651,7 @@
                             ToolTip.Tip="Customize dock contents" />
                     <ToggleButton x:Name="FloatDockBtn" Grid.Column="2" Padding="4,0" Tag="Dock" Click="OnPanelFloatToggle" />
                     <Button Grid.Column="3" Content="{app:Icon Close}" Padding="4,0" Tag="Dock:Hidden" Click="OnPanelPlace"
-                            ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                            ToolTip.Tip="Hide (View › Panels to restore)" />
                 </Grid>
                 <WrapPanel x:Name="DockContent" Orientation="Horizontal" />
             </DockPanel>
@@ -663,7 +663,7 @@
                 <StackPanel x:Name="ToolsHeader" DockPanel.Dock="Top" Orientation="Horizontal" HorizontalAlignment="Right" Margin="2">
                     <ToggleButton x:Name="FloatToolsBtn" Padding="4,0" Tag="Tools" Click="OnPanelFloatToggle" />
                     <Button Content="{app:Icon Close}" Padding="4,0" Tag="Tools:Hidden" Click="OnPanelPlace"
-                            ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                            ToolTip.Tip="Hide (View › Panels to restore)" />
                 </StackPanel>
                 <ScrollViewer x:Name="ToolScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                     <StackPanel x:Name="ToolPalette" Orientation="Vertical" Margin="4" />
@@ -678,7 +678,7 @@
                     <ToggleButton x:Name="FloatTimelineBtn" Grid.Column="1" Padding="4,0" Tag="Timeline"
                                   Click="OnPanelFloatToggle" />
                     <Button Grid.Column="2" Content="{app:Icon Close}" Padding="4,0" Tag="Timeline:Hidden"
-                            Click="OnPanelPlace" ToolTip.Tip="Hide (View ▸ Panels to restore)" />
+                            Click="OnPanelPlace" ToolTip.Tip="Hide (View › Panels to restore)" />
                 </Grid>
                 <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,5" VerticalAlignment="Center">
                     <Button Content="◀" Click="OnPreviousFrame" ToolTip.Tip="Previous frame" />

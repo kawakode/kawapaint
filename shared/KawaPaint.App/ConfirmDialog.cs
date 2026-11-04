@@ -11,7 +11,7 @@ using Avalonia.Media;
 
 namespace KawaPaint.App;
 
-public sealed class ConfirmDialog : Window
+public sealed class ConfirmDialog : AppDialog
 {
     /// <param name="confirmLabel">Names the action ("Delete") rather than saying "OK", so the
     /// button still reads as what it will do to someone who skimmed the message above it.</param>

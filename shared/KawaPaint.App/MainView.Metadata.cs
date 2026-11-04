@@ -164,7 +164,7 @@ public partial class MainView
         }
 
         await using var stream = await file.OpenWriteAsync();
-        if (stream.CanSeek) stream.SetLength(0);
+        DiscardOldContents(stream);
         await stream.WriteAsync(bytes);
     }
 
@@ -173,7 +173,7 @@ public partial class MainView
         var outFile = await folder.CreateFileAsync(name)
             ?? throw new IOException("Could not create the output file.");
         await using var stream = await outFile.OpenWriteAsync();
-        if (stream.CanSeek) stream.SetLength(0);
+        DiscardOldContents(stream);
         await stream.WriteAsync(bytes);
     }
 }

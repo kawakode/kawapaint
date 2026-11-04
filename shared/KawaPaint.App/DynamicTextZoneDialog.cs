@@ -7,7 +7,7 @@ using KawaPaint.Engine.MailMerge;
 
 namespace KawaPaint.App;
 
-public sealed class DynamicTextZoneDialog : Window
+public sealed class DynamicTextZoneDialog : AppDialog
 {
     private readonly TextBox _name = new();
     private readonly TextBox _template = new() { AcceptsReturn = true, MinHeight = 55 };

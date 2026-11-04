@@ -226,7 +226,7 @@ public sealed class PanelManager
     /// Keeps a floating panel's top-left inside the window. Without this a panel can be dragged
     /// out past the right or bottom edge - or restored there from a layout saved on a larger
     /// window - and its title bar, the only handle for moving or re-docking it, goes with it; the
-    /// sole way back was View ▸ Panels ▸ Reset Layout. A strip of the panel is always kept
+    /// sole way back was View › Panels ▸ Reset Layout. A strip of the panel is always kept
     /// on-screen rather than its whole width, so a wide panel near an edge still behaves.
     /// </summary>
     private Thickness ClampToLayer(double x, double y)
@@ -305,7 +305,7 @@ public sealed class PanelManager
                 FontSize = 15,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            var close = new Button { Content = "✕", Width = 40, Height = 40, Padding = new Thickness(0) };
+            var close = new Button { Content = Icons.Create("Close", 18), Width = 40, Height = 40, Padding = new Thickness(0) };
             close.HorizontalContentAlignment = HorizontalAlignment.Center;
             close.VerticalContentAlignment = VerticalAlignment.Center;
             ToolTip.SetTip(close, "Close");
@@ -443,12 +443,12 @@ public sealed class PanelManager
                 VerticalAlignment = VerticalAlignment.Center
             };
 
-            var dockBtn = new Button { Content = "▣", Padding = new Thickness(6, 0) };
+            var dockBtn = new Button { Content = Icons.Create("PanelDock", 14), Padding = new Thickness(6, 0) };
             ToolTip.SetTip(dockBtn, "Dock this panel");
             dockBtn.Click += (_, _) => _owner.SetPlace(_descriptor.Id, _owner.PlacementOf(_descriptor.Id).LastDock);
 
-            var closeBtn = new Button { Content = "✕", Padding = new Thickness(6, 0) };
-            ToolTip.SetTip(closeBtn, "Hide (View ▸ Panels to restore)");
+            var closeBtn = new Button { Content = Icons.Create("Close", 14), Padding = new Thickness(6, 0) };
+            ToolTip.SetTip(closeBtn, "Hide (View › Panels to restore)");
             closeBtn.Click += (_, _) => _owner.SetPlace(_descriptor.Id, PanelPlace.Hidden);
 
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };

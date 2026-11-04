@@ -97,19 +97,9 @@ public partial class MainView
         int frameCount = document.FrameCount;
         RecordSkipped("Export Animation");
 
-        bool loop;
-        if (OwnerWindow is { } owner)
-        {
-            var dialog = new AnimationExportDialog(frameCount);
-            if (!await dialog.ShowDialog<bool>(owner)) return;
-            loop = dialog.Loop;
-        }
-        else
-        {
-            var values = await ShowCanvasAnimationSettingsAsync(frameCount);
-            if (values is null) return;
-            loop = values.Loop;
-        }
+        var dialog = new AnimationExportDialog(frameCount);
+        if (!await ShowDialogAsync<bool>(dialog)) return;
+        bool loop = dialog.Loop;
 
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
@@ -124,19 +114,21 @@ public partial class MainView
         int[] durations = document.Frames.Select(frame => frame.DurationMs).ToArray();
         try
         {
-            await using var stream = await file.OpenWriteAsync();
-            switch (Path.GetExtension(file.Name).ToLowerInvariant())
+            await WriteFromMemoryAsync(file, stream =>
             {
-                case ".png":
-                    AnimatedImageEncoder.EncodeApng(frames, durations, stream, loop);
-                    break;
-                case ".webp":
-                    AnimatedImageEncoder.EncodeWebP(frames, durations, stream, loop);
-                    break;
-                default:
-                    AnimatedGifEncoder.Encode(frames, stream, durations, loop: loop, dither: true);
-                    break;
-            }
+                switch (Path.GetExtension(file.Name).ToLowerInvariant())
+                {
+                    case ".png":
+                        AnimatedImageEncoder.EncodeApng(frames, durations, stream, loop);
+                        break;
+                    case ".webp":
+                        AnimatedImageEncoder.EncodeWebP(frames, durations, stream, loop);
+                        break;
+                    default:
+                        AnimatedGifEncoder.Encode(frames, stream, durations, loop: loop, dither: true);
+                        break;
+                }
+            });
             StatusText.Text = $"Exported {frames.Count}-frame animation: {file.Name}";
         }
         catch (Exception ex)

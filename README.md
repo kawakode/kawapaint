@@ -115,6 +115,45 @@ Click a zone again to edit or delete it, then choose **File > Export > Mail Merg
 the CSV, an export preset and an output folder; KawaPaint creates one image per row while leaving
 the template unchanged. Comma-, semicolon- and tab-delimited files are accepted.
 
+## Transparency: how much Paint.NET code remains
+
+KawaPaint started from Paint.NET 3.36, the last MIT-licensed release, but the code was rewritten
+on SkiaSharp and Avalonia rather than ported file by file (the original is built on WinForms and
+GDI+). Measured on November 5, 2026 against the original 3.36 sources kept on the
+[`3.36pdn`](https://github.com/kawakode/kawapaint/tree/3.36pdn) branch:
+
+| What is counted | Share of KawaPaint's code |
+| --- | --- |
+| Code copied verbatim (blocks of 3+ identical lines) | **0.2 %** (44 lines) |
+| Lines identical to some Paint.NET line, anywhere | 1.5 % |
+| Lines at least 70 % similar to some Paint.NET line | 1.8 % |
+| Files whose algorithms were ported from Paint.NET | 4.8 % |
+| Code written for KawaPaint | **about 95 % or more** |
+
+How to read it:
+
+- **Verbatim blocks** are the clearest measure of copied code. They come almost entirely from the
+  Perlin noise permutation table (`PerlinNoise2D.cs`), the Julia fractal (`Effects.Render.cs`) and
+  the `ColorBgra` pixel struct, whose memory layout was kept on purpose.
+- **Identical** and **similar lines** are upper bounds: most of them are ordinary C# such as
+  `catch (Exception ex)` or `for (int y = 0; y < Height; ++y)` that any C# program would contain.
+- **Ported files** are the effects (Artistic, Blur, Distort, Noise, Photo, Render, Stylize),
+  Perlin noise, `Surface`, `ColorBgra` and the blend mode list. Their algorithms follow
+  Paint.NET's, but the code was rewritten for KawaPaint, so this is an upper bound for code
+  *derived from* Paint.NET. Each of these files says so in its header.
+- Everything else, including the UI, the `.kwp` format and codecs, history, selections, 3D layers,
+  scripting, the plugin system (and the bridge that loads Paint.NET plugins) and every platform
+  project, was written for KawaPaint.
+
+The counts cover the 226 tracked source files (`.cs`, `.axaml`, `.js`, `.css`, `.html`, about
+24,000 significant lines). Blank lines, comments, braces and trivial lines such as `using` or
+`return;` are left out. Rerun the measurement with:
+
+```text
+git fetch origin 3.36pdn
+python3 tools/measure-pdn-heritage.py
+```
+
 ## Credits
 
 **KawaPaint** is maintained by Kawa.

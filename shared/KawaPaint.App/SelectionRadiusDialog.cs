@@ -9,7 +9,7 @@ using KawaPaint.Engine;
 
 namespace KawaPaint.App;
 
-public sealed class SelectionRadiusDialog : Window
+public sealed class SelectionRadiusDialog : AppDialog
 {
     private readonly NumericUpDown _radius;
 

@@ -11,7 +11,7 @@ using KawaPaint.Engine.MailMerge;
 
 namespace KawaPaint.App;
 
-public sealed class MailMergeDialog : Window
+public sealed class MailMergeDialog : AppDialog
 {
     private readonly IStorageProvider _storage;
     private readonly TextBox _csv = new() { IsReadOnly = true };

@@ -11,7 +11,7 @@ namespace KawaPaint.App;
 /// default(PastePlacement) - is treated as "cancel", not as a silent paste.</summary>
 public enum PastePlacement { Cancel, GrowCanvas, ScaleToFit, PasteAsIs }
 
-public sealed class PastePlacementDialog : Window
+public sealed class PastePlacementDialog : AppDialog
 {
     public PastePlacementDialog(int canvasWidth, int canvasHeight, int imageWidth, int imageHeight)
     {

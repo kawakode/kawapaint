@@ -18,7 +18,7 @@ using KawaPaint.Engine.Plugins;
 
 namespace KawaPaint.App;
 
-public sealed class PluginManagerDialog : Window
+public sealed class PluginManagerDialog : AppDialog
 {
     private readonly SettingsService _settings;
     private readonly Action _onReload;

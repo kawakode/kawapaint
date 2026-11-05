@@ -206,7 +206,7 @@ public partial class MainView
         _demoRecorder.NoteView(Canvas.Zoom, Canvas.Origin.X, Canvas.Origin.Y);
 
         UpdateDemoMenuState();
-        StatusText.Text = "Recording demo - Demo ▸ Stop & Save to finish";
+        StatusText.Text = "Recording demo - Demo › Stop & Save to finish";
     }
 
     /// <summary>
@@ -262,12 +262,7 @@ public partial class MainView
 
         try
         {
-            long bytes;
-            await using (var stream = await file.OpenWriteAsync())
-            {
-                demo.Save(stream);
-                bytes = stream.CanSeek ? stream.Position : 0;
-            }
+            long bytes = await WriteFromMemoryAsync(file, demo.Save);
 
             string summary = $"Demo saved: {demo.StrokeCount} strokes, {demo.Events.Count} events, "
                            + FormatDuration(demo.DurationMs);
@@ -297,7 +292,7 @@ public partial class MainView
         DemoFile demo;
         try
         {
-            await using var stream = await files[0].OpenReadAsync();
+            using var stream = await ReadToMemoryAsync(files[0]);
             demo = DemoFile.Load(stream);
         }
         catch (Exception ex)
@@ -648,7 +643,7 @@ public partial class MainView
 
         if (_demoPlayer.IsActive)
         {
-            string state = _demoPlayer.IsPlaying ? "▶" : "❚❚";
+            string state = _demoPlayer.IsPlaying ? "▶" : "‖";
             DemoStatusText.Text =
                 $"{state} {FormatDuration(_demoPlayer.PositionMs)} / {FormatDuration(_demoPlayer.DurationMs)}  ×{_demoPlayer.Speed:0.##}{_demoVersionNote}";
             return;

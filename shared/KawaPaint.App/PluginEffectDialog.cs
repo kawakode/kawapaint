@@ -18,7 +18,7 @@ using KawaPaint.Engine.Plugins;
 
 namespace KawaPaint.App;
 
-public sealed class PluginEffectDialog : Window
+public sealed class PluginEffectDialog : AppDialog
 {
     private readonly SurfaceView _canvas;
     private readonly Layer? _layer;

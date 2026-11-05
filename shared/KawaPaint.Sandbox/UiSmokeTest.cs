@@ -52,6 +52,10 @@ internal static class UiSmokeTest
         Check("modal shortcuts and focus", ModalInput);
         Check("inline text editing", InlineTextEditing);
         Check("adjustment cancellation", AdjustmentCancellation);
+        Check("dialogs need no window", DialogsNeedNoWindow);
+        Check("dialogs in a desktop window", DesktopDialogWindow);
+        Check("dialog opened from an in-app dialog", NestedInlineDialogs);
+        Check("labels have glyphs in the browser font", LabelsHaveGlyphs);
         Check("small dialog layout", DialogLayout);
         Check("narrow palette layout", PaletteLayout);
         Check("narrow menu layout", MenuLayout);
@@ -188,7 +192,8 @@ internal static class UiSmokeTest
         {
             var canvas = view.FindControl<SurfaceView>("Canvas")!;
             canvas.Selection!.SelectAll();
-            Invoke(view, "ShowCanvasNewImageAsync");
+            view.PreferInlineDialogs = true;
+            _ = new NewImageDialog().ShowDialog<bool>(view);
             Pump();
             PressKey(window, Key.D, RawInputModifiers.Control);
             Assert(canvas.Selection.IsActive, "Ctrl+D deselected the canvas behind the dialog");
@@ -205,11 +210,13 @@ internal static class UiSmokeTest
             Assert(canvas.IsEffectivelyEnabled, "editor stayed disabled after closing dialog");
             PressKey(window, Key.D, RawInputModifiers.Control);
             Assert(!canvas.Selection.IsActive, "editor shortcuts did not resume");
-            Invoke(view, "ShowCanvasNewImageAsync");
+            var accepted = new NewImageDialog().ShowDialog<bool>(view);
             Pump();
             Overlay(view).Focus();
             PressKey(window, Key.Enter);
             Assert(Field<Control?>(view, "_canvasDialogOverlay") is null, "Enter did not accept dialog");
+            Wait(accepted);
+            Assert(accepted.Result, "Enter closed the dialog without accepting it");
             Screenshot(window, "editor-desktop");
         });
     }
@@ -445,7 +452,8 @@ internal static class UiSmokeTest
     {
         WithView(320, 240, (view, window) =>
         {
-            Invoke(view, "ShowCanvasTextAsync");
+            view.PreferInlineDialogs = true;
+            _ = new TextDialog().ShowDialog(view);
             Pump();
             var shade = Overlay(view);
             var card = ((Border)shade).Child!;
@@ -475,15 +483,94 @@ internal static class UiSmokeTest
             var canvas = view.FindControl<SurfaceView>("Canvas")!;
             var before = canvas.ActiveLayer!.Surface[200, 200];
             var dialog = new AdjustmentDialog(canvas, "Invert", [], _ => new InvertEffect());
-            Invoke(view, "ShowCanvasWindowContentAsync", dialog,
-                (Action<Action<bool>>)dialog.UseCanvasHost,
-                (Action)dialog.CancelCanvasHost, (Action)dialog.BeginCanvasHost);
+            view.PreferInlineDialogs = true;
+            _ = dialog.ShowDialog(view);
             Pump();
             Assert(canvas.ActiveLayer.Surface[200, 200] != before, "adjustment preview did not apply");
             PressKey(window, Key.Escape);
             Assert(canvas.ActiveLayer.Surface[200, 200] == before, "cancel did not restore preview pixels");
             Assert(Field<Control?>(view, "_canvasDialogOverlay") is null && canvas.IsEffectivelyEnabled,
                 "adjustment dialog left the editor blocked");
+        });
+    }
+
+    /// <summary>The browser and Android hosts have no windowing platform: constructing any Window
+    /// there throws, which is how every adjustment and Import 3D Model broke on the web. Only the
+    /// desktop shell may be a Window; dialogs are AppDialogs.</summary>
+    private static void DialogsNeedNoWindow()
+    {
+        var windows = typeof(MainView).Assembly.GetTypes()
+            .Where(t => typeof(Window).IsAssignableFrom(t) && t != typeof(MainWindow)).Select(t => t.Name).ToList();
+        Assert(windows.Count == 0, "these would throw on the web and Android: " + string.Join(", ", windows));
+    }
+
+    /// <summary>The browser has no system fonts to fall back on, only the bundled Inter: a
+    /// character Inter lacks (☰, ✕, ▸, ∩ ...) is drawn there as an empty box.</summary>
+    private static void LabelsHaveGlyphs()
+    {
+        var inter = new Avalonia.Media.Typeface("fonts:Inter#Inter").GlyphTypeface;
+        foreach (string interfaceName in new[] { "Desktop", "Phone" })
+        {
+            WithInterface(interfaceName, 412, 915, (view, window) =>
+            {
+                var labels = view.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text)
+                    .Concat(view.GetLogicalDescendants().OfType<MenuItem>().Select(m => m.Header as string))
+                    .Concat(view.GetLogicalDescendants().OfType<ContentControl>().Select(c => c.Content as string))
+                    .Where(text => !string.IsNullOrEmpty(text));
+                var missing = labels.SelectMany(text => text!.EnumerateRunes()
+                        .Where(rune => rune.Value > 127 && !inter.CharacterToGlyphMap.TryGetGlyph(rune.Value, out _))
+                        .Select(rune => $"'{rune}' in \"{text}\""))
+                    .Distinct().ToList();
+                Assert(missing.Count == 0, interfaceName + ": " + string.Join(", ", missing));
+            });
+        }
+    }
+
+    private static void DesktopDialogWindow()
+    {
+        WithView(640, 480, (view, window) =>
+        {
+            var canvas = view.FindControl<SurfaceView>("Canvas")!;
+            var before = canvas.ActiveLayer!.Surface[200, 200];
+            var dialog = new AdjustmentDialog(canvas, "Invert", [], _ => new InvertEffect()) { Width = 300 };
+            var shown = dialog.ShowDialog(view);
+            Pump();
+            var host = TopLevel.GetTopLevel(dialog) as Window;
+            Assert(host is not null && !ReferenceEquals(host, window), "the dialog did not get its own window");
+            Assert(host!.Title == "Invert" && host.Width == 300 && double.IsNaN(dialog.Width),
+                "the window did not take the dialog's title and size");
+            Assert(Field<Control?>(view, "_canvasDialogOverlay") is null, "a desktop dialog was shown in-app");
+            Assert(canvas.ActiveLayer.Surface[200, 200] != before, "opening the window did not preview");
+            host.Close();
+            Wait(shown);
+            Assert(canvas.ActiveLayer.Surface[200, 200] == before, "closing the window did not revert the preview");
+            Assert(!dialog.IsOpen && TopLevel.GetTopLevel(dialog) is null, "the dialog stayed attached to its window");
+        });
+    }
+
+    private static void NestedInlineDialogs()
+    {
+        WithView(640, 480, (view, window) =>
+        {
+            view.PreferInlineDialogs = true;
+            var outer = new ConfirmDialog("Outer", "first", "OK", destructive: false);
+            var outerResult = outer.ShowDialog<bool>(view);
+            Pump();
+            var outerShade = Overlay(view);
+            var inner = new PromptDialog("Inner", "name");
+            var innerResult = inner.ShowDialog<bool>(outer);
+            Pump();
+            Assert(!ReferenceEquals(Overlay(view), outerShade) && !outerShade.IsEnabled,
+                "the second dialog did not stack above the first");
+            PressKey(window, Key.Enter);
+            Wait(innerResult);
+            Assert(innerResult.Result && inner.ResultText == "name", "Enter did not accept the top dialog");
+            Assert(ReferenceEquals(Overlay(view), outerShade) && outerShade.IsEnabled && !outerResult.IsCompleted,
+                "closing the top dialog did not hand back to the one below");
+            PressKey(window, Key.Escape);
+            Wait(outerResult);
+            Assert(!outerResult.Result && Field<Control?>(view, "_canvasDialogOverlay") is null,
+                "Escape did not dismiss the remaining dialog");
         });
     }
 
@@ -897,7 +984,7 @@ internal static class UiSmokeTest
             view.FindControl<ToggleButton>("ToggleColorWheel")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Pump();
 
-            // ☰ opens the menus as a drawer; a section expands in place and its items work.
+            // The menu button opens the menus as a drawer; a section expands in place and its items work.
             var menuButton = view.GetLogicalDescendants().OfType<Button>().Single(b => b.Name == "MenuButton");
             Assert(menuButton.TranslatePoint(default, window)!.Value.Y < 20, "the menu button is not at the top");
             menuButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -905,7 +992,7 @@ internal static class UiSmokeTest
             var drawer = view.GetVisualDescendants().OfType<Border>().SingleOrDefault(b => b.Name == "MainDrawer");
             Assert(drawer is not null && drawer.Bounds.Height > 900 && drawer.Bounds.X < 1, "the menu drawer did not open from the left");
             Button Row(string text) => drawer!.GetVisualDescendants().OfType<Button>()
-                .First(b => b.Content is TextBlock t && t.Text!.Trim().TrimStart('▸', '▾', '✓').Trim() == text);
+                .First(b => b.Content is TextBlock t && t.Text!.Trim().TrimStart('▶', '▼', '✓').Trim() == text);
             Screenshot(window, "phone-drawer");
             Row("View").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Pump();

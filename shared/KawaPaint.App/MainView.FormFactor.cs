@@ -69,7 +69,7 @@ public partial class MainView
         var menuButton = new Button
         {
             Name = "MenuButton",
-            Content = new TextBlock { Text = "☰", FontSize = 20, VerticalAlignment = VerticalAlignment.Center },
+            Content = Icons.Create("Menu", 22),
             Width = 44,
             Height = 40,
             Padding = new Thickness(0),

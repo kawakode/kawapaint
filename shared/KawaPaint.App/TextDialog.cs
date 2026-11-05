@@ -7,7 +7,7 @@ using Avalonia.Media;
 
 namespace KawaPaint.App;
 
-public sealed class TextDialog : Window
+public sealed class TextDialog : AppDialog
 {
     private readonly TextBox _text;
     private readonly Slider _size;

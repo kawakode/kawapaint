@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Threading.Tasks;
 using Avalonia;
@@ -9,7 +10,33 @@ namespace KawaPaint.Web;
 
 internal sealed partial class Program
 {
-    private static Task Main(string[] args) => BuildAvaloniaApp()
+    private static Task Main(string[] args)
+    {
+        // Before the first view reads its settings.
+        if (LocalStorageSettingsStore.TryCreate() is { } store)
+            KawaPaint.App.Core.SettingsStore.Current = store;
+        else
+            KawaPaint.App.Core.SettingsStore.Current = new KawaPaint.App.Core.MemorySettingsStore();
+
+        // A phone or tablet browser gets the touch interface the Android app uses, chosen the
+        // same way (by the screen's shorter side); a mouse-driven browser keeps the desktop one.
+        // CSS pixels are density-independent, like Android's dp.
+        try
+        {
+            if (IsTouchFirst())
+                KawaPaint.App.Core.DeviceInfo.SmallestScreenWidthDp = SmallestScreenWidth();
+        }
+        catch { /* desktop interface */ }
+        return StartAsync();
+    }
+
+    [JSImport("device.isTouchFirst", "main.js")]
+    private static partial bool IsTouchFirst();
+
+    [JSImport("device.smallestScreenWidth", "main.js")]
+    private static partial double SmallestScreenWidth();
+
+    private static Task StartAsync() => BuildAvaloniaApp()
         .WithInterFont()
         .StartBrowserAppAsync("out", new BrowserPlatformOptions
         {

@@ -29,7 +29,7 @@ public sealed record PublishArtworkSelection(
     bool IsAiGenerated,
     bool NoAi);
 
-public sealed class PublishArtworkDialog : Window
+public sealed class PublishArtworkDialog : AppDialog
 {
     private sealed record Choice(string Id, string Name)
     {

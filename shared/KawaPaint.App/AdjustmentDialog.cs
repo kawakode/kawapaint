@@ -13,7 +13,7 @@ using KawaPaint.Engine;
 
 namespace KawaPaint.App;
 
-public sealed class AdjustmentDialog : Window
+public sealed class AdjustmentDialog : AppDialog
 {
     public sealed record SliderSpec(string Label, double Min, double Max, double Default, string Format);
     public sealed record CheckboxSpec(string Label, bool Default = false);
@@ -29,7 +29,6 @@ public sealed class AdjustmentDialog : Window
     private Surface? _snapshot;
     private bool _committed;
     private DispatcherTimer? _previewTimer;
-    private Action<bool>? _canvasClose;
     private EffectBounds _previewBounds;
 
     /// <summary>The slider values this dialog was committed with, or null if it was cancelled/
@@ -118,14 +117,13 @@ public sealed class AdjustmentDialog : Window
         var cancel = new Button { Content = "Cancel", IsCancel = true };
         cancel.Click += (_, _) =>
         {
-            if (_canvasClose is null) Close();
-            else { CancelCanvasHost(); _canvasClose(false); }
+            Close();
         };
         var ok = new Button { Content = "OK", IsDefault = true };
         ok.Click += (_, _) =>
         {
             Commit();
-            if (_canvasClose is null) Close(); else _canvasClose(true);
+            Close();
         };
         buttons.Children.Add(reset);
         buttons.Children.Add(cancel);
@@ -143,14 +141,6 @@ public sealed class AdjustmentDialog : Window
         Opened += (_, _) => Preview();
 
         Closed += (_, _) => { _previewTimer?.Stop(); if (!_committed) Revert(); };
-    }
-
-    public void UseCanvasHost(Action<bool> close) => _canvasClose = close;
-    public void BeginCanvasHost() => Preview();
-    public void CancelCanvasHost()
-    {
-        _previewTimer?.Stop();
-        if (!_committed) Revert();
     }
 
     private double[] Values()

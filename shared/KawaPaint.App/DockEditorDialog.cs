@@ -11,7 +11,7 @@ using KawaPaint.Engine;
 
 namespace KawaPaint.App;
 
-public sealed class DockEditorDialog : Window
+public sealed class DockEditorDialog : AppDialog
 {
     private readonly ListBox _available;
     private readonly ListBox _pinned;

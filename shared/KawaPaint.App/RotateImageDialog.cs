@@ -8,7 +8,7 @@ using KawaPaint.Engine;
 
 namespace KawaPaint.App;
 
-public sealed class RotateImageDialog : Window
+public sealed class RotateImageDialog : AppDialog
 {
     private readonly NumericUpDown _angle;
     private readonly CheckBox _expand;

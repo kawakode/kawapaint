@@ -43,7 +43,7 @@ public partial class MainView
 
         _scriptRecorder.Start(typeof(MainView).Assembly.GetName().Version?.ToString() ?? "");
         UpdateScriptMenuState();
-        StatusText.Text = "Recording script - File ▸ Record ▸ Stop & Save Script to finish";
+        StatusText.Text = "Recording script - File › Record › Stop & Save Script to finish";
     }
 
     private async Task StopAndSaveScriptAsync()
@@ -67,8 +67,7 @@ public partial class MainView
 
         try
         {
-            await using var stream = await file.OpenWriteAsync();
-            script.Save(stream);
+            await WriteFromMemoryAsync(file, script.Save);
             StatusText.Text = $"Script saved: {script.Steps.Count} step(s)";
         }
         catch (Exception ex)
@@ -96,7 +95,7 @@ public partial class MainView
         ScriptFile script;
         try
         {
-            await using var stream = await scriptFiles[0].OpenReadAsync();
+            using var stream = await ReadToMemoryAsync(scriptFiles[0]);
             script = ScriptFile.Load(stream);
         }
         catch (Exception ex)

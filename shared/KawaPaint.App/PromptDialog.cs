@@ -6,7 +6,7 @@ using Avalonia.Layout;
 
 namespace KawaPaint.App;
 
-public sealed class PromptDialog : Window
+public sealed class PromptDialog : AppDialog
 {
     private readonly TextBox _input;
     public string ResultText => _input.Text ?? "";

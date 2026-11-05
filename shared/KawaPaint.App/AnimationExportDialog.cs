@@ -4,7 +4,7 @@ using Avalonia.Layout;
 
 namespace KawaPaint.App;
 
-public sealed class AnimationExportDialog : Window
+public sealed class AnimationExportDialog : AppDialog
 {
     private readonly CheckBox _loop = new() { Content = "Loop forever", IsChecked = true };
 

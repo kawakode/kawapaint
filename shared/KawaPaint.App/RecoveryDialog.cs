@@ -9,7 +9,7 @@ namespace KawaPaint.App;
 
 public enum RecoveryChoice { Discard, Restore }
 
-public sealed class RecoveryDialog : Window
+public sealed class RecoveryDialog : AppDialog
 {
     public RecoveryDialog(int count)
     {

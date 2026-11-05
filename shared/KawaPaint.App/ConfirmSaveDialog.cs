@@ -11,7 +11,7 @@ namespace KawaPaint.App;
 /// default(SaveChoice) - is treated as "cancel", not as a silent save.</summary>
 public enum SaveChoice { Cancel, Save, Discard }
 
-public sealed class ConfirmSaveDialog : Window
+public sealed class ConfirmSaveDialog : AppDialog
 {
     public ConfirmSaveDialog(string message)
     {

@@ -8,7 +8,7 @@ using Avalonia.Layout;
 
 namespace KawaPaint.App;
 
-public sealed class BatchResultsDialog : Window
+public sealed class BatchResultsDialog : AppDialog
 {
     public BatchResultsDialog(string summary)
     {

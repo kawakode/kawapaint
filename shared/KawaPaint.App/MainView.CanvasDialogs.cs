@@ -9,47 +9,93 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
-using KawaPaint.Engine;
 
 namespace KawaPaint.App;
 
-public partial class MainView
+/// <summary>
+/// In-app dialogs for hosts without windows (browser, Android). Every <see cref="AppDialog"/>
+/// shown from this view lands here when there is no desktop window to own it, so the browser
+/// runs the very same dialogs as the desktop instead of a reduced copy of each.
+/// </summary>
+public partial class MainView : IInlineDialogHost
 {
+    private const double InlineDialogMargin = 12;
+
+    // Top of the stack of in-app dialogs (a dialog can open another, e.g. a prompt over the
+    // export preset manager). Null when none is up.
     private Control? _canvasDialogOverlay;
+    private readonly List<(Control Shade, AppDialog Dialog)> _inlineDialogs = new();
 
-    private sealed record NewImageValues(int Width, int Height, double Dpi, bool Transparent);
-    private sealed record SizeValues(int Width, int Height);
-    private sealed record CanvasSizeValues(int Width, int Height, CanvasAnchor Anchor);
-    private sealed record TextValues(string Text, int Size);
-    private sealed record AnimationValues(bool Loop);
-    private readonly record struct CanvasChoice<T>(string Label, T Value, bool IsDefault = false);
+    /// <summary>Shows dialogs in-app even under a desktop window. Tests use it to exercise the
+    /// browser/Android presentation headlessly.</summary>
+    public bool PreferInlineDialogs { get; set; }
 
-    /// <summary>Single-view/browser replacement for Window.ShowDialog. The shade is added last to
-    /// FloatingLayer, so it intercepts input over both the editor and floating panels.</summary>
-    private Task<T> ShowCanvasChoiceAsync<T>(string title, Control body, T cancelValue,
-        params CanvasChoice<T>[] choices)
+    /// <summary>Shows <paramref name="dialog"/> over this view: a real modal window on the
+    /// desktop, an in-app sheet elsewhere.</summary>
+    private Task<T> ShowDialogAsync<T>(AppDialog dialog) => dialog.ShowDialog<T>(this);
+
+    private Task ShowDialogAsync(AppDialog dialog) => dialog.ShowDialog(this);
+
+    /// <summary>Dismisses the topmost in-app dialog as if its close button were pressed. False when none is up.</summary>
+    private bool DismissTopInlineDialog()
     {
-        if (_canvasDialogOverlay is not null) return Task.FromResult(cancelValue);
+        if (_inlineDialogs.Count == 0) return false;
+        _inlineDialogs[^1].Dialog.RequestClose();
+        return true;
+    }
 
-        var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var buttons = new WrapPanel
+    /// <summary>Yes/no confirmation. Cancel is the default button for a destructive action, so
+    /// Enter dismisses rather than confirms.</summary>
+    private Task<bool> ConfirmAsync(string title, string message, string confirmLabel,
+        bool destructive = true) =>
+        ShowDialogAsync<bool>(new ConfirmDialog(title, message, confirmLabel, destructive));
+
+    Action IInlineDialogHost.PresentInline(AppDialog dialog)
+    {
+        var size = dialog.RequestedSize;
+        bool fixedHeight = !double.IsNaN(size.Height)
+            && dialog.SizeToContent is not (SizeToContent.Height or SizeToContent.WidthAndHeight);
+        bool fixedWidth = !double.IsNaN(size.Width)
+            && dialog.SizeToContent is not (SizeToContent.Width or SizeToContent.WidthAndHeight);
+
+        var title = new TextBlock
         {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            ItemSpacing = 8,
-            LineSpacing = 8,
-            Margin = new Thickness(0, 16, 0, 0)
-        };
-        var content = new StackPanel { Spacing = 10 };
-        content.Children.Add(new TextBlock
-        {
-            Text = title,
+            Text = dialog.Title ?? "",
             FontSize = 18,
             FontWeight = FontWeight.SemiBold,
-            Foreground = Brushes.White
-        });
-        content.Children.Add(body);
-        content.Children.Add(buttons);
+            Foreground = Brushes.White,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        // Touch hosts have no Escape key and dialogs like About have no Cancel button.
+        var close = new Button
+        {
+            Content = Icons.Create("Close", 14),
+            Padding = new Thickness(8),
+            Background = Brushes.Transparent,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        ToolTip.SetTip(close, "Close");
+        close.Click += (_, _) => dialog.RequestClose();
+        var header = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+        DockPanel.SetDock(close, Dock.Right);
+        header.Children.Add(close);
+        header.Children.Add(title);
+
+        // A fixed-height dialog lays its lists out in star rows, which need a finite height to
+        // scroll on their own; everything else scrolls as a whole when the viewport is short.
+        var scroll = new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = fixedHeight ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto,
+            Content = dialog
+        };
+        dialog.MinWidth = 0;
+        dialog.MinHeight = 0;
+        var body = new DockPanel();
+        DockPanel.SetDock(header, Dock.Top);
+        body.Children.Add(header);
+        body.Children.Add(scroll);
 
         var card = new Border
         {
@@ -57,101 +103,12 @@ public partial class MainView
             BorderBrush = new SolidColorBrush(Color.FromRgb(90, 90, 90)),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(6),
-            Padding = new Thickness(18),
-            MaxWidth = 620,
-            Margin = new Thickness(12),
+            Padding = new Thickness(12),
+            Margin = new Thickness(InlineDialogMargin),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
-            Child = ScrollableDialogContent(content)
+            Child = body
         };
-        var shade = new Border
-        {
-            Background = new SolidColorBrush(Color.FromArgb(190, 0, 0, 0)),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch,
-            Focusable = true,
-            Child = card
-        };
-        shade.ZIndex = int.MaxValue;
-
-        Action? dismiss = null;
-        void Complete(T value)
-        {
-            if (!completion.TrySetResult(value)) return;
-            dismiss?.Invoke();
-        }
-
-        foreach (var choice in choices)
-        {
-            var button = new Button { Content = choice.Label, IsDefault = choice.IsDefault };
-            T value = choice.Value;
-            button.Click += (_, _) => Complete(value);
-            buttons.Children.Add(button);
-        }
-
-        shade.KeyDown += (_, e) =>
-        {
-            if (e.Key != Key.Escape) return;
-            e.Handled = true;
-            Complete(cancelValue);
-        };
-
-        dismiss = PresentCanvasDialog(shade, () => FindFocusable(body)?.Focus());
-        return completion.Task;
-    }
-
-    /// <summary>
-    /// Yes/no confirmation on whichever host is running - a real owned <see cref="ConfirmDialog"/>
-    /// on the desktop, the in-canvas shade in the browser. Callers that branched on OwnerWindow
-    /// themselves used to simply skip the prompt under the browser, which silently turned a
-    /// guarded destructive action into an unguarded one on that host.
-    /// </summary>
-    /// <param name="destructive">Cancel becomes the default button, so Enter dismisses rather than
-    /// confirms - same rule ConfirmDialog states for the desktop, applied to both hosts here.</param>
-    private async Task<bool> ConfirmAsync(string title, string message, string confirmLabel,
-        bool destructive = true)
-    {
-        if (OwnerWindow is { } owner)
-            return await new ConfirmDialog(title, message, confirmLabel, destructive).ShowDialog<bool>(owner);
-
-        var body = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap };
-        return await ShowCanvasChoiceAsync(title, body, false,
-            new CanvasChoice<bool>("Cancel", false, destructive),
-            new CanvasChoice<bool>(confirmLabel, true, !destructive));
-    }
-
-    private async Task<(bool Accepted, T Value)> ShowCanvasFormAsync<T>(string title, Control body,
-        Func<T> capture)
-    {
-        object cancel = new();
-        object accept = new();
-        object result = await ShowCanvasChoiceAsync(title, body, cancel,
-            new CanvasChoice<object>("Cancel", cancel),
-            new CanvasChoice<object>("OK", accept, true));
-        return ReferenceEquals(result, accept) ? (true, capture()) : (false, default!);
-    }
-
-    /// <summary>Hosts the already-built content of one of the desktop dialogs. The dialog's own
-    /// buttons signal <paramref name="connectClose"/>, so preview/commit/revert stays in that one
-    /// implementation instead of being copied into a browser-only version.</summary>
-    private Task<bool> ShowCanvasWindowContentAsync(Window window, Action<Action<bool>> connectClose,
-        Action cancel, Action opened)
-    {
-        if (_canvasDialogOverlay is not null) return Task.FromResult(false);
-        if (window.Content is not Control dialogBody) return Task.FromResult(false);
-        window.Content = null;
-
-        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var content = new StackPanel { Spacing = 8 };
-        content.Children.Add(new TextBlock
-        {
-            Text = window.Title ?? "Dialog",
-            FontSize = 18,
-            FontWeight = FontWeight.SemiBold,
-            Foreground = Brushes.White
-        });
-        content.Children.Add(dialogBody);
-
         var shade = new Border
         {
             Background = new SolidColorBrush(Color.FromArgb(190, 0, 0, 0)),
@@ -159,45 +116,48 @@ public partial class MainView
             VerticalAlignment = VerticalAlignment.Stretch,
             Focusable = true,
             ZIndex = int.MaxValue,
-            Child = new Border
-            {
-                Background = new SolidColorBrush(Color.FromRgb(38, 38, 38)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(90, 90, 90)),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(6),
-                Margin = new Thickness(12),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-                Child = ScrollableDialogContent(content, allowHorizontalScrolling: true)
-            }
+            Child = card
         };
 
-        Action? dismiss = null;
-        void Complete(bool result)
+        // The dialog asked for a window of a given size; give it that much of the view, no more.
+        void Fit(Size viewport)
         {
-            if (!completion.TrySetResult(result)) return;
-            dismiss?.Invoke();
+            double chrome = card.Padding.Left + card.Padding.Right + 2;
+            double availableWidth = Math.Max(0, viewport.Width - 2 * InlineDialogMargin);
+            double availableHeight = Math.Max(0, viewport.Height - 2 * InlineDialogMargin);
+            if (fixedWidth) card.Width = Math.Min(size.Width + chrome, availableWidth);
+            else
+            {
+                card.MinWidth = Math.Min(size.MinWidth > 0 ? size.MinWidth + chrome : 0, availableWidth);
+                card.MaxWidth = Math.Min(size.MaxWidth + chrome, availableWidth);
+            }
+            if (fixedHeight) card.Height = Math.Min(size.Height + chrome + 48, availableHeight);
+            else card.MaxHeight = availableHeight;
         }
+        shade.SizeChanged += (_, e) => Fit(e.NewSize);
+        if (FloatingLayer.Bounds.Size is { Width: > 0 } initial) Fit(initial);
 
-        connectClose(Complete);
         shade.KeyDown += (_, e) =>
         {
             if (e.Key != Key.Escape) return;
             e.Handled = true;
-            cancel();
-            Complete(false);
+            dialog.RequestClose();
         };
 
-        dismiss = PresentCanvasDialog(shade, opened);
-        return completion.Task;
+        var entry = (shade, dialog);
+        _inlineDialogs.Add(entry);
+        var dismiss = PresentCanvasDialog(shade, () =>
+        {
+            FindFocusable(dialog)?.Focus();
+            dialog.RaiseOpened();
+        });
+        return () =>
+        {
+            _inlineDialogs.Remove(entry);
+            dismiss();
+            scroll.Content = null;
+        };
     }
-
-    private static ScrollViewer ScrollableDialogContent(Control content, bool allowHorizontalScrolling = false) => new()
-    {
-        HorizontalScrollBarVisibility = allowHorizontalScrolling ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled,
-        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-        Content = content
-    };
 
     private Action PresentCanvasDialog(Control shade, Action opened)
     {
@@ -218,136 +178,10 @@ public partial class MainView
         return () =>
         {
             FloatingLayer.Children.Remove(shade);
-            _canvasDialogOverlay = null;
+            _canvasDialogOverlay = _inlineDialogs.Count > 0 ? _inlineDialogs[^1].Shade : null;
             foreach (var entry in background) entry.Control.IsEnabled = entry.Enabled;
             if (previousFocus?.Focus() != true) Canvas.Focus();
         };
-    }
-
-    private async Task<string?> ShowCanvasPromptAsync(string title, string initial)
-    {
-        var input = new TextBox { Text = initial };
-        var result = await ShowCanvasFormAsync(title, input, () => input.Text ?? "");
-        return result.Accepted ? result.Value : null;
-    }
-
-    private Task<NewImageValues?> ShowCanvasNewImageAsync()
-    {
-        var width = Number(800, 1, 20_000);
-        var height = Number(600, 1, 20_000);
-        var dpi = Number(96, 1, 2_400);
-        var transparent = new CheckBox { Content = "Transparent background" };
-        var body = Form(("Width", width), ("Height", height), ("DPI", dpi));
-        body.Children.Add(transparent);
-        return NullableForm("New Image", body, () => new NewImageValues(
-            (int)(width.Value ?? 1), (int)(height.Value ?? 1), (double)(dpi.Value ?? 96),
-            transparent.IsChecked ?? false));
-    }
-
-    private Task<SizeValues?> ShowCanvasSizeFormAsync(string title, int currentWidth, int currentHeight)
-    {
-        var width = Number(currentWidth, 1, 20_000);
-        var height = Number(currentHeight, 1, 20_000);
-        return NullableForm(title, Form(("Width", width), ("Height", height)),
-            () => new SizeValues((int)(width.Value ?? 1), (int)(height.Value ?? 1)));
-    }
-
-    private Task<CanvasSizeValues?> ShowCanvasCanvasSizeAsync(int currentWidth, int currentHeight)
-    {
-        var width = Number(currentWidth, 1, 20_000);
-        var height = Number(currentHeight, 1, 20_000);
-        CanvasAnchor selected = CanvasAnchor.MiddleCenter;
-        var anchors = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("36,36,36"),
-            RowDefinitions = new RowDefinitions("36,36,36"),
-            ColumnSpacing = 4,
-            RowSpacing = 4,
-            HorizontalAlignment = HorizontalAlignment.Left
-        };
-        CanvasAnchor[] values = Enum.GetValues<CanvasAnchor>();
-        var anchorButtons = new List<Button>(9);
-        for (int i = 0; i < 9; i++)
-        {
-            CanvasAnchor value = values[i];
-            var button = new Button { Content = "•", Padding = new Thickness(0) };
-            button.Click += (_, _) =>
-            {
-                selected = value;
-                foreach (var candidate in anchorButtons)
-                    candidate.BorderBrush = ReferenceEquals(candidate, button) ? Brushes.DodgerBlue : Brushes.Gray;
-            };
-            Grid.SetRow(button, i / 3);
-            Grid.SetColumn(button, i % 3);
-            anchors.Children.Add(button);
-            anchorButtons.Add(button);
-        }
-        anchorButtons[4].BorderBrush = Brushes.DodgerBlue;
-
-        var body = Form(("Width", width), ("Height", height));
-        body.Children.Add(new TextBlock { Text = "Anchor", Margin = new Thickness(0, 6, 0, 0) });
-        body.Children.Add(anchors);
-        return NullableForm("Canvas Size", body, () => new CanvasSizeValues(
-            (int)(width.Value ?? 1), (int)(height.Value ?? 1), selected));
-    }
-
-    private Task<TextValues?> ShowCanvasTextAsync()
-    {
-        var text = new TextBox
-        {
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.Wrap,
-            Height = 100,
-            PlaceholderText = "Type text…"
-        };
-        var size = Number(48, 8, 240);
-        var body = new StackPanel { Spacing = 8, Children = { text, Form(("Size", size)) } };
-        return NullableForm("Add Text", body, () => new TextValues(text.Text ?? "", (int)(size.Value ?? 48)));
-    }
-
-    /// <summary>Browser counterpart of <see cref="AnimationExportDialog"/>: frames come from the
-    /// timeline with their own durations, so only looping is asked.</summary>
-    private Task<AnimationValues?> ShowCanvasAnimationSettingsAsync(int frameCount)
-    {
-        var loop = new CheckBox { Content = "Loop forever", IsChecked = true };
-        var body = new StackPanel
-        {
-            Spacing = 8,
-            Children =
-            {
-                new TextBlock { Text = $"Export {frameCount} timeline frame(s) using their individual durations." },
-                loop
-            }
-        };
-        return NullableForm("Export Animation", body, () => new AnimationValues(loop.IsChecked ?? true));
-    }
-
-    private async Task<T?> NullableForm<T>(string title, Control body, Func<T> capture) where T : class
-    {
-        var result = await ShowCanvasFormAsync(title, body, capture);
-        return result.Accepted ? result.Value : null;
-    }
-
-    private static NumericUpDown Number(decimal value, decimal minimum, decimal maximum) => new()
-    {
-        Value = value,
-        Minimum = minimum,
-        Maximum = maximum,
-        Increment = 1
-    };
-
-    private static StackPanel Form(params (string Label, Control Input)[] rows)
-    {
-        var panel = new StackPanel { Spacing = 8 };
-        foreach (var (label, input) in rows)
-        {
-            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("90,*"), ColumnSpacing = 8 };
-            grid.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
-            Grid.SetColumn(input, 1);
-            grid.Children.Add(input);
-            panel.Children.Add(grid);
-        }
-        return panel;
     }
 
     private static Control? FindFocusable(Control root)
@@ -357,6 +191,7 @@ public partial class MainView
             foreach (Control child in panel.Children)
                 if (FindFocusable(child) is { } found) return found;
         if (root is ContentControl { Content: Control content }) return FindFocusable(content);
+        if (root is Decorator { Child: { } child2 }) return FindFocusable(child2);
         return null;
     }
 }

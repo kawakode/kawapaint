@@ -32,4 +32,6 @@ icon_locations = {
     app_name: (170, 190),
     "Applications": (490, 190),
 }
-hide_extensions = [app_name]
+# No hide_extensions: dmgbuild implements it with a com.apple.FinderInfo xattr on the bundle,
+# which breaks `codesign --verify --strict` (and so Gatekeeper's check) on the copied app.
+# Finder already hides the ".app" extension by default.

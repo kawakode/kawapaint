@@ -45,6 +45,24 @@ Debug APKs embed their assemblies and can be installed directly. Desktop plugins
 history are disabled on Android; native JXL/JP2 are reported unavailable when no Android ABI pack
 is present.
 
+## Installing on macOS
+
+Download `KawaPaint-<version>-osx-arm64.dmg` from the
+[latest release](https://github.com/kawakode/kawapaint/releases/latest) (Apple Silicon, macOS 12
+or later), open it and drag **KawaPaint** onto **Applications**.
+
+The app is ad-hoc signed but not signed with an Apple Developer ID nor notarized, so Gatekeeper
+blocks the first launch ("Apple could not verify…"). Close the dialog with **Done**, then open
+**System Settings → Privacy & Security** and click **Open Anyway** next to the KawaPaint entry.
+From a terminal, `xattr -dr com.apple.quarantine /Applications/KawaPaint.app` does the same.
+
+The DMG is built by `mac/dmg/build-dmg.sh` in the release workflow. To build it on a Mac:
+
+```text
+dotnet publish mac/KawaPaint.Mac.csproj -c Release -r osx-arm64 --self-contained true -o publish/osx-arm64
+mac/dmg/build-dmg.sh publish/osx-arm64 1.0.0 KawaPaint.dmg
+```
+
 ## Docker
 
 The web image is served at `/` by default:

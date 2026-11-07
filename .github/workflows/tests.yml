@@ -47,7 +47,12 @@ jobs:
         if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libjxl0.7 libopenjp2-7
+          # The libjxl runtime package is versioned (libjxl0.7 on Ubuntu 24.04, newer on 26.04,
+          # which ubuntu-latest now points to); install whichever one this image provides.
+          jxl_package=$(apt-cache search --names-only '^libjxl0\.[0-9]+$' | cut -d' ' -f1 | sort -V | tail -n1)
+          test -n "$jxl_package"
+          echo "Installing $jxl_package"
+          sudo apt-get install -y --no-install-recommends "$jxl_package" libopenjp2-7
           echo "KAWAPAINT_REQUIRE_NATIVE_CODECS=1" >> "$GITHUB_ENV"
 
       - name: Build ${{ matrix.platform }} app

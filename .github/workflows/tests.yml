@@ -96,7 +96,11 @@ jobs:
       - name: Publish web app
         run: |
           dotnet workload install wasm-tools
-          dotnet publish web/KawaPaint.Web.csproj -c Release -o publish/web
+          dotnet publish web/KawaPaint.Web.csproj -c Release -o publish/web -v:n | tee publish.log | tail -n 15
+          echo "--- experiment: native link evidence"
+          grep -i -E "skiasharp.*\.a|emcc|WasmBuildNative|NativeFileReference|Linking with|pinvoke" publish.log | cut -c1-300 | head -n 40 || true
+          ls -l publish/web/wwwroot/_framework | grep -i -E "native|skia" || true
+          grep -i -E "SkiaSharp" web/obj/project.assets.json | grep -E '^\s+"(SkiaSharp[^"]*)/' | sort -u | head -n 20 || true
 
       # Loads the page in Chromium, draws a stroke and checks what only a real browser shows:
       # the app starts, the autosave snapshot reaches IndexedDB, the page asks before closing

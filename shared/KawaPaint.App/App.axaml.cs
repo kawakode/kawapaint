@@ -16,6 +16,12 @@ public partial class App : Application
     /// </summary>
     public static Action? QuitApp { get; set; }
 
+    /// <summary>
+    /// Told whenever the open document starts or stops having unsaved changes. The browser head
+    /// uses it to make the page ask before it is closed or reloaded. Null elsewhere.
+    /// </summary>
+    public static Action<bool>? UnsavedChangesChanged { get; set; }
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -25,8 +31,8 @@ public partial class App : Application
     {
         CrashGuard.Install();
 
-        // Whatever is still in the undo spill cache belongs to a previous run whose history died
-        // with it, so it is pure waste on disk.
+        // Undo spill files of a previous run whose history died with it are pure waste on disk.
+        // Another copy of the app that is still running keeps its own.
         Core.AppPaths.ClearHistoryCache();
 
         // Android uses an activity factory and may recreate its activity. Desktop plugin discovery

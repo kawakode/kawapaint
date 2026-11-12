@@ -7,7 +7,8 @@ using Avalonia.Media;
 
 namespace KawaPaint.App;
 
-public enum RecoveryChoice { Discard, Restore }
+/// <summary>Later is what closing the prompt without choosing means: nothing is deleted.</summary>
+public enum RecoveryChoice { Later, Restore, Discard }
 
 public sealed class RecoveryDialog : AppDialog
 {
@@ -22,14 +23,14 @@ public sealed class RecoveryDialog : AppDialog
         string noun = count == 1 ? "document" : "documents";
         var text = new TextBlock
         {
-            Text = $"KawaPaint found autosaved work from a previous session ({count} {noun}). Restore it?",
+            Text = $"KawaPaint found autosaved work from a previous session ({count} {noun}). Restore the most recent one?",
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 16)
         };
 
         var restore = new Button { Content = "Restore", IsDefault = true };
         restore.Click += (_, _) => Close(RecoveryChoice.Restore);
-        var discard = new Button { Content = "Discard", IsCancel = true };
+        var discard = new Button { Content = "Discard" };
         discard.Click += (_, _) => Close(RecoveryChoice.Discard);
 
         var buttons = new StackPanel

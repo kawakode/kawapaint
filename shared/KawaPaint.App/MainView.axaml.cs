@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -121,6 +122,7 @@ public partial class MainView : UserControl
     /// recovery and git tracking all read from here rather than keeping their own flags.
     /// </summary>
     private DocumentSession? _session;
+    private bool _reportedDirty;
 
     private IStorageFile? _currentFile;   // set once a .kwp file handle is known
 
@@ -266,6 +268,7 @@ public partial class MainView : UserControl
         _autosave = new AutosaveService(_settings, () => _session);
         _autosave.Saved += name => StatusText.Text = $"Autosaved {name} at {DateTime.Now:HH:mm}";
         _autosave.Saved += _ => CommitGitProject(autosave: true);
+        _autosave.Failed += reason => StatusText.Text = "Autosave failed: " + reason;
 
         _configGit = OperatingSystem.IsAndroid() ? null : new ConfigGitTracker(_settings);
 
@@ -276,6 +279,18 @@ public partial class MainView : UserControl
         // kept alive by it.
         AttachedToVisualTree += (_, _) => CrashGuard.Reported += OnUnhandledError;
         DetachedFromVisualTree += (_, _) => CrashGuard.Reported -= OnUnhandledError;
+
+        Avalonia.Controls.ApplicationLifetimes.IActivatableLifetime? activatable = null;
+        AttachedToVisualTree += (_, _) =>
+        {
+            activatable = Application.Current?.TryGetFeature<Avalonia.Controls.ApplicationLifetimes.IActivatableLifetime>();
+            if (activatable is not null) activatable.Deactivated += OnAppDeactivated;
+        };
+        DetachedFromVisualTree += (_, _) =>
+        {
+            if (activatable is not null) activatable.Deactivated -= OnAppDeactivated;
+            activatable = null;
+        };
 
         // Deferred: on desktop this needs a Window to own the dialog, which is only available
         // once this view is attached (OwnerWindow is null during the constructor).
@@ -290,38 +305,79 @@ public partial class MainView : UserControl
     private async void OnFirstLoadedCheckRecovery(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         Loaded -= OnFirstLoadedCheckRecovery;
+        await OfferRecoveryAsync();
+    }
 
-        var owner = OwnerWindow;
-        if (owner is null) return;   // no recovery prompt in the browser build (see class remarks)
+    /// <summary>
+    /// Offers back the work a previous run left behind. Shown through <see cref="ShowDialogAsync{T}"/>,
+    /// so it also appears where there is no window to own it (Android, the browser) - the places
+    /// where an app is most likely to be killed with work in it.
+    /// </summary>
+    internal async Task OfferRecoveryAsync()
+    {
+        if (RecoveryStore.Current is not { } store) return;
 
-        var entries = AutosaveRecovery.FindAll();
+        IReadOnlyList<RecoveryEntry> entries;
+        try { entries = await store.FindLeftoversAsync(); }
+        catch (Exception ex) { CrashGuard.Log("recovery", ex); return; }
         if (entries.Count == 0) return;
 
-        var choice = await new RecoveryDialog(entries.Count).ShowDialog<RecoveryChoice>(owner);
-        if (choice != RecoveryChoice.Restore)
+        var choice = await ShowDialogAsync<RecoveryChoice>(new RecoveryDialog(entries.Count));
+        if (choice == RecoveryChoice.Discard)
         {
-            AutosaveRecovery.DiscardAll();
+            foreach (var entry in entries) await DiscardRecoveryAsync(store, entry.SessionId);
             return;
         }
+        // Closing the prompt without choosing keeps everything for the next start.
+        if (choice != RecoveryChoice.Restore) return;
 
+        var newest = entries[0];
         try
         {
-            var newest = entries[0];
-            var doc = DocumentFile.Load(newest.Path);
+            var doc = await store.LoadAsync(newest);
             Canvas.SetDocument(doc);
+            _currentFile = null;
             _session = new DocumentSession(doc, filePath: null, displayName: "Recovered document");
             _session.MarkDirty(DirtyReason.Structure);   // recovered work was never saved by the user
             UpdateTitle();
-            StatusText.Text = "Restored autosaved work from " + newest.WrittenUtc.ToLocalTime();
         }
         catch (Exception ex)
         {
-            StatusText.Text = "Recovery failed: " + ex.Message;
+            // The snapshot stays where it is: a failed restore must never be what destroys it.
+            StatusText.Text = $"Recovery failed: {ex.Message} The autosaved work was kept and will be offered again.";
+            return;
         }
-        finally
-        {
-            AutosaveRecovery.DiscardAll();
-        }
+
+        // The restored document is unsaved work again. Its old snapshot is only let go once the
+        // new session has one of its own, so a crash right after a recovery loses nothing.
+        bool autosaveOff = !_settings.Settings.Autosave.Enabled;
+        bool resaved = _autosave is not null && await _autosave.SaveNowAsync();
+        if (resaved || autosaveOff) await DiscardRecoveryAsync(store, newest.SessionId);
+
+        int others = entries.Count - 1;
+        StatusText.Text = "Restored autosaved work from " + newest.WrittenUtc.ToLocalTime()
+            + (others > 0 ? $". {others} more recovered document(s) will be offered at the next start." : "");
+    }
+
+    private static async Task DiscardRecoveryAsync(IRecoveryStore store, string sessionId)
+    {
+        try { await store.DiscardAsync(sessionId); }
+        catch (Exception ex) { CrashGuard.Log("recovery", ex); }
+    }
+
+    /// <summary>Lets go of the snapshots of a document that was just saved, replaced or closed.</summary>
+    private static void DiscardRecovery(string sessionId)
+    {
+        if (RecoveryStore.Current is { } store) _ = DiscardRecoveryAsync(store, sessionId);
+    }
+
+    // A phone or tablet can end a backgrounded app without warning, and a browser tab that is
+    // hidden may never come back, so the moment the app leaves the foreground is the last sure
+    // chance to take a snapshot.
+    private void OnAppDeactivated(object? sender, Avalonia.Controls.ApplicationLifetimes.ActivatedEventArgs e)
+    {
+        if (e.Kind == Avalonia.Controls.ApplicationLifetimes.ActivationKind.Background)
+            _ = _autosave?.SaveNowAsync();
     }
 
     // ---- unsaved-changes tracking ----------------------------------------
@@ -349,13 +405,13 @@ public partial class MainView : UserControl
         {
             // A previous session's recovery snapshots are now moot: either its document is the
             // one just opened cleanly (this branch fires on New/Open too), or it was abandoned.
-            if (_session is not null) AutosaveRecovery.Discard(_session.SessionId);
+            if (_session is not null) DiscardRecovery(_session.SessionId);
             _session = new DocumentSession(document, localPath, file?.Name);
         }
         else
         {
             _session.MarkSaved(localPath, file?.Name);
-            AutosaveRecovery.Discard(_session.SessionId);
+            DiscardRecovery(_session.SessionId);
         }
 
         // Only real project files on a real filesystem are worth remembering - an exported PNG
@@ -381,6 +437,11 @@ public partial class MainView : UserControl
     {
         string name = _session?.DisplayName ?? _currentFile?.Name ?? "untitled";
         TitleChanged?.Invoke((IsDirty ? "* " : "") + name + " - KawaPaint");
+        if (_reportedDirty != IsDirty)
+        {
+            _reportedDirty = IsDirty;
+            App.UnsavedChangesChanged?.Invoke(IsDirty);
+        }
     }
 
     /// <summary>Returns true if it's OK to proceed (saved or discarded); false if the user cancelled.

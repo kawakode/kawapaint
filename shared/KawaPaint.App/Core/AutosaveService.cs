@@ -2,13 +2,12 @@
 //
 // Writes beside the user's own file, never over it: a snapshot lands in a per-session recovery
 // folder and the file the user opened is untouched unless WriteToOriginalFile is explicitly on.
-// A crash leaves the newest snapshot behind for AutosaveRecovery to find on the next launch.
+// A crash leaves the newest snapshot behind for the next launch to find (see RecoveryStore).
 
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using Avalonia.Threading;
 using KawaPaint.Engine;
 
@@ -20,16 +19,18 @@ public sealed class AutosaveService : IDisposable
     private readonly Func<DocumentSession?> _currentSession;
     private DispatcherTimer? _timer;
 
-    // Set for the duration of one autosave (clone through background write). Ticks now return to
-    // the UI message loop as soon as the synchronous clone is done (see Tick), so - unlike the old
-    // fully-synchronous version, where a single UI thread structurally couldn't fire the timer again
-    // mid-save - a slow encode can now genuinely still be running when the next tick lands. This
-    // guard is what keeps two encodes from racing on the same recovery folder or WriteToOriginalFile
-    // path.
+    // Set for the duration of one autosave (clone through background write). A slow encode can
+    // still be running when the next tick lands; this guard is what keeps two encodes from racing
+    // on the same recovery folder or WriteToOriginalFile path.
     private bool _saving;
     private CancellationTokenSource? _saveCancellation;
-
     private bool _disposed;
+    private bool _failureReported;
+
+    // Sessions this service has written snapshots for. They stop counting as "in use" when the
+    // service is disposed, so a view that is torn down and rebuilt in the same process (Android
+    // recreating its activity) is offered the work of the one before it.
+    private readonly HashSet<string> _ownedSessions = new(StringComparer.Ordinal);
 
     public AutosaveService(SettingsService settings, Func<DocumentSession?> currentSession)
     {
@@ -38,8 +39,7 @@ public sealed class AutosaveService : IDisposable
         // Named handler (not a lambda) so Dispose can actually detach it. SettingsService.Instance
         // is a process-lifetime singleton, so a lambda here outlived this service and any later
         // settings save would call Reschedule() on a disposed autosaver - which builds and starts a
-        // BRAND NEW timer, resurrecting the very thing Dispose was meant to stop. Same shape as the
-        // static-registry-event fix in MainView.
+        // BRAND NEW timer, resurrecting the very thing Dispose was meant to stop.
         _settings.Changed += OnSettingsChanged;
         Reschedule();
     }
@@ -48,6 +48,10 @@ public sealed class AutosaveService : IDisposable
 
     /// <summary>Raised after a snapshot is written, so the status bar can say so.</summary>
     public event Action<string>? Saved;
+
+    /// <summary>Raised with the reason when a snapshot could not be written. Once per run of
+    /// failures, so a full disk does not rewrite the status bar every few minutes.</summary>
+    public event Action<string>? Failed;
 
     /// <summary>Rebuilds the timer from current settings. Safe to call any time (e.g. after a settings edit).</summary>
     public void Reschedule()
@@ -64,23 +68,28 @@ public sealed class AutosaveService : IDisposable
         _timer.Start();
     }
 
-    /// <summary>
-    /// The actual zip+PNG encode used to run inline on this DispatcherTimer callback, freezing the
-    /// UI thread for as long as a big document takes to write. Now only the layer clone - a plain
-    /// memcpy, not an encode - runs synchronously; that's still what keeps the snapshot torn-free
-    /// (the live Document could otherwise be mutated by further painting while the slow part below
-    /// runs), and it's fast enough not to be felt. Everything slow (path/dir resolution, the actual
-    /// encode, pruning old versions) happens in the background Task.
-    /// </summary>
-    private async void Tick()
-    {
-        if (_saving) return;   // a previous autosave is still writing; this tick sits out
+    private async void Tick() => await SaveAsync(onlyWhenChanged: _settings.Settings.Autosave.SkipWhenUnchanged);
 
+    /// <summary>
+    /// Takes a snapshot right now instead of waiting for the timer - when the app is sent to the
+    /// background (a phone may never bring it back) and right after a recovery. Does nothing when
+    /// autosave is off or the document has not changed since its last snapshot. Completes with
+    /// true once a snapshot has been written.
+    /// </summary>
+    public Task<bool> SaveNowAsync() => SaveAsync(onlyWhenChanged: true);
+
+    // Only the layer clone - a plain memcpy, not an encode - runs synchronously on the UI thread;
+    // that is what keeps the snapshot torn-free while painting continues. Everything slow (the
+    // encode, pruning old versions) happens off the UI thread.
+    private async Task<bool> SaveAsync(bool onlyWhenChanged)
+    {
+        if (_saving || _disposed) return false;   // a previous autosave is still writing; this one sits out
         var session = _currentSession();
-        if (session is null) return;
+        if (session is null) return false;
 
         var config = _settings.Settings.Autosave;
-        if (config.SkipWhenUnchanged && !session.HasUnsnapshottedChanges) return;
+        if (!config.Enabled) return false;
+        if (onlyWhenChanged && !session.HasUnsnapshottedChanges) return false;
 
         _saving = true;
         var cancellation = new CancellationTokenSource();
@@ -88,60 +97,45 @@ public sealed class AutosaveService : IDisposable
         try
         {
             using var snapshot = session.Document.Clone();
-
-            bool wrote = await System.Threading.Tasks.Task.Run(() =>
+            if (config.WriteToOriginalFile && session.FilePath is { } original)
             {
-                if (config.WriteToOriginalFile && session.FilePath is not null)
-                {
-                    DocumentFile.Save(snapshot, session.FilePath, cancellation.Token);
-                    return true;
-                }
-
-                string? dir = RecoveryDirectoryFor(session, config);
-                if (dir is null) return false;
-
-                string path = Path.Combine(dir, $"{DateTime.UtcNow:yyyyMMdd-HHmmss}{DocumentFile.Extension}");
-                DocumentFile.Save(snapshot, path, cancellation.Token);
-                cancellation.Token.ThrowIfCancellationRequested();
-                Prune(dir, config.KeepVersions);
-                return true;
-            });
-
-            if (wrote && !_disposed && !cancellation.IsCancellationRequested)
-            {
-                session.MarkAutosaved();
-                Saved?.Invoke(session.DisplayName);
+                await Task.Run(() => DocumentFile.Save(snapshot, original, cancellation.Token));
             }
+            else
+            {
+                if (RecoveryStore.Current is not { } store) return false;
+                AutosaveRecovery.MarkActive(session.SessionId);
+                lock (_ownedSessions) _ownedSessions.Add(session.SessionId);
+                await store.SaveAsync(session.SessionId, snapshot, config.KeepVersions, cancellation.Token);
+            }
+
+            if (_disposed || cancellation.IsCancellationRequested) return false;
+            session.MarkAutosaved();
+            _failureReported = false;
+            Saved?.Invoke(session.DisplayName);
+            return true;
         }
-        catch { /* autosave failing must never interrupt the user's actual work */ }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            // Autosave failing must never interrupt the user's actual work, but it must not stay
+            // secret either: with a full disk the user would otherwise believe they are covered.
+            CrashGuard.Log("autosave", ex);
+            if (!_disposed && !_failureReported)
+            {
+                _failureReported = true;
+                try { Failed?.Invoke(ex.Message); } catch { /* a status bar must not undo the rescue */ }
+            }
+            return false;
+        }
         finally
         {
             if (ReferenceEquals(_saveCancellation, cancellation)) _saveCancellation = null;
             cancellation.Dispose();
             _saving = false;
-        }
-    }
-
-    private static string? RecoveryDirectoryFor(DocumentSession session, AutosaveSettings config)
-    {
-        string? root = config.RecoveryDirectory ?? AppPaths.RecoveryDirectory;
-        if (root is null) return null;
-
-        string dir = Path.Combine(root, session.SessionId);
-        Directory.CreateDirectory(dir);
-        return dir;
-    }
-
-    private static void Prune(string dir, int keep)
-    {
-        if (keep <= 0) return;
-
-        var files = Directory.EnumerateFiles(dir, "*" + DocumentFile.Extension)
-            .OrderByDescending(f => f)
-            .Skip(keep);
-        foreach (string file in files)
-        {
-            try { File.Delete(file); } catch { /* best-effort cleanup */ }
         }
     }
 
@@ -157,50 +151,23 @@ public sealed class AutosaveService : IDisposable
         _timer?.Stop();
         _timer = null;
         _saveCancellation?.Cancel();
+        lock (_ownedSessions)
+        {
+            foreach (string id in _ownedSessions) AutosaveRecovery.MarkInactive(id);
+            _ownedSessions.Clear();
+        }
     }
 }
 
-/// <summary>Recovery snapshots left behind by a previous run, offered back to the user at startup.</summary>
-public sealed record RecoveryEntry(string SessionId, string Path, DateTime WrittenUtc);
-
+/// <summary>
+/// Which documents of this process are still open. A snapshot belonging to one of them is live
+/// work, not something to offer back as "recovered".
+/// </summary>
 public static class AutosaveRecovery
 {
-    /// <summary>The newest snapshot per session folder, newest session first. Empty when there is none.</summary>
-    public static IReadOnlyList<RecoveryEntry> FindAll()
-    {
-        string? root = AppPaths.RecoveryDirectory;
-        if (root is null || !Directory.Exists(root)) return Array.Empty<RecoveryEntry>();
+    private static readonly HashSet<string> Active = new(StringComparer.Ordinal);
 
-        var entries = new List<RecoveryEntry>();
-        foreach (string sessionDir in Directory.EnumerateDirectories(root))
-        {
-            string? newest = Directory.EnumerateFiles(sessionDir, "*" + DocumentFile.Extension)
-                .OrderByDescending(f => f)
-                .FirstOrDefault();
-            if (newest is null) continue;
-
-            entries.Add(new RecoveryEntry(Path.GetFileName(sessionDir), newest, File.GetLastWriteTimeUtc(newest)));
-        }
-        return entries.OrderByDescending(e => e.WrittenUtc).ToList();
-    }
-
-    /// <summary>Deletes every recovery snapshot for one session - call once its document is safely saved or discarded.</summary>
-    public static void Discard(string sessionId)
-    {
-        string? root = AppPaths.RecoveryDirectory;
-        if (root is null) return;
-
-        string dir = Path.Combine(root, sessionId);
-        try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); } catch { /* best-effort */ }
-    }
-
-    public static void DiscardAll()
-    {
-        string? root = AppPaths.RecoveryDirectory;
-        if (root is null || !Directory.Exists(root)) return;
-        foreach (string dir in Directory.EnumerateDirectories(root))
-        {
-            try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ }
-        }
-    }
+    public static void MarkActive(string sessionId) { lock (Active) Active.Add(sessionId); }
+    public static void MarkInactive(string sessionId) { lock (Active) Active.Remove(sessionId); }
+    public static bool IsActive(string sessionId) { lock (Active) return Active.Contains(sessionId); }
 }

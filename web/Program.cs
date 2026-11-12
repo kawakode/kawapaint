@@ -18,6 +18,11 @@ internal sealed partial class Program
         else
             KawaPaint.App.Core.SettingsStore.Current = new KawaPaint.App.Core.MemorySettingsStore();
 
+        // Autosave snapshots go to IndexedDB, and the page asks before it is closed with unsaved
+        // work. Without IndexedDB (some private modes) saving a snapshot fails and says so.
+        KawaPaint.App.Core.RecoveryStore.Current = new BrowserRecoveryStore();
+        KawaPaint.App.App.UnsavedChangesChanged = BrowserRecoveryStore.ReportUnsavedChanges;
+
         // A phone or tablet browser gets the touch interface the Android app uses, chosen the
         // same way (by the screen's shorter side); a mouse-driven browser keeps the desktop one.
         // CSS pixels are density-independent, like Android's dp.

@@ -1,4 +1,5 @@
 import { dotnet } from './_framework/dotnet.js'
+import { recovery } from './recovery.js'
 
 const is_browser = typeof window != "undefined";
 if (!is_browser) throw new Error(`Expected to be running in a browser`);
@@ -35,7 +36,9 @@ try {
         device: {
             isTouchFirst: () => globalThis.matchMedia("(pointer: coarse)").matches,
             smallestScreenWidth: () => Math.min(globalThis.screen.width, globalThis.screen.height)
-        }
+        },
+        // Autosave snapshots and the "unsaved changes" prompt (see recovery.js).
+        recovery
     });
 
     const config = dotnetRuntime.getConfig();

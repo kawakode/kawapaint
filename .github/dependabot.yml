@@ -11,9 +11,8 @@ updates:
     open-pull-requests-limit: 5
     groups:
       # Avalonia pins the SkiaSharp and HarfBuzzSharp versions it was built against, so the
-      # rendering stack moves as one. KawaPaint.Engine's own SkiaSharp reference must stay on
-      # the version Avalonia.Skia asks for, or the engine is tested against another Skia than
-      # the one the apps ship.
+      # rendering stack moves as one pull request. The browser smoke test in the Tests workflow
+      # is the one to watch on these: a SkiaSharp mismatch shows up there first.
       rendering:
         patterns:
           - "Avalonia*"

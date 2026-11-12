@@ -49,6 +49,32 @@
             <desktop:ExecutionAlias Alias="kawapaint.exe" />
           </uap3:AppExecutionAlias>
         </uap3:Extension>
+        <!-- "Open with" and double-click. A packaged desktop app receives the file path as its
+             first argument, which App.StartupFile opens. Projects are KawaPaint's own type;
+             for images it is only offered as one of the choices, never forced as the default. -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="kawapaint-project">
+            <uap:DisplayName>KawaPaint project</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.kwp</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="kawapaint-image">
+            <uap:SupportedFileTypes>
+              <uap:FileType>.png</uap:FileType>
+              <uap:FileType>.jpg</uap:FileType>
+              <uap:FileType>.jpeg</uap:FileType>
+              <uap:FileType>.bmp</uap:FileType>
+              <uap:FileType>.gif</uap:FileType>
+              <uap:FileType>.webp</uap:FileType>
+              <uap:FileType>.ico</uap:FileType>
+              <uap:FileType>.jp2</uap:FileType>
+              <uap:FileType>.jxl</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
       </Extensions>
     </Application>
   </Applications>

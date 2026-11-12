@@ -1,0 +1,34 @@
+# Weekly dependency updates, grouped so that packages which must move together arrive in one
+# pull request: the Tests workflow then says whether the whole set still builds and passes.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    # The solution at the root lists every project, heads included.
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Avalonia pins the SkiaSharp and HarfBuzzSharp versions it was built against, so the
+      # rendering stack moves as one pull request. The browser smoke test in the Tests workflow
+      # is the one to watch on these: a SkiaSharp mismatch shows up there first.
+      rendering:
+        patterns:
+          - "Avalonia*"
+          - "SkiaSharp*"
+          - "HarfBuzzSharp*"
+      tests:
+        patterns:
+          - "xunit*"
+          - "Microsoft.NET.Test.Sdk"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns:
+          - "*"

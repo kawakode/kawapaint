@@ -4,7 +4,7 @@
 | --- | --- |
 | macOS (Apple Silicon) | `KawaPaint-<version>-osx-arm64.dmg` |
 | Windows (x64) | `KawaPaint-<version>-win-x64.zip` |
-| Linux (x64) | `KawaPaint-<version>-linux-x64.zip` |
+| Linux (x64) | `KawaPaint-<version>-linux-x64.AppImage` (or the `.zip`) |
 
 The builds are self-contained: no .NET runtime is needed.
 
@@ -26,3 +26,9 @@ Alternatively, in Terminal: `xattr -dr com.apple.quarantine /Applications/KawaPa
 Windows SmartScreen may warn about an unknown publisher: click **More info → Run anyway**.
 The Microsoft Store version does not show this warning.
 
+### Linux
+
+Make the AppImage executable, then run it: `chmod +x KawaPaint-*.AppImage && ./KawaPaint-*.AppImage`
+(or tick "Allow executing file as program" in the file's properties). A tool such as
+AppImageLauncher or Gear Lever adds it to the application menu and to "Open with".
+JPEG XL and JPEG 2000 need the system's `libjxl` and `libopenjp2` packages.

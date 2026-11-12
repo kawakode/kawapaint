@@ -1,0 +1,5 @@
+#!/bin/sh
+# Entry point of the AppImage: starts the self-contained build that sits inside it. Arguments
+# (a file to open, or the batch options --script / --preset) are passed straight through.
+here=$(dirname "$(readlink -f "$0")")
+exec "$here/usr/lib/kawapaint/KawaPaint.Linux" "$@"

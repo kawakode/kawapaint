@@ -28,6 +28,63 @@
     <true/>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <!-- "Open With" and double-click. Finder hands the file to the running app, which receives
+         it through Avalonia's file activation (MainView.OnAppActivated). KawaPaint owns its
+         project type; for images it is one of the choices, never the forced default. -->
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>KawaPaint project</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>zip.kawa.paint.project</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Image</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.png</string>
+                <string>public.jpeg</string>
+                <string>com.microsoft.bmp</string>
+                <string>com.compuserve.gif</string>
+                <string>org.webmproject.webp</string>
+                <string>com.microsoft.ico</string>
+                <string>public.jpeg-2000</string>
+                <string>public.jpeg-xl</string>
+            </array>
+        </dict>
+    </array>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>zip.kawa.paint.project</string>
+            <key>UTTypeDescription</key>
+            <string>KawaPaint project</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>kwp</string>
+                </array>
+            </dict>
+        </dict>
+    </array>
     <key>NSHumanReadableCopyright</key>
     <string>KawaPaint contributors. MIT License.</string>
 </dict>

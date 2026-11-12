@@ -26,6 +26,10 @@ jobs:
           - platform: windows
             os: windows-latest
             app: win/KawaPaint.Win.csproj
+          # Apple Silicon, the architecture the macOS release targets.
+          - platform: macos
+            os: macos-15
+            app: mac/KawaPaint.Mac.csproj
 
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30

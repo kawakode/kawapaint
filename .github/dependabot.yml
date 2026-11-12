@@ -1,0 +1,35 @@
+# Weekly dependency updates, grouped so that packages which must move together arrive in one
+# pull request: the Tests workflow then says whether the whole set still builds and passes.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    # The solution at the root lists every project, heads included.
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Avalonia pins the SkiaSharp and HarfBuzzSharp versions it was built against, so the
+      # rendering stack moves as one. KawaPaint.Engine's own SkiaSharp reference must stay on
+      # the version Avalonia.Skia asks for, or the engine is tested against another Skia than
+      # the one the apps ship.
+      rendering:
+        patterns:
+          - "Avalonia*"
+          - "SkiaSharp*"
+          - "HarfBuzzSharp*"
+      tests:
+        patterns:
+          - "xunit*"
+          - "Microsoft.NET.Test.Sdk"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns:
+          - "*"

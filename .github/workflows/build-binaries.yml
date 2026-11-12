@@ -144,6 +144,33 @@ jobs:
           # Already compressed (UDZO); zipping it again only costs time.
           compression-level: 0
 
+      # Single-file Linux package: download, mark executable, run. Built on every run so it can
+      # be tried from the workflow artifacts before tagging; the zip stays for those who prefer it.
+      - name: Build Linux AppImage
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          version="0.0.${{ github.run_number }}"
+          name="KawaPaint-${{ matrix.rid }}.AppImage"
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            version="${{ github.ref_name }}"
+            name="KawaPaint-${{ github.ref_name }}-${{ matrix.rid }}.AppImage"
+          fi
+          linux/appimage/build-appimage.sh publish/${{ matrix.rid }} "$version" "$name"
+          # The packed app really starts: the batch CLI answers through the AppImage entry point.
+          "./$name" --appimage-extract-and-run --script /nonexistent.kawa 2>&1 | tee appimage-run.log || true
+          grep -q "^kawapaint:" appimage-run.log
+          echo "EXTRA_RELEASE_ASSET=$name" >> "$GITHUB_ENV"
+
+      - name: Upload AppImage artifact
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: KawaPaint-${{ matrix.rid }}-appimage
+          path: ${{ env.EXTRA_RELEASE_ASSET }}
+          # Already compressed (squashfs); zipping it again only costs time.
+          compression-level: 0
+
       - name: Package Linux/Windows release archive
         if: startsWith(github.ref, 'refs/tags/') && matrix.platform != 'macos'
         shell: pwsh
@@ -163,4 +190,6 @@ jobs:
         run: |
           tag="${{ github.ref_name }}"
           gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --generate-notes --notes-file .github/release-notes.md || true
-          gh release upload "$tag" "$RELEASE_ASSET" --clobber
+          assets=("$RELEASE_ASSET")
+          if [[ -n "${EXTRA_RELEASE_ASSET:-}" ]]; then assets+=("$EXTRA_RELEASE_ASSET"); fi
+          gh release upload "$tag" "${assets[@]}" --clobber

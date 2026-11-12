@@ -63,6 +63,29 @@ dotnet publish mac/KawaPaint.Mac.csproj -c Release -r osx-arm64 --self-contained
 mac/dmg/build-dmg.sh publish/osx-arm64 1.0.0 KawaPaint.dmg
 ```
 
+## Installing on Linux
+
+Download `KawaPaint-<version>-linux-x64.AppImage` from the
+[releases page](https://github.com/kawakode/kawapaint/releases), make it executable and run it:
+
+```sh
+chmod +x KawaPaint-*-linux-x64.AppImage
+./KawaPaint-*-linux-x64.AppImage
+```
+
+It is a single self-contained file: nothing is installed and no .NET runtime is needed. A tool
+such as AppImageLauncher or Gear Lever adds it to the application menu and offers it under
+"Open with" for images and `.kwp` projects. JPEG XL and JPEG 2000 use the system's `libjxl` and
+`libopenjp2` packages. The same build is also published as a plain `.zip`.
+
+The AppImage is built by `linux/appimage/build-appimage.sh` in the release workflow. To build it
+yourself:
+
+```sh
+dotnet publish linux/KawaPaint.Linux.csproj -c Release -r linux-x64 --self-contained true -o publish/linux-x64
+linux/appimage/build-appimage.sh publish/linux-x64 1.0.0 KawaPaint.AppImage
+```
+
 ## Docker
 
 The web image is served at `/` by default:

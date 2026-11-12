@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Declares the KawaPaint project type, so desktops that integrate the AppImage can show
+     .kwp files with their own name and open them in KawaPaint. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-kawapaint-project">
+    <comment>KawaPaint project</comment>
+    <comment xml:lang="fr">Projet KawaPaint</comment>
+    <glob pattern="*.kwp"/>
+  </mime-type>
+</mime-info>

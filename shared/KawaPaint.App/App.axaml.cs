@@ -28,6 +28,14 @@ public partial class App : Application
     /// </summary>
     public static string? StartupFile { get; set; }
 
+    /// <summary>
+    /// Raised by a head that knows the app just left the foreground in a way the framework does
+    /// not report (a browser tab being hidden). The view takes a recovery snapshot.
+    /// </summary>
+    public static event Action? SentToBackground;
+
+    public static void RaiseSentToBackground() => SentToBackground?.Invoke();
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);

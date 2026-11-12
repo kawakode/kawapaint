@@ -1,5 +1,5 @@
 import { dotnet } from './_framework/dotnet.js'
-import { recovery } from './recovery.js'
+import { recovery, onPageHidden } from './recovery.js'
 
 const is_browser = typeof window != "undefined";
 if (!is_browser) throw new Error(`Expected to be running in a browser`);
@@ -42,6 +42,15 @@ try {
     });
 
     const config = dotnetRuntime.getConfig();
+
+    // Lets recovery.js ask the app for a snapshot when the tab is hidden.
+    // Never worth failing the start over: without it snapshots are only taken on the timer.
+    try {
+        const exports = await dotnetRuntime.getAssemblyExports(config.mainAssemblyName);
+        onPageHidden(() => exports.KawaPaint.Web.BrowserRecoveryStore.PageHidden());
+    } catch (err) {
+        console.warn("KawaPaint: no snapshot when the tab is hidden:", err);
+    }
 
     await dotnetRuntime.runMain(config.mainAssemblyName, [globalThis.location.href]);
 } catch (err) {

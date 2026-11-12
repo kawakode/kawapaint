@@ -72,7 +72,9 @@ jobs:
 
   web:
     name: Build (web)
-    runs-on: ubuntu-latest
+    # Pinned: the browser test installs Chromium through Playwright, which supports named Ubuntu
+    # releases only and refused ubuntu-latest once it moved to 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
@@ -86,5 +88,47 @@ jobs:
           cache: true
           cache-dependency-path: '**/*.csproj'
 
-      - name: Build web app
-        run: dotnet build web/KawaPaint.Web.csproj -c Release
+      # Published the way the Docker image is, so the trimmed output that users get is what runs.
+      - name: Publish web app
+        run: |
+          dotnet workload install wasm-tools
+          dotnet publish web/KawaPaint.Web.csproj -c Release -o publish/web
+
+      # Loads the page in Chromium, draws a stroke and checks what only a real browser shows:
+      # the app starts, the autosave snapshot reaches IndexedDB, the page asks before closing
+      # with unsaved work, and the snapshot is restored on the next visit.
+      - name: Smoke-test in a browser
+        working-directory: web/tests
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.55.0
+          npx playwright install --with-deps chromium
+          node smoke.mjs ../../publish/web/wwwroot
+
+      - name: Upload browser screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-smoke-screenshots
+          path: web/tests/screenshots
+          if-no-files-found: ignore
+
+  # The Android head has no tests of its own yet; building it catches the breakage shared code
+  # causes there (a missing platform guard, an API the mobile target lacks) before it is merged.
+  android:
+    name: Build (android)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build Android app
+        run: |
+          dotnet workload install android
+          dotnet build android/KawaPaint.Android.csproj -c Release -p:AndroidSdkDirectory="$ANDROID_SDK_ROOT"

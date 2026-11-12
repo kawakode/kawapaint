@@ -68,6 +68,10 @@ internal sealed partial class BrowserRecoveryStore : IRecoveryStore
         try { SetUnsaved(unsaved); } catch { /* the warning is a courtesy, never a failure */ }
     }
 
+    /// <summary>Called by recovery.js when the tab is hidden: the app takes a snapshot now.</summary>
+    [JSExport]
+    internal static void PageHidden() => KawaPaint.App.App.RaiseSentToBackground();
+
     [JSImport("recovery.save", "main.js")]
     private static partial Task Save(string sessionId, string data);
 

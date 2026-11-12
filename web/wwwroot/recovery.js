@@ -74,6 +74,15 @@ globalThis.addEventListener("beforeunload", event => {
     event.returnValue = "";
 });
 
+// A hidden tab may be discarded by the browser without another word, so going hidden is the
+// last sure moment to take a snapshot. main.js points this at the app once it is running.
+let pageHidden = null;
+globalThis.document.addEventListener("visibilitychange", () => {
+    if (globalThis.document.visibilityState !== "hidden" || !pageHidden) return;
+    try { pageHidden(); } catch (error) { console.error("KawaPaint: snapshot on hide failed:", error); }
+});
+export function onPageHidden(callback) { pageHidden = callback; }
+
 export const recovery = {
     save: (sessionId, data) => transact("readwrite", (meta, store) => {
         meta.put({ tab: tabId, written: Date.now() }, sessionId);

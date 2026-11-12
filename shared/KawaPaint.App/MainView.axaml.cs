@@ -280,6 +280,8 @@ public partial class MainView : UserControl
         // kept alive by it.
         AttachedToVisualTree += (_, _) => CrashGuard.Reported += OnUnhandledError;
         DetachedFromVisualTree += (_, _) => CrashGuard.Reported -= OnUnhandledError;
+        AttachedToVisualTree += (_, _) => App.SentToBackground += OnSentToBackground;
+        DetachedFromVisualTree += (_, _) => App.SentToBackground -= OnSentToBackground;
 
         Avalonia.Controls.ApplicationLifetimes.IActivatableLifetime? activatable = null;
         AttachedToVisualTree += (_, _) =>
@@ -304,6 +306,22 @@ public partial class MainView : UserControl
         // Deferred: on desktop this needs a Window to own the dialog, which is only available
         // once this view is attached (OwnerWindow is null during the constructor).
         Loaded += OnFirstLoadedCheckRecovery;
+    }
+
+    /// <summary>
+    /// Reports a failed open, save or export where it cannot be missed: a dialog, plus the status
+    /// bar as before. Not awaited - the caller has nothing left to do but return.
+    /// </summary>
+    private void ReportFailure(string summary, string detail)
+    {
+        StatusText.Text = summary + ": " + detail;
+        _ = ShowFailureAsync(summary, detail);
+    }
+
+    private async Task ShowFailureAsync(string summary, string detail)
+    {
+        try { await ShowDialogAsync(new MessageDialog(summary, detail)); }
+        catch (Exception ex) { CrashGuard.Log("dialog", ex); }
     }
 
     private void OnUnhandledError(Exception exception)
@@ -360,7 +378,7 @@ public partial class MainView : UserControl
         catch (Exception ex)
         {
             // The snapshot stays where it is: a failed restore must never be what destroys it.
-            StatusText.Text = $"Recovery failed: {ex.Message} The autosaved work was kept and will be offered again.";
+            ReportFailure("Recovery failed", ex.Message + " The autosaved work was kept and will be offered again.");
             return;
         }
 
@@ -390,6 +408,8 @@ public partial class MainView : UserControl
     // A phone or tablet can end a backgrounded app without warning, and a browser tab that is
     // hidden may never come back, so the moment the app leaves the foreground is the last sure
     // chance to take a snapshot.
+    private void OnSentToBackground() => _ = _autosave?.SaveNowAsync();
+
     private void OnAppDeactivated(object? sender, Avalonia.Controls.ApplicationLifetimes.ActivatedEventArgs e)
     {
         if (e.Kind == Avalonia.Controls.ApplicationLifetimes.ActivationKind.Background)
@@ -588,7 +608,7 @@ public partial class MainView : UserControl
         }
         catch (Exception ex)
         {
-            StatusText.Text = "Open failed: " + ex.Message;
+            ReportFailure("Open failed", ex.Message);
             return false;
         }
     }
@@ -640,7 +660,7 @@ public partial class MainView : UserControl
                 file = await StorageProvider.TryGetFileFromPathAsync(new Uri(localPath));
         }
         catch { /* reported just below */ }
-        if (file is null) { StatusText.Text = "Couldn't open: " + (localPath ?? name); return false; }
+        if (file is null) { ReportFailure("Open failed", "Couldn't open " + (localPath ?? name)); return false; }
         return await OpenProjectFileAsync(file);
     }
 
@@ -745,7 +765,7 @@ public partial class MainView : UserControl
         }
         catch (Exception ex)
         {
-            StatusText.Text = "Open project failed: " + ex.Message;
+            ReportFailure("Open project failed", ex.Message);
             return false;
         }
     }
@@ -863,7 +883,7 @@ public partial class MainView : UserControl
         }
         catch (Exception ex)
         {
-            StatusText.Text = "Save failed: " + ex.Message;
+            ReportFailure("Save failed", ex.Message);
             return false;
         }
     }
@@ -956,7 +976,7 @@ public partial class MainView : UserControl
         }
         catch (Exception ex)
         {
-            StatusText.Text = "Save project failed: " + ex.Message;
+            ReportFailure("Save project failed", ex.Message);
             return false;
         }
     }
@@ -1034,7 +1054,7 @@ public partial class MainView : UserControl
         }
         catch (Exception ex)
         {
-            StatusText.Text = "Export failed: " + ex.Message;
+            ReportFailure("Export failed", ex.Message);
         }
     }
 
@@ -2305,7 +2325,7 @@ public partial class MainView : UserControl
         }
         catch (Exception ex)
         {
-            StatusText.Text = "Open failed: " + ex.Message;
+            ReportFailure("Open failed", ex.Message);
         }
     }
 

@@ -102,7 +102,7 @@ public partial class MainView
     /// </summary>
     private static bool IsDialogCommand(string id) => id switch
     {
-        "file.new" or "file.open" or "file.openProject" or "file.saveProject"
+        "file.new" or "file.open" or "file.openProject" or "file.saveProject" or "file.saveProjectAs"
             or "file.export" or "file.linkGitProject" => true,
         "edit.paste" or "edit.pasteIntoNewLayer" or "edit.pasteIntoNewImage" => true,
         _ => false

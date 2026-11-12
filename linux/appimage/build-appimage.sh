@@ -62,7 +62,8 @@ chmod +x "$output"
 # Sanity check: the image unpacks without FUSE and holds a launchable app.
 check="$work/check"
 mkdir "$check"
-(cd "$check" && "$(realpath "$output")" --appimage-extract >/dev/null)
+packed=$(realpath "$output")
+(cd "$check" && "$packed" --appimage-extract >/dev/null)
 test -x "$check/squashfs-root/AppRun"
 test -x "$check/squashfs-root/usr/lib/kawapaint/KawaPaint.Linux"
 test -f "$check/squashfs-root/kawapaint.desktop"

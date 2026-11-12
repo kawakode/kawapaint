@@ -544,7 +544,9 @@ internal static class UiSmokeTest
                 Pump();
                 var colors = BoundsOf("ColorsBorder");
                 Assert(PanelBorder("ColorsBorder").IsEffectivelyVisible && !PanelBorder("ColorsBorder").GetVisualAncestors().Contains(floating)
-                    && colors.Bottom > view.Bounds.Height - 2, "the Colors panel did not dock at the bottom: " + colors);
+                    // Above the status bar, across the width the tool rail leaves.
+                    && colors.Bottom > view.Bounds.Height - 60 && colors.Width > view.Bounds.Width / 2,
+                    "the Colors panel did not dock at the bottom: " + colors);
                 Screenshot(window, "desktop-default");
             });
         }

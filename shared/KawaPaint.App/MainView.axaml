@@ -394,8 +394,8 @@
                         <Setter Property="VerticalAlignment" Value="Center" />
                     </Style>
                 </WrapPanel.Styles>
+                <!-- Quick foreground colors. No caption: the swatches speak for themselves. -->
                 <StackPanel x:Name="FgGroup" Classes="group">
-                    <TextBlock Text="Fg:" />
                     <Button Classes="swatch" Tag="#000000" Click="OnColor" Background="Black" Width="22" Height="22" />
                     <Button Classes="swatch" Tag="#FFFFFF" Click="OnColor" Background="White" Width="22" Height="22" />
                     <Button Classes="swatch" Tag="#E01010" Click="OnColor" Background="#E01010" Width="22" Height="22" />

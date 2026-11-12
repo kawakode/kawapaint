@@ -1785,7 +1785,10 @@ public partial class MainView : UserControl
         {
             IconName = "PanelColors",
             DockedChrome = new Control[] { ColorsTitle, ColorsHeader },
-            DefaultPlace = PanelPlace.Bottom,
+            // Hidden by default: the color wheel covers picking a color. View > Panels brings the
+            // strip back docked along the bottom, where it used to be.
+            DefaultPlace = PanelPlace.Hidden,
+            HomeDock = PanelPlace.Bottom,
             DefaultFloatX = 90,
             DefaultFloatY = 420,
             MinWidth = 220,
@@ -1795,10 +1798,15 @@ public partial class MainView : UserControl
         {
             IconName = "PanelColorWheel",
             DockedChrome = new Control[] { ColorWheelHeader },
-            DefaultPlace = PanelPlace.Right,
+            // Floating by default in the top-right corner, just left of the Layers panel; its
+            // dock button sends it to the right side.
+            DefaultPlace = PanelPlace.Floating,
+            HomeDock = PanelPlace.Right,
             DefaultDockSize = 190,
-            DefaultFloatX = 520,
-            DefaultFloatY = 60,
+            DefaultFloatFromRight = true,
+            DefaultFloatX = 12 + 230 + 8,
+            DefaultFloatY = 90,
+            DefaultFloatWidth = 200,
             MinWidth = 170,
             MinHeight = 240
         });
@@ -1806,10 +1814,15 @@ public partial class MainView : UserControl
         {
             IconName = "PanelLayers",
             DockedChrome = new Control[] { LayersHeader },
-            DefaultPlace = PanelPlace.Right,
+            // Floating by default against the top-right corner; docks to the right side.
+            DefaultPlace = PanelPlace.Floating,
+            HomeDock = PanelPlace.Right,
             DefaultDockSize = 220,
-            DefaultFloatX = 760,
-            DefaultFloatY = 60,
+            DefaultFloatFromRight = true,
+            DefaultFloatX = 12,
+            DefaultFloatY = 90,
+            DefaultFloatWidth = 230,
+            DefaultFloatHeight = 380,
             MinWidth = 180,
             MinHeight = 200
         });
@@ -1828,7 +1841,9 @@ public partial class MainView : UserControl
         {
             IconName = "PanelTimeline",
             DockedChrome = new Control[] { TimelineHeader },
-            DefaultPlace = PanelPlace.Bottom,
+            // Hidden until needed (View > Panels or its toolbar toggle), then docked at the bottom.
+            DefaultPlace = PanelPlace.Hidden,
+            HomeDock = PanelPlace.Bottom,
             DefaultDockSize = 150,
             DefaultFloatX = 260,
             DefaultFloatY = 380,

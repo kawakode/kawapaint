@@ -52,6 +52,7 @@ public sealed class PanelManager
         {
             if (e.Property == Visual.BoundsProperty)
             {
+                ResolvePendingFloats();
                 ClampFloatingHosts();
                 SizeSheets();
             }
@@ -193,8 +194,39 @@ public sealed class PanelManager
         host.Attach(descriptor.Content);
         host.Root.Width = placement.FloatWidth;
         host.Root.Height = placement.FloatHeight;
-        host.Root.Margin = ClampToLayer(placement.FloatX, placement.FloatY);
+        ResolveFloatX(descriptor, placement);
+        // Still unresolved: the window has no width yet. Park it at the left edge for the moment;
+        // the first Bounds change moves it into place.
+        host.Root.Margin = ClampToLayer(double.IsNaN(placement.FloatX) ? 0 : placement.FloatX, placement.FloatY);
         _floatingLayer.Children.Add(host.Root);
+    }
+
+    /// <summary>
+    /// Turns a right-anchored default position (FloatX still NaN, see
+    /// <see cref="PanelDescriptor.DefaultFloatFromRight"/>) into a left edge once the floating
+    /// layer has a width. The result is stored, so it is saved and kept like a dragged position.
+    /// </summary>
+    private void ResolveFloatX(PanelDescriptor descriptor, PanelPlacement placement)
+    {
+        double layerWidth = _floatingLayer.Bounds.Width;
+        if (!double.IsNaN(placement.FloatX) || layerWidth <= 0) return;
+
+        double width = double.IsNaN(placement.FloatWidth) ? descriptor.MinWidth : placement.FloatWidth;
+        double offset = descriptor.DefaultFloatFromRight ? descriptor.DefaultFloatX : 0;
+        placement.FloatX = Math.Max(0, layerWidth - width - offset);
+    }
+
+    /// <summary>Places floating panels whose right-anchored default was waiting on a window width.</summary>
+    private void ResolvePendingFloats()
+    {
+        foreach (var descriptor in _panels)
+        {
+            if (!_hosts.TryGetValue(descriptor.Id, out var host) || host.Root.Parent is null) continue;
+            var placement = Layout.For(descriptor);
+            if (!double.IsNaN(placement.FloatX)) continue;
+            ResolveFloatX(descriptor, placement);
+            if (!double.IsNaN(placement.FloatX)) host.Root.Margin = ClampToLayer(placement.FloatX, placement.FloatY);
+        }
     }
 
     private void PlaceSheet(PanelDescriptor descriptor)

@@ -37,6 +37,8 @@ public sealed class PanelPlacement
     /// <summary>Last docked side, so the float toggle has somewhere to send the panel back to.</summary>
     public PanelPlace LastDock { get; set; } = PanelPlace.Left;
 
+    /// <summary>Left edge of the floating panel. NaN until a right-anchored default has been
+    /// resolved against the window width (see PanelDescriptor.DefaultFloatFromRight).</summary>
     public double FloatX { get; set; } = 60;
     public double FloatY { get; set; } = 60;
 
@@ -73,17 +75,21 @@ public sealed class WorkspaceLayout
     {
         if (Panels.TryGetValue(descriptor.Id, out var existing)) return existing;
 
+        bool isDockSide = descriptor.DefaultPlace is PanelPlace.Left or PanelPlace.Right
+            or PanelPlace.Top or PanelPlace.Bottom;
         var created = new PanelPlacement
         {
             Place = descriptor.DefaultPlace,
             // A panel that starts Hidden has no "shown" placement to remember yet - falling back
             // to Hidden here would make its very first toggle-visible a permanent no-op, since
-            // ToggleVisible restores to LastShown. Floating is always a safe first placement.
-            LastShown = descriptor.DefaultPlace == PanelPlace.Hidden ? PanelPlace.Floating : descriptor.DefaultPlace,
-            LastDock = descriptor.DefaultPlace is PanelPlace.Floating or PanelPlace.Hidden
-                ? PanelPlace.Left
+            // ToggleVisible restores to LastShown. Its home side, else Floating, is always safe.
+            LastShown = descriptor.DefaultPlace == PanelPlace.Hidden
+                ? descriptor.HomeDock ?? PanelPlace.Floating
                 : descriptor.DefaultPlace,
-            FloatX = descriptor.DefaultFloatX,
+            LastDock = descriptor.HomeDock ?? (isDockSide ? descriptor.DefaultPlace : PanelPlace.Left),
+            // NaN = "not placed yet": PanelManager puts it against the right edge once the window
+            // has a width to measure from.
+            FloatX = descriptor.DefaultFloatFromRight ? double.NaN : descriptor.DefaultFloatX,
             FloatY = descriptor.DefaultFloatY,
             FloatWidth = descriptor.DefaultFloatWidth,
             FloatHeight = descriptor.DefaultFloatHeight,

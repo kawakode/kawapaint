@@ -37,13 +37,32 @@ public sealed class PanelDescriptor
 
     public PanelPlace DefaultPlace { get; init; } = PanelPlace.Left;
 
+    /// <summary>
+    /// The side the panel docks to when it is not docked to start with: where the dock button of
+    /// a panel that starts floating sends it, and where a panel that starts hidden first shows up.
+    /// Null keeps the old behaviour - dock left, and a hidden panel's first appearance floats.
+    /// </summary>
+    public PanelPlace? HomeDock { get; init; }
+
     /// <summary>Width when docked left/right, height when docked top/bottom. NaN sizes to content.</summary>
     public double DefaultDockSize { get; init; } = double.NaN;
 
+    /// <summary>
+    /// With <see cref="DefaultFloatFromRight"/>, the gap between the panel's right edge and the
+    /// window's instead of the distance from the left edge.
+    /// </summary>
     public double DefaultFloatX { get; init; } = 60;
     public double DefaultFloatY { get; init; } = 60;
     public double DefaultFloatWidth { get; init; } = double.NaN;
     public double DefaultFloatHeight { get; init; } = double.NaN;
+
+    /// <summary>
+    /// Measure <see cref="DefaultFloatX"/> from the right edge, so a panel that starts floating
+    /// sits in the top-right corner whatever the window size. The position is resolved once the
+    /// window has a size (see PanelManager.ResolvePendingFloats) and then saved as usual; set
+    /// <see cref="DefaultFloatWidth"/> too, since the panel's width decides where it starts.
+    /// </summary>
+    public bool DefaultFloatFromRight { get; init; }
 
     /// <summary>
     /// Floor for interactive resizing. The effective minimum is the larger of this and the

@@ -34,10 +34,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
           cache: true
@@ -62,7 +62,7 @@ jobs:
           dotnet publish ${{ matrix.project }} -c Release -r ${{ matrix.rid }} --self-contained true -o publish/${{ matrix.rid }} "${version_args[@]}"
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: KawaPaint-${{ matrix.rid }}
           path: publish/${{ matrix.rid }}
@@ -88,7 +88,7 @@ jobs:
 
       - name: Upload MSIX artifact
         if: matrix.platform == 'windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: KawaPaint-${{ matrix.rid }}-msix
           path: KawaPaint-${{ matrix.rid }}.msix
@@ -137,7 +137,7 @@ jobs:
 
       - name: Upload DMG artifact
         if: matrix.platform == 'macos'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: KawaPaint-${{ matrix.rid }}-dmg
           path: ${{ env.RELEASE_ASSET }}
@@ -167,7 +167,7 @@ jobs:
 
       - name: Upload AppImage artifact
         if: matrix.platform == 'linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: KawaPaint-${{ matrix.rid }}-appimage
           path: ${{ env.EXTRA_RELEASE_ASSET }}

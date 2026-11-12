@@ -4,7 +4,7 @@
 #
 #   linux/appimage/build-appimage.sh <publish-dir> <version> <output.AppImage>
 #
-# <version> may carry a leading "v" (a tag name).
+# <version> may carry a leading "v" (a tag name). Needs curl and desktop-file-utils.
 #
 # The desktop entry inside declares the file types KawaPaint opens, so tools that integrate
 # AppImages into the desktop (AppImageLauncher, Gear Lever) offer it under "Open with".
@@ -21,6 +21,8 @@ trap 'rm -rf "$work"' EXIT
 
 version=${version#[vV]}
 
+command -v desktop-file-validate >/dev/null || {
+    echo "desktop-file-validate is needed by appimagetool (package desktop-file-utils)." >&2; exit 1; }
 test -f "$publish_dir/KawaPaint.Linux" || { echo "No KawaPaint.Linux in $publish_dir" >&2; exit 1; }
 
 app="$work/KawaPaint.AppDir"

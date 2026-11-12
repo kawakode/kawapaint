@@ -156,6 +156,9 @@ jobs:
             version="${{ github.ref_name }}"
             name="KawaPaint-${{ github.ref_name }}-${{ matrix.rid }}.AppImage"
           fi
+          # appimagetool checks the desktop entry with desktop-file-validate.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends desktop-file-utils
           linux/appimage/build-appimage.sh publish/${{ matrix.rid }} "$version" "$name"
           # The packed app really starts: the batch CLI answers through the AppImage entry point.
           "./$name" --appimage-extract-and-run --script /nonexistent.kawa 2>&1 | tee appimage-run.log || true

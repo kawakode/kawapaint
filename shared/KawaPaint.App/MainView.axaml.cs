@@ -408,7 +408,11 @@ public partial class MainView : UserControl
     /// Records that the document on screen matches what is on disk. Starts a new session when the
     /// document itself was replaced (New, Open), and marks the existing one saved otherwise.
     /// </summary>
-    private void SetClean(IStorageFile? file, string? displayName = null)
+    private void SetClean(IStorageFile? file) => SetCleanNamed(file, null);
+
+    /// <summary>As <see cref="SetClean"/>, naming a document that has no project file after the
+    /// image it came from (<paramref name="displayName"/>) instead of "untitled".</summary>
+    private void SetCleanNamed(IStorageFile? file, string? displayName)
     {
         _currentFile = file;
 
@@ -575,7 +579,7 @@ public partial class MainView : UserControl
             }
 
             Canvas.SetDocument(doc);
-            SetClean(null, name);   // imported image has no project file yet
+            SetCleanNamed(null, name);   // imported image has no project file yet
             _sourceImage = new SourceImage(name, localPath);
             StatusText.Text = frameCount == 1
                 ? $"{name} - {doc.Width}×{doc.Height}"
@@ -852,7 +856,7 @@ public partial class MainView : UserControl
             _sourceImageOptions = options;
             bool editedWhileSaving = !ReferenceEquals(Canvas.Document, saving)
                 || (_session?.EditCount ?? 0) != editsBefore;
-            SetClean(null, source.Name);
+            SetCleanNamed(null, source.Name);
             if (editedWhileSaving) MarkDirty();
             StatusText.Text = "Saved " + source.Name;
             return true;
@@ -1023,7 +1027,7 @@ public partial class MainView : UserControl
             bool unchangedSince = ReferenceEquals(Canvas.Document, exporting) && (_session?.EditCount ?? 0) == editsBefore;
             if (_currentFile is null && unchangedSince && CanSaveBackTo(exported, exporting))
             {
-                SetClean(null, file.Name);
+                SetCleanNamed(null, file.Name);
                 _sourceImage = exported;
                 _sourceImageOptions = options;
             }

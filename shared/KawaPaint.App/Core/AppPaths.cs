@@ -17,8 +17,9 @@ public static class AppPaths
     /// <summary>Autosave snapshots, kept until the user recovers or discards them.</summary>
     public static string? RecoveryDirectory => Combine("recovery");
 
-    /// <summary>Undo steps parked on disk. Scratch: nothing here survives the process.</summary>
-    public static string? HistorySpillDirectory => Combine("history-cache");
+    /// <summary>Undo steps parked on disk. Scratch: nothing here survives the process, and
+    /// each running copy of the app has its own directory (see <see cref="AppInstance"/>).</summary>
+    public static string? HistorySpillDirectory => AppInstance.Directory;
 
     /// <summary>Layout presets, palettes and other exportable user data.</summary>
     public static string? PresetsDirectory => Combine("presets");
@@ -44,18 +45,9 @@ public static class AppPaths
     }
 
     /// <summary>
-    /// Clears the undo spill cache. Called at startup: any files left there belong to a previous
-    /// run whose history is gone, so they are pure waste.
+    /// Clears the undo spill caches of copies of the app that are no longer running. Called at
+    /// startup: those files belong to a run whose history is gone, so they are pure waste. A copy
+    /// that is still running keeps its cache - deleting it broke that copy's Undo.
     /// </summary>
-    public static void ClearHistoryCache()
-    {
-        string? path = HistorySpillDirectory;
-        if (path is null) return;
-
-        try
-        {
-            foreach (string file in Directory.EnumerateFiles(path, "*.hst")) File.Delete(file);
-        }
-        catch { /* a locked cache file is not worth failing startup over */ }
-    }
+    public static void ClearHistoryCache() => AppInstance.RemoveStaleScratch();
 }

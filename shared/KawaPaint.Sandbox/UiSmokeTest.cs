@@ -37,6 +37,7 @@ internal static class UiSmokeTest
         Check("unhandled UI exceptions", UnhandledUiException);
         Check("paste growing the canvas", PasteGrowingCanvas);
         Check("layout preset rename", LayoutPresetRename);
+        Check("default desktop layout", DefaultDesktopLayout);
         Check("marching ants", MarchingAnts);
         Check("undo recomposites the changed area", PartialUndoComposite);
         Check("gesture backdrop", GestureBackdrop);
@@ -503,6 +504,57 @@ internal static class UiSmokeTest
             }
             finally { workspace.Layouts.Remove("Other"); }
         });
+    }
+
+    private static void DefaultDesktopLayout()
+    {
+        // A first launch: no saved Default layout yet. Whatever the run had saved is put back.
+        var workspace = SettingsService.Instance.Settings.Workspace;
+        string active = workspace.ActiveLayout;
+        workspace.ActiveLayout = "Default";
+        workspace.Layouts.Remove("Default", out var saved);
+        try
+        {
+            WithView(1100, 720, (view, window) =>
+            {
+                Assert(view.CurrentFormFactor == FormFactor.Desktop, "interface is " + view.CurrentFormFactor);
+                Border PanelBorder(string name) => view.FindControl<Border>(name)!;
+                Assert(!PanelBorder("ColorsBorder").IsEffectivelyVisible, "the Colors panel is shown");
+                Assert(!PanelBorder("TimelineBorder").IsEffectivelyVisible, "the Timeline panel is shown");
+
+                var floating = view.FindControl<Panel>("FloatingLayer")!;
+                Rect BoundsOf(string name) => new(PanelBorder(name).TranslatePoint(default, view)!.Value, PanelBorder(name).Bounds.Size);
+                foreach (var name in new[] { "ColorWheelBorder", "LayersBorder" })
+                    Assert(PanelBorder(name).IsEffectivelyVisible && PanelBorder(name).GetVisualAncestors().Contains(floating),
+                        name + " is not floating");
+                var wheel = BoundsOf("ColorWheelBorder");
+                var layers = BoundsOf("LayersBorder");
+                Assert(layers.Right > view.Bounds.Width - 40 && layers.Right <= view.Bounds.Width,
+                    $"layers are not in the top-right corner: {layers} in {view.Bounds.Size}");
+                Assert(wheel.Right <= layers.X && wheel.X > view.Bounds.Width / 3,
+                    $"the color wheel is not beside the layers: {wheel} / {layers}");
+                Assert(wheel.Bottom <= view.Bounds.Height && layers.Bottom <= view.Bounds.Height,
+                    $"a floating panel runs off the bottom: {wheel} / {layers}");
+
+                Assert(!view.FindControl<StackPanel>("FgGroup")!.GetLogicalDescendants().OfType<TextBlock>()
+                    .Any(t => t.Text == "Fg:"), "the Fg: caption is still in the options bar");
+
+                // Brought back from the toolbar, the hidden panels dock along the bottom as before.
+                view.FindControl<ToggleButton>("ToggleColors")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Pump();
+                var colors = BoundsOf("ColorsBorder");
+                Assert(PanelBorder("ColorsBorder").IsEffectivelyVisible && !PanelBorder("ColorsBorder").GetVisualAncestors().Contains(floating)
+                    && colors.Bottom > view.Bounds.Height - 2, "the Colors panel did not dock at the bottom: " + colors);
+                Screenshot(window, "desktop-default");
+            });
+        }
+        finally
+        {
+            workspace.Layouts.Remove("Default");
+            if (saved is not null) workspace.Layouts["Default"] = saved;
+            workspace.ActiveLayout = active;
+            SettingsService.Instance.Save();
+        }
     }
 
     private static void DialogLayout()
@@ -1499,12 +1551,19 @@ internal static class UiSmokeTest
         WithView(520, 700, (view, window) =>
         {
             var panel = view.FindControl<Border>("ColorsBorder")!;
+            // Hidden in the default layout: show it, or there would be no buttons to check.
+            var toggle = view.FindControl<ToggleButton>("ToggleColors")!;
+            bool shown = !panel.IsEffectivelyVisible;
+            if (shown) toggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump();
+            Assert(panel.IsEffectivelyVisible, "the Colors panel could not be shown");
             foreach (var button in panel.GetVisualDescendants().OfType<Button>().Where(b => b.IsEffectivelyVisible))
             {
                 var origin = button.TranslatePoint(default, panel)!.Value;
                 Assert(origin.X >= 0 && origin.X + button.Bounds.Width <= panel.Bounds.Width + 1,
                     $"palette button is outside panel: x={origin.X}, width={button.Bounds.Width}, panel={panel.Bounds.Width}");
             }
+            if (shown) toggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         });
     }
 

@@ -12,8 +12,8 @@
          this lower bound only matters when the engine is built on its own. Raising it to 3.119.4
          made the published web build fail at startup (libSkiaSharp not found), which the browser
          smoke test caught: do not raise it without that test passing. -->
-    <PackageReference Include="SkiaSharp" Version="3.116.1" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.116.1" />
+    <PackageReference Include="SkiaSharp" Version="3.119.4" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.4" />
   </ItemGroup>
 
 </Project>

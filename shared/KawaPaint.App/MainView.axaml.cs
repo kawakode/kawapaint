@@ -242,6 +242,7 @@ public partial class MainView : UserControl
             _autosave = null;
         };
         SetupRulers();
+        SetupFileDrop();
         SetupTexturePaint();
         BuildCommands();
         ApplyHistorySettings();
@@ -284,11 +285,19 @@ public partial class MainView : UserControl
         AttachedToVisualTree += (_, _) =>
         {
             activatable = Application.Current?.TryGetFeature<Avalonia.Controls.ApplicationLifetimes.IActivatableLifetime>();
-            if (activatable is not null) activatable.Deactivated += OnAppDeactivated;
+            if (activatable is not null)
+            {
+                activatable.Deactivated += OnAppDeactivated;
+                activatable.Activated += OnAppActivated;
+            }
         };
         DetachedFromVisualTree += (_, _) =>
         {
-            if (activatable is not null) activatable.Deactivated -= OnAppDeactivated;
+            if (activatable is not null)
+            {
+                activatable.Deactivated -= OnAppDeactivated;
+                activatable.Activated -= OnAppActivated;
+            }
             activatable = null;
         };
 
@@ -306,6 +315,13 @@ public partial class MainView : UserControl
     {
         Loaded -= OnFirstLoadedCheckRecovery;
         await OfferRecoveryAsync();
+
+        // A file named on the command line: "Open with KawaPaint", or a file dropped on its icon.
+        if (App.StartupFile is { } startupFile)
+        {
+            App.StartupFile = null;
+            await OpenPathAsync(startupFile);
+        }
     }
 
     /// <summary>
@@ -392,7 +408,7 @@ public partial class MainView : UserControl
     /// Records that the document on screen matches what is on disk. Starts a new session when the
     /// document itself was replaced (New, Open), and marks the existing one saved otherwise.
     /// </summary>
-    private void SetClean(IStorageFile? file)
+    private void SetClean(IStorageFile? file, string? displayName = null)
     {
         _currentFile = file;
 
@@ -406,11 +422,13 @@ public partial class MainView : UserControl
             // A previous session's recovery snapshots are now moot: either its document is the
             // one just opened cleanly (this branch fires on New/Open too), or it was abandoned.
             if (_session is not null) DiscardRecovery(_session.SessionId);
-            _session = new DocumentSession(document, localPath, file?.Name);
+            _session = new DocumentSession(document, localPath, file?.Name ?? displayName);
+            _sourceImage = null;   // a different document: the caller names its source, if any
+            _sourceImageOptions = null;
         }
         else
         {
-            _session.MarkSaved(localPath, file?.Name);
+            _session.MarkSaved(localPath, file?.Name ?? displayName);
             DiscardRecovery(_session.SessionId);
         }
 
@@ -454,7 +472,7 @@ public partial class MainView : UserControl
             new ConfirmSaveDialog("Save changes to the current image before continuing?"));
         return choice switch
         {
-            SaveChoice.Save => await SaveProjectAsync(),
+            SaveChoice.Save => await SaveAsync(),
             SaveChoice.Discard => true,
             _ => false
         };
@@ -504,46 +522,160 @@ public partial class MainView : UserControl
 
         var file = files.FirstOrDefault();
         if (file is null) return;
+        await OpenImageAsync(file.Name, LocalPathOf(file), file);
+    }
 
+    /// <summary>
+    /// The image file the open document came from, when it came from one. Save writes back to it
+    /// (see <see cref="CanSaveBackTo"/>) and Export proposes its name, instead of both starting
+    /// over from "untitled". The path is null where files have none (browser, Android content).
+    /// </summary>
+    private sealed record SourceImage(string Name, string? LocalPath);
+
+    private SourceImage? _sourceImage;
+
+    /// <summary>Quality settings chosen the first time the source image was saved back, so a
+    /// JPEG is not asked about on every Ctrl+S.</summary>
+    private EncodeOptions? _sourceImageOptions;
+
+    /// <summary>
+    /// Opens an image from a picked or dropped <paramref name="file"/>, or from
+    /// <paramref name="localPath"/> alone (a file named on the command line). The caller has
+    /// already asked about unsaved changes. Decoding runs off the UI thread: a large photo used
+    /// to freeze the window for as long as it took to decode.
+    /// </summary>
+    private async Task<bool> OpenImageAsync(string name, string? localPath, IStorageFile? file)
+    {
+        Document? before = Canvas.Document;
+        long editsBefore = _session?.EditCount ?? 0;
+        StatusText.Text = $"Opening {name}…";
         try
         {
-            await using var stream = await file.OpenReadAsync();
-            using var sourceBuffer = new MemoryStream();
-            await stream.CopyToAsync(sourceBuffer);
-            byte[] sourceBytes = sourceBuffer.ToArray();
-            using var decodeStream = new MemoryStream(sourceBytes);
-            var frames = CodecRegistry.DecodeFrames(decodeStream, file.Name);
-            var doc = new Document(frames[0].Surface.Width, frames[0].Surface.Height);
-            doc.ExifTiff = ExifPreserver.ExtractTiff(sourceBytes);
-            string baseName = System.IO.Path.GetFileNameWithoutExtension(file.Name);
-            for (int index = 0; index < frames.Count; index++)
+            byte[] sourceBytes;
+            if (file is not null)
             {
-                DecodedImageFrame frame = frames[index];
-                string name = frames.Count == 1 ? baseName : $"Frame {index + 1}";
-                int duration = Math.Max(10, frame.DurationMs);
-                if (index == 0)
-                {
-                    doc.AddLayer(new Layer(frame.Surface, baseName));
-                    doc.ActiveFrame.Name = name;
-                    doc.ActiveFrame.DurationMs = duration;
-                }
-                else
-                {
-                    doc.AddFrame(new DocumentFrame(new[] { new Layer(frame.Surface, baseName) }, name, duration),
-                        makeActive: false);
-                }
+                using var buffer = await ReadToMemoryAsync(file);
+                sourceBytes = buffer.ToArray();
             }
-            doc.SetActiveFrame(0);
+            else
+            {
+                sourceBytes = await File.ReadAllBytesAsync(localPath ?? throw new FileNotFoundException("No file to open."));
+            }
+
+            var (doc, frameCount) = await Task.Run(() => BuildDocumentFromImage(sourceBytes, name));
+
+            // The window stayed usable while decoding. Anything drawn meanwhile is unsaved work
+            // the earlier question did not cover.
+            bool editedMeanwhile = !ReferenceEquals(Canvas.Document, before) || (_session?.EditCount ?? 0) != editsBefore;
+            if (editedMeanwhile && !await ConfirmDiscardAsync())
+            {
+                doc.Dispose();
+                StatusText.Text = "Open cancelled";
+                return false;
+            }
+
             Canvas.SetDocument(doc);
-            SetClean(null);   // imported image has no project file yet
-            StatusText.Text = frames.Count == 1
-                ? $"{file.Name} - {doc.Width}×{doc.Height}"
-                : $"{file.Name} - {doc.Width}×{doc.Height}, {frames.Count} timeline frames";
+            SetClean(null, name);   // imported image has no project file yet
+            _sourceImage = new SourceImage(name, localPath);
+            StatusText.Text = frameCount == 1
+                ? $"{name} - {doc.Width}×{doc.Height}"
+                : $"{name} - {doc.Width}×{doc.Height}, {frameCount} timeline frames";
+            return true;
         }
         catch (Exception ex)
         {
             StatusText.Text = "Open failed: " + ex.Message;
+            return false;
         }
+    }
+
+    private static (Document Document, int FrameCount) BuildDocumentFromImage(byte[] sourceBytes, string name)
+    {
+        using var decodeStream = new MemoryStream(sourceBytes);
+        var frames = CodecRegistry.DecodeFrames(decodeStream, name);
+        var doc = new Document(frames[0].Surface.Width, frames[0].Surface.Height);
+        doc.ExifTiff = ExifPreserver.ExtractTiff(sourceBytes);
+        string baseName = System.IO.Path.GetFileNameWithoutExtension(name);
+        for (int index = 0; index < frames.Count; index++)
+        {
+            DecodedImageFrame frame = frames[index];
+            string frameName = frames.Count == 1 ? baseName : $"Frame {index + 1}";
+            int duration = Math.Max(10, frame.DurationMs);
+            if (index == 0)
+            {
+                doc.AddLayer(new Layer(frame.Surface, baseName));
+                doc.ActiveFrame.Name = frameName;
+                doc.ActiveFrame.DurationMs = duration;
+            }
+            else
+            {
+                doc.AddFrame(new DocumentFrame(new[] { new Layer(frame.Surface, baseName) }, frameName, duration),
+                    makeActive: false);
+            }
+        }
+        doc.SetActiveFrame(0);
+        return (doc, frames.Count);
+    }
+
+    /// <summary>
+    /// Opens whatever file the user handed over without going through a menu - dropped on the
+    /// window, named on the command line, or sent by the system's "Open with". Projects and
+    /// images are told apart by extension. Asks about unsaved changes first.
+    /// </summary>
+    private async Task<bool> OpenAnyAsync(string name, string? localPath, IStorageFile? file)
+    {
+        FinishTextEditing();
+        if (!await ConfirmDiscardAsync()) return false;
+
+        if (!name.EndsWith(DocumentFile.Extension, StringComparison.OrdinalIgnoreCase))
+            return await OpenImageAsync(name, localPath, file);
+
+        try
+        {
+            if (file is null && localPath is not null)
+                file = await StorageProvider.TryGetFileFromPathAsync(new Uri(localPath));
+        }
+        catch { /* reported just below */ }
+        if (file is null) { StatusText.Text = "Couldn't open: " + (localPath ?? name); return false; }
+        return await OpenProjectFileAsync(file);
+    }
+
+    /// <summary>Opens a file by its path: the one named on the command line.</summary>
+    private Task<bool> OpenPathAsync(string path)
+    {
+        string full = System.IO.Path.GetFullPath(path);
+        return OpenAnyAsync(System.IO.Path.GetFileName(full), full, null);
+    }
+
+    // ---- files dropped on the window ---------------------------------------
+
+    private void SetupFileDrop()
+    {
+        DragDrop.SetAllowDrop(this, true);
+        AddHandler(DragDrop.DragOverEvent, OnFileDragOver);
+        AddHandler(DragDrop.DropEvent, OnFileDropped);
+    }
+
+    private void OnFileDragOver(object? sender, DragEventArgs e)
+    {
+        e.DragEffects = e.DataTransfer.Formats.Contains(DataFormat.File) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private async void OnFileDropped(object? sender, DragEventArgs e)
+    {
+        var file = e.DataTransfer.TryGetFiles()?.OfType<IStorageFile>().FirstOrDefault();
+        if (file is null) return;
+        e.Handled = true;
+        await OpenAnyAsync(file.Name, LocalPathOf(file), file);
+    }
+
+    private async void OnAppActivated(object? sender, Avalonia.Controls.ApplicationLifetimes.ActivatedEventArgs e)
+    {
+        // "Open with KawaPaint" while the app is already running (how macOS always delivers it).
+        if (e is not Avalonia.Controls.ApplicationLifetimes.FileActivatedEventArgs opened) return;
+        var file = opened.Files.OfType<IStorageFile>().FirstOrDefault();
+        if (file is not null) await OpenAnyAsync(file.Name, LocalPathOf(file), file);
     }
 
     /// <summary>
@@ -592,19 +724,25 @@ public partial class MainView : UserControl
 
         var file = files.FirstOrDefault();
         if (file is null) return;
+        await OpenProjectFileAsync(file);
+    }
 
+    private async Task<bool> OpenProjectFileAsync(IStorageFile file)
+    {
         try
         {
             Document doc;
             using (var stream = await ReadToMemoryAsync(file))
-                doc = DocumentFile.Load(stream);
+                doc = await Task.Run(() => DocumentFile.Load(stream));
             Canvas.SetDocument(doc);
             SetClean(file);
             StatusText.Text = $"{file.Name} - {doc.FrameCount} frame(s), {doc.LayerCount} active layer(s)";
+            return true;
         }
         catch (Exception ex)
         {
             StatusText.Text = "Open project failed: " + ex.Message;
+            return false;
         }
     }
 
@@ -665,22 +803,132 @@ public partial class MainView : UserControl
         catch { /* a git commit failing must never interrupt the user's actual work */ }
     }
 
-    private async void OnSaveProject(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => await SaveProjectAsync();
+    private async void OnSaveProject(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => await SaveAsync();
+
+    private async void OnSaveProjectAs(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        => await SaveProjectAsync(alwaysAsk: true);
+
+    /// <summary>
+    /// Ctrl+S. A document that has a project file is saved to it. One opened from an image and
+    /// still a plain image is written back to that image, the way every image editor does it -
+    /// it used to ask for a new project file each time. Anything else becomes a project.
+    /// </summary>
+    private async Task<bool> SaveAsync()
+    {
+        FinishTextEditing();
+        if (Canvas.Document is not { } document) return false;
+        if (_currentFile is null && _sourceImage is { } source && CanSaveBackTo(source, document))
+            return await SaveImageBackAsync(source);
+        return await SaveProjectAsync();
+    }
+
+    /// <summary>
+    /// True when writing the flattened picture to <paramref name="source"/> loses nothing: one
+    /// layer, one frame, a format this build can write, and a real file to write to. Layers or
+    /// animation frames only survive in a project, so those documents are saved as one.
+    /// </summary>
+    private static bool CanSaveBackTo(SourceImage source, Document document)
+        => source.LocalPath is not null
+           && document.FrameCount == 1 && document.LayerCount == 1
+           && CodecRegistry.FindByExtension(source.Name) is { CanEncode: true, IsAvailable: true };
+
+    private async Task<bool> SaveImageBackAsync(SourceImage source)
+    {
+        var options = _sourceImageOptions ?? EncodeOptions.Default;
+        string? codecId = CodecRegistry.FindByExtension(source.Name)?.Id;
+        if (_sourceImageOptions is null && codecId is "jpeg" or "webp")
+        {
+            var dlg = new SaveOptionsDialog(codecId);
+            if (!await ShowDialogAsync<bool>(dlg)) return false;
+            options = dlg.ResultOptions;
+        }
+
+        try
+        {
+            Document saving = Canvas.Document!;
+            long editsBefore = _session?.EditCount ?? 0;
+            byte[] bytes = await EncodeFlattenedAsync(saving, source.Name, options);
+            await Task.Run(() => WriteFileAtomically(source.LocalPath!, bytes));
+            _sourceImageOptions = options;
+            bool editedWhileSaving = !ReferenceEquals(Canvas.Document, saving)
+                || (_session?.EditCount ?? 0) != editsBefore;
+            SetClean(null, source.Name);
+            if (editedWhileSaving) MarkDirty();
+            StatusText.Text = "Saved " + source.Name;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Save failed: " + ex.Message;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Flattens on the UI thread (a consistent picture of the layers, quick) and encodes on a
+    /// worker thread (slow for a large image, and used to freeze the window).
+    /// </summary>
+    private static async Task<byte[]> EncodeFlattenedAsync(Document document, string fileName, EncodeOptions options)
+    {
+        Surface flat = document.Flatten();
+        byte[]? exif = document.ExifTiff;
+        return await Task.Run(() =>
+        {
+            using (flat)
+            {
+                using var encoded = new MemoryStream();
+                CodecRegistry.Encode(flat, encoded, fileName, options);
+                return ExifPreserver.Inject(encoded.ToArray(), exif, flat.Width, flat.Height);
+            }
+        });
+    }
+
+    /// <summary>Temp file + move, so a failed write never leaves a truncated image where a good
+    /// one used to be.</summary>
+    private static void WriteFileAtomically(string path, byte[] bytes)
+    {
+        string directory = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path)) is { Length: > 0 } d ? d : ".";
+        string temp = System.IO.Path.Combine(directory, $".{System.IO.Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            File.WriteAllBytes(temp, bytes);
+            File.Move(temp, path, overwrite: true);
+        }
+        catch
+        {
+            try { File.Delete(temp); } catch { /* best-effort cleanup */ }
+            throw;
+        }
+    }
+
+    /// <summary>What Export proposes: the name of the image or project being worked on, in the
+    /// source image's own format when this build can write it, PNG otherwise.</summary>
+    private string SuggestedExportName()
+    {
+        string? known = _sourceImage?.Name ?? _currentFile?.Name;
+        string baseName = known is null ? "untitled" : System.IO.Path.GetFileNameWithoutExtension(known);
+        string extension = _sourceImage is { } source
+            && CodecRegistry.FindByExtension(source.Name) is { CanEncode: true, IsAvailable: true }
+                ? System.IO.Path.GetExtension(source.Name).ToLowerInvariant()
+                : ".png";
+        return baseName + extension;
+    }
 
     /// <summary>Saves the project (to the known file, or prompts). Returns true if saved.</summary>
-    private async Task<bool> SaveProjectAsync()
+    private async Task<bool> SaveProjectAsync(bool alwaysAsk = false)
     {
         FinishTextEditing();
         if (Canvas.Document is null) return false;
 
-        var file = _currentFile;
+        var file = alwaysAsk ? null : _currentFile;
         if (file is null || !file.Name.EndsWith(DocumentFile.Extension, StringComparison.OrdinalIgnoreCase))
         {
             file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
                 Title = "Save KawaPaint project",
                 DefaultExtension = DocumentFile.Extension.TrimStart('.'),
-                SuggestedFileName = "untitled" + DocumentFile.Extension
+                SuggestedFileName = System.IO.Path.GetFileNameWithoutExtension(
+                    _currentFile?.Name ?? _sourceImage?.Name ?? "untitled") + DocumentFile.Extension
             });
             if (file is null) return false;
         }
@@ -741,8 +989,8 @@ public partial class MainView : UserControl
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "Export flattened image",
-            DefaultExtension = "png",
-            SuggestedFileName = "untitled.png",
+            DefaultExtension = System.IO.Path.GetExtension(SuggestedExportName()).TrimStart('.'),
+            SuggestedFileName = SuggestedExportName(),
             FileTypeChoices = BuildSaveFilters()
         });
         if (file is null) return;
@@ -758,15 +1006,27 @@ public partial class MainView : UserControl
 
         try
         {
-            using var flat = Canvas.Document.Flatten();
-            using var encoded = new MemoryStream();
-            CodecRegistry.Encode(flat, encoded, file.Name, options);
-            byte[] bytes = ExifPreserver.Inject(encoded.ToArray(), Canvas.Document.ExifTiff,
-                flat.Width, flat.Height);
-            await using var stream = await file.OpenWriteAsync();
-            DiscardOldContents(stream);
-            await stream.WriteAsync(bytes);
+            Document exporting = Canvas.Document;
+            long editsBefore = _session?.EditCount ?? 0;
+            StatusText.Text = $"Exporting {file.Name}…";
+            byte[] bytes = await EncodeFlattenedAsync(exporting, file.Name, options);
+            await using (var stream = await file.OpenWriteAsync())
+            {
+                DiscardOldContents(stream);
+                await stream.WriteAsync(bytes);
+            }
             StatusText.Text = "Exported " + file.Name;
+
+            // A plain image exported to a real file is fully saved there: nothing is left to
+            // lose, so it stops being "modified" and Ctrl+S goes to that file from now on.
+            var exported = new SourceImage(file.Name, LocalPathOf(file));
+            bool unchangedSince = ReferenceEquals(Canvas.Document, exporting) && (_session?.EditCount ?? 0) == editsBefore;
+            if (_currentFile is null && unchangedSince && CanSaveBackTo(exported, exporting))
+            {
+                SetClean(null, file.Name);
+                _sourceImage = exported;
+                _sourceImageOptions = options;
+            }
         }
         catch (Exception ex)
         {
@@ -1343,7 +1603,8 @@ public partial class MainView : UserControl
         Add("file.new", "New", "File", () => OnNew(this, empty), Ctrl(Key.N));
         Add("file.open", "Open Image", "File", () => OnOpen(this, empty), Ctrl(Key.O));
         Add("file.openProject", "Open Project", "File", () => OnOpenProject(this, empty), CtrlShift(Key.O));
-        Add("file.saveProject", "Save Project", "File", () => OnSaveProject(this, empty), Ctrl(Key.S));
+        Add("file.saveProject", "Save", "File", () => OnSaveProject(this, empty), Ctrl(Key.S));
+        Add("file.saveProjectAs", "Save as Project", "File", () => OnSaveProjectAs(this, empty));
         Add("file.export", "Export Flattened", "File", () => OnSaveAs(this, empty), CtrlShift(Key.S));
         Add("file.publishArtwork", "Publish Artwork", "File", () => OnPublishArtwork(this, empty));
         Add("file.linkGitProject", "Link Git Project Folder...", "File", () => _ = OnLinkGitProjectAsync());

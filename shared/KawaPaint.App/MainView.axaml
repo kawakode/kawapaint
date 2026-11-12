@@ -81,7 +81,10 @@
                     <MenuItem Header="(none yet)" IsEnabled="False" />
                 </MenuItem>
                 <Separator />
-                <MenuItem Header="Save _Project…" Click="OnSaveProject" InputGesture="Ctrl+S" Icon="{app:Icon Save}" />
+                <MenuItem Header="_Save" Click="OnSaveProject" InputGesture="Ctrl+S" Icon="{app:Icon Save}"
+                          ToolTip.Tip="Save to the project file, or back to the image this was opened from" />
+                <MenuItem Header="Save as Project…" Click="OnSaveProjectAs"
+                          ToolTip.Tip="Keep layers and frames in a KawaPaint project file" />
                 <MenuItem x:Name="ExportPresetsMenu" Header="_Export" Icon="{app:Icon Export}">
                     <MenuItem Header="Export Flattened…" Click="OnSaveAs" InputGesture="Ctrl+Shift+S" />
                     <MenuItem Header="Export Animation (GIF/APNG/WebP)…" Click="OnExportAnimatedGif" />

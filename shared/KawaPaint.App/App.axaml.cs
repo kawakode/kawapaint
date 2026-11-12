@@ -22,6 +22,12 @@ public partial class App : Application
     /// </summary>
     public static Action<bool>? UnsavedChangesChanged { get; set; }
 
+    /// <summary>
+    /// A file named on the command line, opened once the first view is up. This is how the
+    /// system's "Open with" and a file dropped on the app's icon arrive on Windows and Linux.
+    /// </summary>
+    public static string? StartupFile { get; set; }
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -54,6 +60,7 @@ public partial class App : Application
         }
         else if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            StartupFile = FirstExistingFile(desktop.Args);
             desktop.MainWindow = new MainWindow();
         }
         else if (ApplicationLifetime is ISingleViewApplicationLifetime singleView)
@@ -62,5 +69,17 @@ public partial class App : Application
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private static string? FirstExistingFile(string[]? args)
+    {
+        if (args is null) return null;
+        foreach (string arg in args)
+        {
+            if (arg.StartsWith('-')) continue;
+            try { if (System.IO.File.Exists(arg)) return System.IO.Path.GetFullPath(arg); }
+            catch { /* not a path */ }
+        }
+        return null;
     }
 }

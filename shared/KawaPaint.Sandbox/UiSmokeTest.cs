@@ -12,6 +12,7 @@ using Avalonia.VisualTree;
 using KawaPaint.App;
 using KawaPaint.App.Core;
 using KawaPaint.Engine;
+using KawaPaint.Engine.Codecs;
 
 namespace KawaPaint.Sandbox;
 
@@ -32,6 +33,7 @@ internal static class UiSmokeTest
         Check("undo across animation frames", FrameHistory);
         Check("session follows canvas operations", SessionFollowsDocumentSwaps);
         Check("project save is atomic", ProjectSaveIsAtomic);
+        Check("an opened image saves back to its file", ImageSavesBackToItsFile);
         Check("unhandled UI exceptions", UnhandledUiException);
         Check("paste growing the canvas", PasteGrowingCanvas);
         Check("layout preset rename", LayoutPresetRename);
@@ -383,6 +385,61 @@ internal static class UiSmokeTest
             Wait((Task)write.Invoke(null, [document, null, browser])!);
             using (var loaded = DocumentFile.Load(new MemoryStream(browserStream.ToArray())))   // closed by the save
                 Assert(loaded.Layers[0].Surface[3, 3] == ColorBgra.Black, "browser-style save is not a valid project");
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    /// <summary>
+    /// Opening an image, editing it and pressing Save used to ask for a new project file every
+    /// time, and Export always proposed "untitled.png". A plain image now goes back to its own
+    /// file; one that has gained a layer can only be kept whole as a project.
+    /// </summary>
+    private static void ImageSavesBackToItsFile()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "kawa_image_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        string path = Path.Combine(dir, "holiday.png");
+        try
+        {
+            using (var source = new Surface(12, 9))
+            using (var file = File.Create(path))
+            {
+                source.Clear(ColorBgra.White);
+                CodecRegistry.Encode(source, file, path);
+            }
+
+            WithView(900, 600, (view, _) =>
+            {
+                var canvas = view.FindControl<SurfaceView>("Canvas")!;
+                bool opened = WaitResult((Task<bool>)Invoke(view, "OpenPathAsync", path)!);
+                Assert(opened, "the image named on the command line did not open");
+                Assert(canvas.Document is { Width: 12, Height: 9 }, "the opened image has the wrong size");
+                Assert(!view.IsDirty, "a freshly opened image counts as modified");
+                Assert((string)Invoke(view, "SuggestedExportName")! == "holiday.png",
+                    "Export does not propose the name of the opened image");
+
+                canvas.Document!.Layers[0].Surface[2, 3] = ColorBgra.Black;
+                Field<DocumentSession>(view, "_session").MarkDirty();
+                Assert(view.IsDirty, "an edit did not mark the image as modified");
+
+                bool saved = WaitResult((Task<bool>)Invoke(view, "SaveAsync")!);
+                Assert(saved, "Save did not write the image back");
+                Assert(!view.IsDirty, "the image is still modified after Save");
+                Assert(Directory.GetFiles(dir).Length == 1, "Save left a temp file or a second file behind");
+                using (var stream = File.OpenRead(path))
+                {
+                    var frames = CodecRegistry.DecodeFrames(stream, path);
+                    Assert(frames[0].Surface[2, 3] == ColorBgra.Black, "the saved image does not hold the edit");
+                    foreach (var frame in frames) frame.Surface.Dispose();
+                }
+
+                // With a second layer the PNG can no longer hold the document.
+                canvas.Document!.AddLayer("Sketch");
+                var source = Field<object>(view, "_sourceImage");
+                var canSaveBack = typeof(MainView).GetMethod("CanSaveBackTo", BindingFlags.Static | BindingFlags.NonPublic)!;
+                Assert(!(bool)canSaveBack.Invoke(null, [source, canvas.Document])!,
+                    "a layered document would be flattened into the source image");
+            });
         }
         finally { Directory.Delete(dir, recursive: true); }
     }
@@ -1486,6 +1543,12 @@ internal static class UiSmokeTest
         Assert(task.IsCompleted, "task did not finish");
         task.GetAwaiter().GetResult();
     }
+    private static T WaitResult<T>(Task<T> task)
+    {
+        Wait(task);
+        return task.Result;
+    }
+
     private static Control Overlay(MainView view) => Field<Control>(view, "_canvasDialogOverlay");
     private static T Field<T>(object target, string name) =>
         (T)target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(target)!;

@@ -34,6 +34,30 @@ public partial class App : Application
     /// </summary>
     public static event Action? SentToBackground;
 
+    private static string? _importedFile;
+
+    /// <summary>Raised when <see cref="ImportFile"/> has a file waiting for the view.</summary>
+    public static event Action? ImportedFileArrived;
+
+    /// <summary>
+    /// Hands the app a private copy of an image another app shared with it (Android "Open with"
+    /// and "Share"). The view opens it as an untitled image and deletes the copy: the original
+    /// stays with the app that sent it, so there is no file to save back to.
+    /// </summary>
+    public static void ImportFile(string path)
+    {
+        _importedFile = path;
+        ImportedFileArrived?.Invoke();
+    }
+
+    /// <summary>The file waiting to be opened, if any; it is handed out once.</summary>
+    public static string? TakeImportedFile()
+    {
+        string? path = _importedFile;
+        _importedFile = null;
+        return path;
+    }
+
     public static void RaiseSentToBackground() => SentToBackground?.Invoke();
 
     public override void Initialize()

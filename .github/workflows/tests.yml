@@ -96,7 +96,12 @@ jobs:
       - name: Publish web app
         run: |
           dotnet workload install wasm-tools
-          dotnet publish web/KawaPaint.Web.csproj -c Release -o publish/web
+          # global.json keeps the build on the .NET 10 SDK even where a newer one is installed:
+          # under .NET 11 the wasm-tools workload no longer covers this net10.0 project.
+          # WasmBuildNative is stated outright: SkiaSharp only works once it is linked into the
+          # runtime, and a publish that skipped that step once produced an app that could not
+          # start. Asked for explicitly, a missing native toolchain fails here instead.
+          dotnet publish web/KawaPaint.Web.csproj -c Release -o publish/web -p:WasmBuildNative=true
 
       # Loads the page in Chromium, draws a stroke and checks what only a real browser shows:
       # the app starts, the autosave snapshot reaches IndexedDB, the page asks before closing

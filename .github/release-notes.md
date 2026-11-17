@@ -5,6 +5,7 @@
 | macOS (Apple Silicon) | `KawaPaint-<version>-osx-arm64.dmg` |
 | Windows (x64) | `KawaPaint-<version>-win-x64.zip` |
 | Linux (x64) | `KawaPaint-<version>-linux-x64.AppImage` (or the `.zip`) |
+| Android (test build) | `KawaPaint-<version>-android.apk` |
 
 The builds are self-contained: no .NET runtime is needed.
 
@@ -32,3 +33,9 @@ Make the AppImage executable, then run it: `chmod +x KawaPaint-*.AppImage && ./K
 (or tick "Allow executing file as program" in the file's properties). A tool such as
 AppImageLauncher or Gear Lever adds it to the application menu and to "Open with".
 JPEG XL and JPEG 2000 need the system's `libjxl` and `libopenjp2` packages.
+
+### Android (test build)
+
+The APK is a test build, signed with a temporary key that changes with every release. Android
+refuses to install it over a previous KawaPaint: uninstall the old one first (its settings and
+autosaves go with it). Allow installing from your browser or file manager when Android asks.

@@ -194,11 +194,11 @@ jobs:
           compression-level: 0
           if-no-files-found: error
 
-  # Android package. Always built so it can be tried from the workflow artifacts. It is attached
-  # to releases only once a signing key is configured (secrets ANDROID_KEYSTORE_BASE64,
-  # ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD): without one the APK is
-  # signed with a throwaway debug key that changes on every run, and Android refuses to update an
-  # installed app whose key changed - users would have to uninstall and lose their settings.
+  # Android package, built on every run and attached to tagged releases. With a signing key
+  # configured (secrets ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
+  # ANDROID_KEY_PASSWORD) it is signed with it. Without one - the test phase - it is signed with a
+  # throwaway debug key that changes on every run, so Android refuses to install a new release
+  # over an older one: the previous version has to be uninstalled first (see release-notes.md).
   android:
     runs-on: ubuntu-latest
     permissions:
@@ -261,7 +261,7 @@ jobs:
           compression-level: 0
 
       - name: Upload release assets
-        if: startsWith(github.ref, 'refs/tags/') && env.ANDROID_SIGNED == 'true'
+        if: startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
           name: release-android

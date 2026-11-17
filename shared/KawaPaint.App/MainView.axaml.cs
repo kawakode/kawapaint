@@ -1207,9 +1207,9 @@ public partial class MainView : UserControl
     {
         var doc = Canvas.Document;
         if (doc is null) return;
-        if (DocumentOps.ContentBounds(doc) is not { } bounds) { StatusText.Text = "Auto-Crop: the image is fully transparent"; return; }
+        if (DocumentOps.TrimBounds(doc) is not { } bounds) { StatusText.Text = "Auto-Crop: the image is fully transparent"; return; }
         var (x, y, w, h) = bounds;
-        if (w == doc.Width && h == doc.Height) { StatusText.Text = "Auto-Crop: no transparent border to trim"; return; }
+        if (w == doc.Width && h == doc.Height) { StatusText.Text = "Auto-Crop: no transparent or plain-colour border to trim"; return; }
         RecordAction("image.autocrop");
         ApplyDocumentOp("Auto-Crop", d => DocumentOps.Crop(d, x, y, w, h));
         StatusText.Text = $"Auto-cropped to {w}×{h}";

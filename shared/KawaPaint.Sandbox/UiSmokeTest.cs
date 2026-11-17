@@ -48,6 +48,7 @@ internal static class UiSmokeTest
         Check("history branches in the panel", HistoryBranchesPanel);
         Check("rotate image dialog previews the new size", RotateImageDialogSize);
         Check("grow, shrink and feather selection", SelectionModify);
+        Check("select subject, remove background, isolate subjects", SubjectCommands);
         Check("guides from rulers, snapping and pixel grid", RulerGuides);
         Check("painting on a 3D model", TexturePaintPanel);
         Check("live 3D layer", LiveModelLayer);
@@ -1277,6 +1278,41 @@ internal static class UiSmokeTest
             "undo did not restore the square: " + canvas.Selection.GetBounds());
         canvas.History.Clear();
         document.Dispose();
+    }
+
+    private static void SubjectCommands()
+    {
+        WithView(1100, 760, (view, _) =>
+        {
+            var canvas = view.FindControl<SurfaceView>("Canvas")!;
+            var document = canvas.Document!;
+            var layer = canvas.ActiveLayer!;
+            int w = document.Width, h = document.Height, cx = w / 2, cy = h / 2, r = Math.Min(w, h) / 4;
+            layer.Surface.Clear(ColorBgra.FromBgr(235, 240, 240));
+            for (int y = cy - r; y <= cy + r; y++)
+                for (int x = cx - r; x <= cx + r; x++)
+                    if ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r) layer.Surface[x, y] = ColorBgra.FromBgr(40, 50, 200);
+            int steps = canvas.History.Count;
+
+            Wait((Task)Invoke(view, "SelectSubjectAsync")!);
+            Assert(canvas.Selection!.IsActive && canvas.Selection.IsSelected(cx, cy) && !canvas.Selection.IsSelected(3, 3),
+                "the subject was not selected");
+            canvas.Undo();
+            Assert(!canvas.Selection.IsActive, "undo did not remove the subject selection");
+
+            Wait((Task)Invoke(view, "IsolateSubjectsAsync")!);
+            var isolated = canvas.ActiveLayer!;
+            Assert(isolated != layer && !layer.Visible && isolated.Surface[3, 3].A == 0 && isolated.Surface[cx, cy].A == 255,
+                "the subject was not copied to its own layer");
+            canvas.Undo();
+            Assert(layer.Visible && document.IndexOf(isolated) < 0 && canvas.ActiveLayer == layer, "undo did not remove the subject layer");
+
+            Wait((Task)Invoke(view, "RemoveBackgroundAsync")!);
+            Assert(layer.Surface[3, 3].A == 0 && layer.Surface[cx, cy].A == 255, "the background was not removed");
+            Assert(canvas.History.Count == steps + 1, $"remove background made {canvas.History.Count - steps} steps, expected 1");
+            canvas.Undo();
+            Assert(layer.Surface[3, 3].A == 255, "undo did not bring the background back");
+        });
     }
 
     private static void UndoableSelection()

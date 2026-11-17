@@ -99,6 +99,17 @@ public static class ScriptExecutor
                 currentLayer = Math.Clamp(currentLayer, 0, doc.LayerCount - 1);
                 return Ok();
 
+            case "image.removeBackground":
+            {
+                if (!InRange(currentLayer, doc)) return Skip("no current layer");
+                var surface = doc.Layers[currentLayer].Surface;
+                var mask = SubjectSegmentation.Find(surface);
+                if (mask.IsEmpty) return Skip("no subject stands out");
+                SubjectSegmentation.ApplyAsAlpha(surface, mask.Coverage);
+                doc.Layers[currentLayer].LiveModel = null;
+                return Ok();
+            }
+
             case "layer.duplicate":
                 if (!InRange(currentLayer, doc)) return Skip("no current layer");
                 var dup = doc.Layers[currentLayer].Clone();
@@ -132,7 +143,7 @@ public static class ScriptExecutor
 
             case "image.autocrop":
             {
-                if (DocumentOps.ContentBounds(doc) is not { } content) return Skip("the image is fully transparent");
+                if (DocumentOps.TrimBounds(doc) is not { } content) return Skip("the image is fully transparent");
                 var (x, y, width, height) = content;
                 if (width == doc.Width && height == doc.Height) return Ok();
                 var trimmed = DocumentOps.Crop(doc, x, y, width, height);

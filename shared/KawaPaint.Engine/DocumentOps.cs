@@ -38,12 +38,15 @@ public static class DocumentOps
     /// Auto-Crop. Hidden layers count too, so cropping never cuts into content that is merely
     /// switched off. Returns null when the whole document is transparent.
     /// </summary>
-    public static unsafe (int X, int Y, int W, int H)? ContentBounds(Document doc)
+    public static (int X, int Y, int W, int H)? ContentBounds(Document doc) => ContentBounds(doc, null);
+
+    private static unsafe (int X, int Y, int W, int H)? ContentBounds(Document doc, Func<Layer, bool>? which)
     {
         int minX = doc.Width, minY = doc.Height, maxX = -1, maxY = -1;
         foreach (DocumentFrame frame in doc.Frames)
             foreach (Layer layer in frame.Layers)
             {
+                if (which is not null && !which(layer)) continue;
                 Surface surface = layer.Surface;
                 for (int y = 0; y < surface.Height; y++)
                 {
@@ -61,6 +64,95 @@ public static class DocumentOps
                 }
             }
         return maxX < 0 ? null : (minX, minY, maxX - minX + 1, maxY - minY + 1);
+    }
+
+    /// <summary>Default Auto-Crop tolerance: enough to absorb JPEG noise on a plain backdrop.</summary>
+    public const int DefaultTrimTolerance = 24;
+
+    /// <summary>
+    /// What Auto-Crop keeps: first the transparent margins go (see <see cref="ContentBounds"/>),
+    /// then any border of one uniform colour, read on the composited image of every frame. The
+    /// border colour is the one most corners of what is left agree on (within
+    /// <paramref name="tolerance"/>, per channel); if fewer than two corners agree there is no
+    /// backdrop to trim. Each side then moves in while its whole row or column stays within the
+    /// tolerance of that colour. Hidden layers are not part of the composite, so the trim never
+    /// cuts into their content either. Returns null when the image is fully transparent.
+    /// </summary>
+    public static (int X, int Y, int W, int H)? TrimBounds(Document doc, int tolerance = DefaultTrimTolerance)
+    {
+        if (ContentBounds(doc) is not { } content) return null;
+        if (tolerance < 0) return content;
+
+        int minX = int.MaxValue, minY = int.MaxValue, maxX = -1, maxY = -1;
+        int keep = doc.ActiveFrameIndex;
+        try
+        {
+            for (int f = 0; f < doc.Frames.Count; f++)
+            {
+                if (doc.Frames.Count > 1) doc.SetActiveFrame(f);
+                using var composite = doc.Flatten();
+                var (x, y, w, h) = UniformBorderTrim(composite, content, tolerance);
+                minX = Math.Min(minX, x); minY = Math.Min(minY, y);
+                maxX = Math.Max(maxX, x + w - 1); maxY = Math.Max(maxY, y + h - 1);
+            }
+        }
+        finally
+        {
+            if (doc.Frames.Count > 1) doc.SetActiveFrame(keep);
+        }
+        if (maxX < 0) return content;
+        if (ContentBounds(doc, layer => !layer.Visible) is { } hidden)
+        {
+            minX = Math.Min(minX, hidden.X); minY = Math.Min(minY, hidden.Y);
+            maxX = Math.Max(maxX, hidden.X + hidden.W - 1); maxY = Math.Max(maxY, hidden.Y + hidden.H - 1);
+        }
+        return (minX, minY, maxX - minX + 1, maxY - minY + 1);
+    }
+
+    /// <summary>The part of <paramref name="area"/> left once a uniform-colour border is trimmed.</summary>
+    public static unsafe (int X, int Y, int W, int H) UniformBorderTrim(Surface s, (int X, int Y, int W, int H) area, int tolerance)
+    {
+        var (x0, y0, w, h) = area;
+        int x1 = x0 + w - 1, y1 = y0 + h - 1;
+        if (w < 2 || h < 2) return area;
+
+        ColorBgra[] corners = [s[x0, y0], s[x1, y0], s[x0, y1], s[x1, y1]];
+        ColorBgra backdrop = default;
+        int agree = 0;
+        foreach (var candidate in corners)
+        {
+            int votes = 0;
+            foreach (var other in corners) if (Near(candidate, other, tolerance)) votes++;
+            if (votes > agree) { agree = votes; backdrop = candidate; }
+        }
+        if (agree < 2) return area;
+
+        bool RowIsBackdrop(int y, int from, int to)
+        {
+            ColorBgra* row = (ColorBgra*)s.GetRowPointer(y);
+            for (int x = from; x <= to; x++) if (!Near(row[x], backdrop, tolerance)) return false;
+            return true;
+        }
+        bool ColumnIsBackdrop(int x, int from, int to)
+        {
+            for (int y = from; y <= to; y++) if (!Near(*s.GetPointPointer(x, y), backdrop, tolerance)) return false;
+            return true;
+        }
+
+        while (y0 <= y1 && RowIsBackdrop(y0, x0, x1)) y0++;
+        if (y0 > y1) return area;   // all backdrop: nothing to keep, so trim nothing
+        while (RowIsBackdrop(y1, x0, x1)) y1--;
+        while (ColumnIsBackdrop(x0, y0, y1)) x0++;
+        while (ColumnIsBackdrop(x1, y0, y1)) x1--;
+        return (x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+    }
+
+    /// <summary>Same colour within a per-channel tolerance; two fully transparent pixels always match.</summary>
+    private static bool Near(ColorBgra a, ColorBgra b, int tolerance)
+    {
+        if (a.A == 0 && b.A == 0) return true;
+        return Math.Abs(a.R - b.R) <= tolerance && Math.Abs(a.G - b.G) <= tolerance
+            && Math.Abs(a.B - b.B) <= tolerance && Math.Abs(a.A - b.A) <= tolerance;
     }
 
     /// <summary>Returns a new document scaled to (w,h); every layer is resampled.</summary>

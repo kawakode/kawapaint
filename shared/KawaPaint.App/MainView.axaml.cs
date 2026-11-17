@@ -282,6 +282,8 @@ public partial class MainView : UserControl
         DetachedFromVisualTree += (_, _) => CrashGuard.Reported -= OnUnhandledError;
         AttachedToVisualTree += (_, _) => App.SentToBackground += OnSentToBackground;
         DetachedFromVisualTree += (_, _) => App.SentToBackground -= OnSentToBackground;
+        AttachedToVisualTree += (_, _) => App.ImportedFileArrived += OnImportedFileArrived;
+        DetachedFromVisualTree += (_, _) => App.ImportedFileArrived -= OnImportedFileArrived;
 
         Avalonia.Controls.ApplicationLifetimes.IActivatableLifetime? activatable = null;
         AttachedToVisualTree += (_, _) =>
@@ -339,6 +341,39 @@ public partial class MainView : UserControl
         {
             App.StartupFile = null;
             await OpenPathAsync(startupFile);
+        }
+
+        // An image another app sent before the view existed (Android "Open with" / "Share").
+        await OpenImportedFileAsync();
+    }
+
+    private async void OnImportedFileArrived()
+    {
+        // Before the first load the recovery offer comes first; it opens the file afterwards.
+        if (!IsLoaded) return;
+        try { await OpenImportedFileAsync(); }
+        catch (Exception ex) { CrashGuard.Log("import", ex); }
+    }
+
+    /// <summary>
+    /// Opens the private copy of an image that another app shared (see <see cref="App.ImportFile"/>).
+    /// The copy is not the user's file, so the image opens with no file to save back to - Save
+    /// then asks where to put it - and the copy is deleted once it is read.
+    /// </summary>
+    private async Task OpenImportedFileAsync()
+    {
+        if (App.TakeImportedFile() is not { } path) return;
+        string name = System.IO.Path.GetFileName(path);
+        try
+        {
+            FinishTextEditing();
+            if (!await ConfirmDiscardAsync()) return;
+            if (await OpenImageAsync(name, path, null))
+                _sourceImage = new SourceImage(name, null);
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { /* the head clears its import folder at startup */ }
         }
     }
 

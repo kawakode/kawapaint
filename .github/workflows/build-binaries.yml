@@ -30,7 +30,7 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     permissions:
-      contents: write
+      contents: read
 
     steps:
       - name: Checkout repository
@@ -182,17 +182,125 @@ jobs:
           Compress-Archive -Path publish/${{ matrix.rid }}/* -DestinationPath $name
           "RELEASE_ASSET=$name" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      # All matrix jobs race to create the release; whichever loses the "create" race just
-      # uploads to the release another one made. The install notes (Gatekeeper steps for the
-      # unsigned macOS app, etc.) are placed above GitHub's generated changelog.
-      - name: Attach package to release
+      # Handed to the release job below, which publishes every platform's files in one go.
+      - name: Upload release assets
         if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.rid }}
+          path: |
+            ${{ env.RELEASE_ASSET }}
+            ${{ env.EXTRA_RELEASE_ASSET }}
+          compression-level: 0
+          if-no-files-found: error
+
+  # Android package. Always built so it can be tried from the workflow artifacts. It is attached
+  # to releases only once a signing key is configured (secrets ANDROID_KEYSTORE_BASE64,
+  # ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD): without one the APK is
+  # signed with a throwaway debug key that changes on every run, and Android refuses to update an
+  # installed app whose key changed - users would have to uninstall and lose their settings.
+  android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build Android package
+        shell: bash
+        run: |
+          dotnet workload install android
+          display_version="0.0.${{ github.run_number }}"
+          name="KawaPaint-android.apk"
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            tag="${{ github.ref_name }}"
+            display_version="${tag#[vV]}"
+            name="KawaPaint-${tag}-android.apk"
+          fi
+          signing_args=()
+          if [[ -n "$ANDROID_KEYSTORE_BASE64" ]]; then
+            keystore="$RUNNER_TEMP/kawapaint.keystore"
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+            signing_args=(
+              -p:AndroidKeyStore=true
+              -p:AndroidSigningKeyStore="$keystore"
+              -p:AndroidSigningKeyAlias="$ANDROID_KEY_ALIAS"
+              -p:AndroidSigningStorePass=env:ANDROID_KEYSTORE_PASSWORD
+              -p:AndroidSigningKeyPass=env:ANDROID_KEY_PASSWORD
+            )
+            echo "ANDROID_SIGNED=true" >> "$GITHUB_ENV"
+          fi
+          # The run number only grows, which is what Android wants from a version code.
+          dotnet publish android/KawaPaint.Android.csproj -c Release -o publish/android \
+            -p:AndroidSdkDirectory="$ANDROID_SDK_ROOT" \
+            -p:ApplicationDisplayVersion="$display_version" \
+            -p:ApplicationVersion="${{ github.run_number }}" \
+            "${signing_args[@]}"
+          apk=$(find publish/android -name '*-Signed.apk' | head -n1)
+          test -n "$apk"
+          cp "$apk" "$name"
+          echo "ANDROID_APK=$name" >> "$GITHUB_ENV"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KawaPaint-android-apk
+          path: ${{ env.ANDROID_APK }}
+          compression-level: 0
+
+      - name: Upload release assets
+        if: startsWith(github.ref, 'refs/tags/') && env.ANDROID_SIGNED == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          path: ${{ env.ANDROID_APK }}
+          compression-level: 0
+          if-no-files-found: error
+
+  # One job creates the release and attaches everything. The platform jobs used to race each
+  # other to create it, and a job that lost the race at the wrong moment could fail or leave
+  # the release without its notes.
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      # The install notes (Gatekeeper steps for the unsigned macOS app, etc.) are placed above
+      # GitHub's generated changelog. Re-running the workflow on a tag replaces the files.
+      - name: Publish release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="${{ github.ref_name }}"
-          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --generate-notes --notes-file .github/release-notes.md || true
-          assets=("$RELEASE_ASSET")
-          if [[ -n "${EXTRA_RELEASE_ASSET:-}" ]]; then assets+=("$EXTRA_RELEASE_ASSET"); fi
-          gh release upload "$tag" "${assets[@]}" --clobber
+          ls -l release-assets
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" release-assets/* --clobber
+          else
+            gh release create "$tag" release-assets/* --generate-notes --notes-file .github/release-notes.md
+          fi

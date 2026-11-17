@@ -10,8 +10,8 @@
   <ItemGroup>
     <!-- Kept on the version Avalonia.Skia asks for, so the engine is built and tested against
          the same Skia the apps ship. Dependabot moves them together (the "rendering" group). -->
-    <PackageReference Include="SkiaSharp" Version="3.119.4" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.4" />
+    <PackageReference Include="SkiaSharp" Version="4.156.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="4.156.1" />
   </ItemGroup>
 
 </Project>

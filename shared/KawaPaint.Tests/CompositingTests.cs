@@ -116,4 +116,57 @@ public class BackdropCompositingTests
         Assert.Equal(expected[45, 35], partial[45, 35]);
         Assert.Equal(default, partial[5, 5]);
     }
+
+    /// <summary>
+    /// The document render composites every layer row by row in parallel bands. It must give
+    /// exactly what blending each layer over the whole canvas in turn gives, for a canvas large
+    /// enough to be split into many bands, a partial rectangle, and hidden or transparent layers.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public unsafe void BandedRenderMatchesLayerByLayerReference(bool firstLayerCopied)
+    {
+        const int W = 700, H = 450;
+        var random = new Random(firstLayerCopied ? 7 : 11);
+        using var document = new Document(W, H);
+        BlendMode[] modes = Enum.GetValues<BlendMode>();
+        for (int i = 0; i < 9; i++)
+        {
+            Layer layer = document.AddLayer();
+            layer.BlendMode = i == 0 && firstLayerCopied ? BlendMode.Normal : modes[random.Next(modes.Length)];
+            layer.Opacity = i == 0 && firstLayerCopied ? (byte)255 : (byte)random.Next(1, 256);
+            if (i == 4) layer.Visible = false;
+            if (i == 6) layer.Opacity = 0;
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                    if (random.Next(6) > 0)
+                        layer.Surface[x, y] = Random(random, random.Next(4) == 0 ? (byte)random.Next(256) : (byte)255);
+        }
+
+        using var expected = new Surface(W, H);
+        foreach (Layer layer in document.Layers)
+        {
+            if (!layer.Visible || layer.Opacity == 0) continue;
+            for (int y = 0; y < H; y++)
+                Blending.CompositeSpan(layer.BlendMode, (ColorBgra*)expected.GetRowPointer(y),
+                    (ColorBgra*)layer.Surface.GetRowPointer(y), W, layer.Opacity);
+        }
+
+        using Surface actual = document.Flatten();
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+                Assert.Equal(expected[x, y], actual[x, y]);
+
+        // A partial render touches only its rectangle and matches there.
+        using var partial = new Surface(W, H);
+        partial.Clear(ColorBgra.FromBgra(1, 2, 3, 4));
+        document.RenderTo(partial, 101, 37, 333, 201);
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+            {
+                bool inside = x >= 101 && x < 434 && y >= 37 && y < 238;
+                Assert.Equal(inside ? expected[x, y] : ColorBgra.FromBgra(1, 2, 3, 4), partial[x, y]);
+            }
+    }
 }

@@ -4189,7 +4189,7 @@ public partial class MainView : UserControl
             _opacityLayer = Canvas.ActiveLayer;
         }
         Canvas.ActiveLayer.Opacity = (byte)Math.Round(e.NewValue);
-        Canvas.RenderComposite();
+        Canvas.RenderLayerPropertyPreview();
         Canvas.InvalidateVisual();
     }
 
@@ -4197,6 +4197,7 @@ public partial class MainView : UserControl
 
     private void CommitOpacityChange()
     {
+        Canvas.EndLayerPropertyPreview();
         var layer = _opacityLayer;
         if (layer is null || _opacityBefore is null) return;
         byte before = _opacityBefore.Value, after = layer.Opacity;

@@ -126,6 +126,17 @@ public sealed partial class SurfaceView : Control
     private DocumentFrame? _gestureBackdropFrame;
 
     private readonly record struct BackdropLayer(Layer Layer, bool Visible, byte Opacity, BlendMode Mode);
+
+    // The same idea for a layer property dragged on a slider (opacity): every tick used to
+    // recomposite every layer, about a quarter of a second on a large many-layer canvas. The
+    // layers under the edited one are flattened on the first tick and reused while nothing else
+    // renders in between; any other render bumps the frame's content version and drops it.
+    private Surface? _propertyBackdrop;
+    private bool _propertyBackdropDrew;
+    private Layer? _propertyBackdropLayer;
+    private BackdropLayer[] _propertyBackdropLayers = Array.Empty<BackdropLayer>();
+    private DocumentFrame? _propertyBackdropFrame;
+    private int _propertyBackdropVersion = -1;
     private ToolContext? _toolCtx;
     private ITool? _gestureTool;
     private readonly EraserTool _penEraserTool = new();
@@ -215,6 +226,7 @@ public sealed partial class SurfaceView : Control
         EndPointerGesture();
 
         Document? old = _document;
+        EndLayerPropertyPreview();
         _composite?.Dispose();
         _bitmap?.Dispose();
 
@@ -352,6 +364,63 @@ public sealed partial class SurfaceView : Control
     }
 
     private static BackdropLayer StateOf(Layer layer) => new(layer, layer.Visible, layer.Opacity, layer.BlendMode);
+
+    /// <summary>
+    /// Re-renders the whole canvas after a property of the active layer changed during a slider
+    /// drag. Same result as <see cref="RenderComposite()"/>, but the layers below the active one
+    /// are flattened once for the drag instead of on every tick. Call
+    /// <see cref="EndLayerPropertyPreview"/> when the drag ends.
+    /// </summary>
+    public void RenderLayerPropertyPreview()
+    {
+        if (_document is null || _composite is null || ActiveLayer is null) return;
+        int index = _document.IndexOf(ActiveLayer);
+        if (index <= 0 || _drawing) { RenderComposite(); return; }
+
+        DocumentFrame frame = _document.ActiveFrame;
+        bool valid = _propertyBackdrop is not null
+            && _propertyBackdrop.Width == _composite.Width && _propertyBackdrop.Height == _composite.Height
+            && _propertyBackdropLayer == ActiveLayer
+            && _propertyBackdropFrame == frame
+            && _propertyBackdropVersion == FrameContentVersion(frame)
+            && _propertyBackdropLayers.Length == index;
+        for (int i = 0; valid && i < index; i++)
+            valid = _propertyBackdropLayers[i] == StateOf(_document.Layers[i]);
+
+        if (!valid)
+        {
+            if (_propertyBackdrop is null || _propertyBackdrop.Width != _composite.Width
+                || _propertyBackdrop.Height != _composite.Height)
+            {
+                _propertyBackdrop?.Dispose();
+                _propertyBackdrop = new Surface(_composite.Width, _composite.Height);
+            }
+            _propertyBackdropDrew = _document.RenderBottomLayersTo(_propertyBackdrop, index);
+            _propertyBackdropLayer = ActiveLayer;
+            _propertyBackdropFrame = frame;
+            _propertyBackdropLayers = new BackdropLayer[index];
+            for (int i = 0; i < index; i++) _propertyBackdropLayers[i] = StateOf(_document.Layers[i]);
+        }
+
+        CompositeVersion++;
+        CompositeChanged?.Invoke();
+        _frameContentVersions[frame] = FrameContentVersion(frame) + 1;
+        _document.RenderTo(_composite, 0, 0, _composite.Width, _composite.Height,
+            _propertyBackdropDrew ? _propertyBackdrop : null, index);
+        _propertyBackdropVersion = FrameContentVersion(frame);
+        RefreshBitmap();
+    }
+
+    /// <summary>Releases what <see cref="RenderLayerPropertyPreview"/> kept for the drag.</summary>
+    public void EndLayerPropertyPreview()
+    {
+        _propertyBackdrop?.Dispose();
+        _propertyBackdrop = null;
+        _propertyBackdropLayer = null;
+        _propertyBackdropFrame = null;
+        _propertyBackdropLayers = Array.Empty<BackdropLayer>();
+        _propertyBackdropVersion = -1;
+    }
 
     private unsafe void RefreshBitmap()
         => RefreshBitmap(0, 0, _composite?.Width ?? 0, _composite?.Height ?? 0);

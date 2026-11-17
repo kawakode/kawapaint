@@ -1,5 +1,6 @@
 namespace KawaPaint.Engine;
 
+using System.Runtime.InteropServices;
 using KawaPaint.Engine.MailMerge;
 
 /// <summary>
@@ -204,36 +205,69 @@ public sealed class Document : IDisposable
         if (right <= left || bottom <= top) return false;
 
         int count = right - left;
-        bool hasComposite = backdrop is not null;
-        if (hasComposite) dest.CopyRectFrom(backdrop!, left, top, count, bottom - top);
-        else dest.ClearRect(left, top, count, bottom - top, ColorBgra.Transparent);
+        int rows = bottom - top;
 
+        // The layers that draw anything, in order. Their properties are read once, so a layer
+        // changed by another thread mid-render cannot mix two states inside one composite.
+        var visible = new List<(Surface Surface, byte Opacity, BlendMode Mode)>(endLayer - firstLayer);
         for (int index = firstLayer; index < endLayer; index++)
         {
             Layer layer = _layers[index];
-            if (!layer.Visible || layer.Opacity == 0) continue;
+            if (layer.Visible && layer.Opacity != 0) visible.Add((layer.Surface, layer.Opacity, layer.BlendMode));
+        }
+        var layers = visible.ToArray();
+        bool hasComposite = backdrop is not null || layers.Length > 0;
 
-            var src = layer.Surface;
-            byte op = layer.Opacity;
-            BlendMode mode = layer.BlendMode;
+        // Any source-over a fully transparent destination is exactly the source, so the first
+        // ordinary layer is copied instead of blended - no float math for every opaque pixel in
+        // the most common document shape.
+        int firstBlended = 0;
+        Surface? copyFirst = null;
+        if (backdrop is null && layers.Length > 0 && layers[0].Mode == BlendMode.Normal && layers[0].Opacity == 255)
+        {
+            copyFirst = layers[0].Surface;
+            firstBlended = 1;
+        }
+        Surface? start = backdrop ?? copyFirst;
 
-            // Any source-over a fully transparent destination is exactly the source. Copying the
-            // first ordinary layer also avoids a blend call and three floating-point channels for
-            // every opaque pixel in the most common document shape.
-            if (!hasComposite && mode == BlendMode.Normal && op == 255)
-            {
-                dest.CopyRectFrom(src, left, top, count, bottom - top);
-                hasComposite = true;
-                continue;
-            }
-
-            System.Threading.Tasks.Parallel.For(top, bottom, row =>
+        // Every layer is composited row by row inside one pass, so a destination row is still in
+        // cache while each layer lands on it, and there is one fork/join per render instead of one
+        // per layer. Pixels are blended in the same order as before, so the result is identical.
+        nuint rowBytes = (nuint)count * ColorBgra.SizeOf;
+        void ComposeRows(int from, int to)
+        {
+            for (int row = from; row < to; row++)
             {
                 ColorBgra* dRow = (ColorBgra*)dest.GetRowPointer(row) + left;
-                ColorBgra* sRow = (ColorBgra*)src.GetRowPointer(row) + left;
-                Blending.CompositeSpan(mode, dRow, sRow, count, op);
+                if (start is not null)
+                    NativeMemory.Copy((ColorBgra*)start.GetRowPointer(row) + left, dRow, rowBytes);
+                else
+                    new Span<ColorBgra>(dRow, count).Fill(ColorBgra.Transparent);
+
+                for (int l = firstBlended; l < layers.Length; l++)
+                {
+                    ColorBgra* sRow = (ColorBgra*)layers[l].Surface.GetRowPointer(row) + left;
+                    Blending.CompositeSpan(layers[l].Mode, dRow, sRow, count, layers[l].Opacity);
+                }
+            }
+        }
+
+        // Bands of about 64K pixel-layers each: large enough that scheduling is noise, small
+        // enough that a big canvas still spreads over every core. A brush dab is done inline.
+        long work = (long)count * rows * Math.Max(1, layers.Length - firstBlended);
+        if (work <= 1 << 16)
+        {
+            ComposeRows(top, bottom);
+        }
+        else
+        {
+            int bandRows = (int)Math.Clamp((1L << 16) / ((long)count * Math.Max(1, layers.Length - firstBlended)), 1, 64);
+            int bands = (rows + bandRows - 1) / bandRows;
+            System.Threading.Tasks.Parallel.For(0, bands, band =>
+            {
+                int from = top + band * bandRows;
+                ComposeRows(from, Math.Min(bottom, from + bandRows));
             });
-            hasComposite = true;
         }
         return hasComposite;
     }

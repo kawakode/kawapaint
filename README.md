@@ -148,6 +148,19 @@ model, and crop, resize, flips and rotations keep it sharp. Painting or applying
 turns it into ordinary pixels (undo brings the 3D layer back); **Image > Rasterize 3D Layer** does
 this explicitly. Untick "Keep editable" to import plain pixels straight away.
 
+## Auto-crop and subject isolation
+
+**Image > Auto-Crop** trims transparent borders, then any border of one plain colour (a white
+studio backdrop, a scanned page margin), with enough tolerance for JPEG noise. Hidden layers'
+pixels are never cut.
+
+**Select > Select Subject**, **Image > Remove Background** and **Image > Isolate Subjects to
+Layers** find the subject(s) of the active layer with GrabCut, a classic colour-model and graph-cut
+algorithm: no AI model, nothing to download, and the same result on Windows, Linux, macOS, Android
+and in the browser. It assumes the background reaches the image's edges; when the guess is wrong,
+draw a rough selection around the subject first and only that area is searched. Several separate
+subjects each get their own layer. Remove Background is also a batch script step.
+
 ### Mail merge from CSV
 
 Use the **Dynamic Text / CSV Zone** tool to place a non-destructive text area on a template. Its

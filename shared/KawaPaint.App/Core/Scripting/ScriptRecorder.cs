@@ -94,6 +94,7 @@ public sealed class ScriptRecorder
             case "image.flatten":
             case "image.crop":
             case "image.autocrop":
+            case "image.removeBackground":
             case "layer.add":
             case "layer.delete":
             case "layer.duplicate":

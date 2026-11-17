@@ -136,6 +136,8 @@
                 <MenuItem Header="Select _All" Click="OnSelectAll" InputGesture="Ctrl+A" Icon="{app:Icon SelectAll}" />
                 <MenuItem Header="_Invert" Click="OnInvertSelection" InputGesture="Ctrl+I" Icon="{app:Icon InvertSel}" />
                 <MenuItem Header="Deselect (Select _None)" Click="OnSelectNone" InputGesture="Ctrl+D" Icon="{app:Icon Deselect}" />
+                <MenuItem Header="Select S_ubject" Click="OnSelectSubject" Icon="{app:Icon Subject}"
+                          ToolTip.Tip="Find the main subject(s) of the active layer; with a selection, only inside it" />
                 <Separator />
                 <MenuItem Header="_Grow Selection…" Click="OnGrowSelection" />
                 <MenuItem Header="Shrin_k Selection…" Click="OnShrinkSelection" />
@@ -253,8 +255,13 @@
                 <MenuItem Header="_Resize…" Click="OnResize" Icon="{app:Icon Resize}" />
                 <MenuItem Header="_Canvas Size…" Click="OnCanvasSize" Icon="{app:Icon CanvasSize}" />
                 <MenuItem Header="_Crop to Selection" Click="OnCropToSelection" Icon="{app:Icon Crop}" />
-                <MenuItem Header="_Auto-Crop" Click="OnAutoCrop"
-                          ToolTip.Tip="Trim transparent borders, keeping every visible or hidden pixel" />
+                <MenuItem Header="_Auto-Crop" Click="OnAutoCrop" Icon="{app:Icon AutoCrop}"
+                          ToolTip.Tip="Trim transparent or plain-colour borders, keeping every hidden layer's pixels" />
+                <Separator />
+                <MenuItem Header="Remove _Background" Click="OnRemoveBackground"
+                          ToolTip.Tip="Make everything but the subject(s) of the active layer transparent; with a selection, only inside it" />
+                <MenuItem Header="_Isolate Subjects to Layers" Click="OnIsolateSubjects" Icon="{app:Icon Subject}"
+                          ToolTip.Tip="Copy each subject of the active layer onto its own layer and hide the original" />
                 <Separator />
                 <MenuItem Header="Flip _Horizontal" Click="OnFlipH" Icon="{app:Icon FlipH}" />
                 <MenuItem Header="Flip _Vertical" Click="OnFlipV" Icon="{app:Icon FlipV}" />

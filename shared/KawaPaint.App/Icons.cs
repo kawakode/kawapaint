@@ -83,6 +83,10 @@ public static class Icons
         ["Resize"] = (new[] { "M11 19H5v-6", "M13 5h6v6", "M19 5 5 19" }, false),
         ["CanvasSize"] = (new[] { "M8 3H5a2 2 0 0 0-2 2v3", "M21 8V5a2 2 0 0 0-2-2h-3", "M3 16v3a2 2 0 0 0 2 2h3", "M16 21h3a2 2 0 0 0 2-2v-3" }, false),
         ["Crop"] = (new[] { "M6 2v14a2 2 0 0 0 2 2h14", "M18 22V8a2 2 0 0 0-2-2H2" }, false),
+        // Not from Lucide: its crop glyph with a spark, for the automatic crop.
+        ["AutoCrop"] = (new[] { "M6 2v14a2 2 0 0 0 2 2h8", "M10 6h6a2 2 0 0 1 2 2v6", "M2 6h4", "M18 18v4", "M20 2v4", "M18 4h4" }, false),
+        // Lucide's scan frame around a head and shoulders: the subject inside the picture.
+        ["Subject"] = (new[] { "M3 7V5a2 2 0 0 1 2-2h2", "M17 3h2a2 2 0 0 1 2 2v2", "M21 17v2a2 2 0 0 1-2 2h-2", "M7 21H5a2 2 0 0 1-2-2v-2", "M9.5 9.5 a2.5 2.5 0 1 0 5 0 a2.5 2.5 0 1 0 -5 0", "M7.5 17.5a4.5 4.5 0 0 1 9 0" }, false),
         ["FlipH"] = (new[] { "m3 7 5 5-5 5V7", "m21 7-5 5 5 5V7", "M12 20v2", "M12 14v2", "M12 8v2", "M12 2v2" }, false),
         ["FlipV"] = (new[] { "m17 3-5 5-5-5h10", "m17 21-5-5-5 5h10", "M4 12H2", "M10 12H8", "M16 12h-2", "M22 12h-2" }, false),
         ["RotateCW"] = (new[] { "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8", "M21 3v5h-5" }, false),

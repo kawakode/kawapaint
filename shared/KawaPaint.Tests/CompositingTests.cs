@@ -141,7 +141,8 @@ public class BackdropCompositingTests
             for (int y = 0; y < H; y++)
                 for (int x = 0; x < W; x++)
                     if (random.Next(6) > 0)
-                        layer.Surface[x, y] = Random(random, random.Next(4) == 0 ? (byte)random.Next(256) : (byte)255);
+                        layer.Surface[x, y] = ColorBgra.FromBgra((byte)random.Next(256), (byte)random.Next(256),
+                            (byte)random.Next(256), random.Next(4) == 0 ? (byte)random.Next(256) : (byte)255);
         }
 
         using var expected = new Surface(W, H);

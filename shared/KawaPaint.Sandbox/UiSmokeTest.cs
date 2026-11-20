@@ -49,6 +49,7 @@ internal static class UiSmokeTest
         Check("rotate image dialog previews the new size", RotateImageDialogSize);
         Check("grow, shrink and feather selection", SelectionModify);
         Check("select subject, remove background, isolate subjects", SubjectCommands);
+        Check("stroke around the selection or the layer", StrokeCommand);
         Check("guides from rulers, snapping and pixel grid", RulerGuides);
         Check("painting on a 3D model", TexturePaintPanel);
         Check("live 3D layer", LiveModelLayer);
@@ -1278,6 +1279,62 @@ internal static class UiSmokeTest
             "undo did not restore the square: " + canvas.Selection.GetBounds());
         canvas.History.Clear();
         document.Dispose();
+    }
+
+    private static void StrokeCommand()
+    {
+        WithView(1000, 760, (view, window) =>
+        {
+            view.PreferInlineDialogs = true;
+            var canvas = view.FindControl<SurfaceView>("Canvas")!;
+            var document = canvas.Document!;
+            var layer = canvas.ActiveLayer!;
+            var red = ColorBgra.FromBgra(0, 0, 255, 255);
+            canvas.BrushColor = red;
+            ColorBgra before = layer.Surface[97, 120];
+            canvas.ChangeSelection("Select", () => canvas.Selection!.ReplaceWithRectangle(100, 100, 200, 160));
+            int steps = canvas.History.Count;
+
+            StrokeDialog Dialog() => view.GetVisualDescendants().OfType<StrokeDialog>().Single();
+            void Click(StrokeDialog dialog, string label) =>
+                dialog.GetVisualDescendants().OfType<Button>().First(b => b.Content as string == label)
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+            // Cancel puts every pixel back.
+            var cancelled = (Task)Invoke(view, "StrokeAsync")!;
+            Pump();
+            Assert(layer.Surface[97, 120] == red, "the outside stroke was not previewed: " + layer.Surface[97, 120]);
+            Screenshot(window, "stroke-dialog");
+            Click(Dialog(), "Cancel");
+            Wait(cancelled);
+            Assert(layer.Surface[97, 120] == before && canvas.History.Count == steps, "cancel left the stroke behind");
+
+            // OK on the active layer: one undo step, and the width typed in is the one drawn.
+            var drawn = (Task)Invoke(view, "StrokeAsync")!;
+            Pump();
+            var dialog = Dialog();
+            dialog.GetVisualDescendants().OfType<NumericUpDown>().Single(n => n.Name == "StrokeWidth").Value = 10;
+            Click(dialog, "OK");
+            Wait(drawn);
+            Assert(layer.Surface[91, 120] == red && layer.Surface[89, 120] == before, "the 10 px stroke is off: "
+                + layer.Surface[91, 120] + " / " + layer.Surface[89, 120]);
+            Assert(canvas.History.Count == steps + 1, "stroke was not one undo step");
+            canvas.Undo();
+            Assert(layer.Surface[91, 120] == before, "undo did not remove the stroke");
+
+            // On a new layer: the active layer stays as it was, and undo removes the layer.
+            int layers = document.LayerCount;
+            var onNewLayer = (Task)Invoke(view, "StrokeAsync")!;
+            Pump();
+            dialog = Dialog();
+            dialog.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Content as string == "Draw on a new layer").IsChecked = true;
+            Click(dialog, "OK");
+            Wait(onNewLayer);
+            Assert(document.LayerCount == layers + 1 && layer.Surface[97, 120] == before, "the stroke did not go on a new layer");
+            Assert(document.Layers[document.IndexOf(layer) + 1].Surface[97, 120] == red, "the new layer has no stroke");
+            canvas.Undo();
+            Assert(document.LayerCount == layers, "undo did not remove the stroke layer");
+        });
     }
 
     private static void SubjectCommands()

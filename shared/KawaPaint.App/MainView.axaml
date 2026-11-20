@@ -262,6 +262,8 @@
                           ToolTip.Tip="Make everything but the subject(s) of the active layer transparent; with a selection, only inside it" />
                 <MenuItem Header="_Isolate Subjects to Layers" Click="OnIsolateSubjects" Icon="{app:Icon Subject}"
                           ToolTip.Tip="Copy each subject of the active layer onto its own layer and hide the original" />
+                <MenuItem Header="Stro_ke…" Click="OnStroke" Icon="{app:Icon Stroke}"
+                          ToolTip.Tip="Draw a contour in a color or a gradient around the selection, or around the active layer's opaque pixels" />
                 <Separator />
                 <MenuItem Header="Flip _Horizontal" Click="OnFlipH" Icon="{app:Icon FlipH}" />
                 <MenuItem Header="Flip _Vertical" Click="OnFlipV" Icon="{app:Icon FlipV}" />

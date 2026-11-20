@@ -305,6 +305,7 @@ public partial class MainView
             items.Add(RadialCommand("InvertSel", "Invert Selection", () => OnInvertSelection(this, new RoutedEventArgs())));
             items.Add(RadialCommand("Crop", "Crop to Selection", () => OnCropToSelection(this, new RoutedEventArgs())));
             items.Add(RadialCommand("Subject", "Select Subject", () => OnSelectSubject(this, new RoutedEventArgs())));
+            items.Add(RadialCommand("Stroke", "Stroke", () => OnStroke(this, new RoutedEventArgs())));
         }
 
         var swatch = new Border

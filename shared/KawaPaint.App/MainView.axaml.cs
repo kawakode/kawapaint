@@ -1688,6 +1688,8 @@ public partial class MainView : UserControl
         Add("select.fill", "Fill Selection", "Select", () => OnFillSelection(this, empty), Ctrl(Key.F));
         Add("select.erase", "Erase Selection", "Select", () => OnEraseSelection(this, empty), Bare(Key.Delete), suppressInTextInput: true);
 
+        Add("image.stroke", "Stroke…", "Image", () => OnStroke(this, empty), icon: "Stroke");
+
         // View
         Add("view.zoomIn", "Zoom In", "View", () => Canvas.ZoomIn(), Ctrl(Key.OemPlus));
         Add("view.zoomInNumpad", "Zoom In", "View", () => Canvas.ZoomIn(), Ctrl(Key.Add));

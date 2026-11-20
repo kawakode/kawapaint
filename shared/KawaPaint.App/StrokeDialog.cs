@@ -1,4 +1,4 @@
-// KawaPaint - asks for the settings of Edit > Stroke: width, position against the edge, a colour or
+// KawaPaint - asks for the settings of Image > Stroke: width, position against the edge, a colour or
 // a two-colour gradient, opacity, and whether to draw on a new layer. Every change goes to the
 // caller's preview callback (debounced), and the caller undoes the preview on Cancel.
 

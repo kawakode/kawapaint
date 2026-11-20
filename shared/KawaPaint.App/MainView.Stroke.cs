@@ -1,4 +1,4 @@
-// KawaPaint - Edit > Stroke: draws a contour around the selection or, with nothing selected,
+// KawaPaint - Image > Stroke: draws a contour around the selection or, with nothing selected,
 // around the opaque pixels of the active layer. Previewed live on the canvas while the dialog is
 // open; OK commits one undo step, either on the active layer or as a new layer right above it.
 

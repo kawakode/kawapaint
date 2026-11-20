@@ -163,7 +163,7 @@ subjects each get their own layer. Remove Background is also a batch script step
 
 ## Stroke (contours)
 
-**Select > Stroke…** draws a contour around the selection or, with nothing selected, around the
+**Image > Stroke…** draws a contour around the selection or, with nothing selected, around the
 opaque pixels of the active layer (a cut-out subject, text, a sticker). Choose its width (1 to 500
 px), whether it sits outside, centred on or inside the edge, a solid colour or a two-colour
 gradient (left to right, top to bottom, diagonal, from the centre, or from the inner to the outer

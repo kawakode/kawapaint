@@ -258,8 +258,8 @@
                 <MenuItem Header="_Auto-Crop" Click="OnAutoCrop" Icon="{app:Icon AutoCrop}"
                           ToolTip.Tip="Trim transparent or plain-colour borders, keeping every hidden layer's pixels" />
                 <Separator />
-                <MenuItem Header="Remove _Background" Click="OnRemoveBackground"
-                          ToolTip.Tip="Make everything but the subject(s) of the active layer transparent; with a selection, only inside it" />
+                <MenuItem Header="Remove _Background…" Click="OnRemoveBackground"
+                          ToolTip.Tip="Make everything but the subject(s) of the active layer transparent, with a background color picker and settings; with a selection, only inside it" />
                 <MenuItem Header="_Isolate Subjects to Layers" Click="OnIsolateSubjects" Icon="{app:Icon Subject}"
                           ToolTip.Tip="Copy each subject of the active layer onto its own layer and hide the original" />
                 <MenuItem Header="Stro_ke…" Click="OnStroke" Icon="{app:Icon Stroke}"

@@ -36,16 +36,29 @@ public sealed class SubjectOptions
 
     /// <summary>Background pockets inside a subject smaller than this share of the image are filled.</summary>
     public double MaxHoleShare { get; init; } = 0.0005;
+
+    /// <summary>Background colours chosen by the user (the eyedropper). Empty: they are found
+    /// automatically from the colours along the image's borders.</summary>
+    public IReadOnlyList<ColorBgra> BackdropColors { get; init; } = [];
+
+    /// <summary>How far (RGB distance) a pixel may be from <see cref="BackdropColors"/> and still
+    /// count as background when seeding. Null: worked out from the borders' noise.</summary>
+    public double? BackdropTolerance { get; init; }
 }
 
 /// <summary>The outcome of <see cref="SubjectSegmentation.Find"/>.</summary>
 public sealed class SubjectMask
 {
-    internal SubjectMask(int width, int height, byte[] coverage, int lowWidth, int lowHeight, int[] labels, int[] componentAreas)
+    internal SubjectMask(int width, int height, byte[] coverage, int lowWidth, int lowHeight, int[] labels, int[] componentAreas,
+        Backdrop backdrop)
     {
         Width = width; Height = height; Coverage = coverage;
         LowWidth = lowWidth; LowHeight = lowHeight; _labels = labels; _componentAreas = componentAreas;
+        Backdrop = backdrop;
     }
+
+    /// <summary>The background colours the search went by: the user's, or those found on the borders.</summary>
+    public Backdrop Backdrop { get; }
 
     private readonly int[] _labels;          // per low-res pixel: 0 = background, k = subject k
     private readonly int[] _componentAreas;  // [k-1] = low-res area of subject k
@@ -119,13 +132,16 @@ public static class SubjectSegmentation
         // 0 = sure background, 1 = probable background, 2 = probable foreground, 3 = sure foreground
         var trimap = new byte[n];
         bool hinted = !hint.IsEmpty;
+        // The backdrop is read off the borders even with a hint: Remove Background uses its
+        // colours to clear the pockets the cut leaves inside the subject.
+        var backdrop = AnalyseBorders(color, w, h, options, out var ringBackdrop, out var backdropCenters, out double threshold);
         if (hinted) SeedFromHint(hint, fullW, fullH, w, h, trimap);
-        else SeedFromBorders(color, w, h, trimap);
+        else SeedFromBorders(color, w, h, trimap, ringBackdrop, backdropCenters, threshold);
         for (int i = 0; i < n; i++) if (!opaque[i]) trimap[i] = 0;
 
         var labels = new bool[n];   // true = foreground
         for (int i = 0; i < n; i++) labels[i] = trimap[i] >= 2;
-        if (!HasBoth(labels, opaque)) return Empty(fullW, fullH, w, h);
+        if (!HasBoth(labels, opaque)) return Empty(fullW, fullH, w, h, backdrop);
 
         // --- GrabCut ------------------------------------------------------------------------
         var fg = new Gmm(); var bg = new Gmm();
@@ -175,7 +191,7 @@ public static class SubjectSegmentation
 
         // --- Clean-up: drop specks, fill pinholes, number the subjects ---------------------
         var (componentLabels, areas) = CleanUp(labels, w, h, options);
-        if (areas.Length == 0) return Empty(fullW, fullH, w, h);
+        if (areas.Length == 0) return Empty(fullW, fullH, w, h, backdrop);
 
         // The sure-background ring cannot be a subject; a subject that runs off the image edge
         // would lose that line, so it borrows the label of the pixel just inside.
@@ -199,7 +215,23 @@ public static class SubjectSegmentation
                 }
             }
         }
-        return new SubjectMask(fullW, fullH, coverage, w, h, componentLabels, areas);
+        return new SubjectMask(fullW, fullH, coverage, w, h, componentLabels, areas, backdrop);
+    }
+
+    /// <summary>The background colours along the borders of <paramref name="source"/> (or the
+    /// user's, when the options carry some), without looking for a subject.</summary>
+    public static Backdrop FindBackdrop(Surface source, SubjectOptions? options = null)
+    {
+        options ??= new SubjectOptions();
+        int fullW = source.Width, fullH = source.Height;
+        double scale = Math.Min(1.0, (double)Math.Max(8, options.WorkingSize) / Math.Max(fullW, fullH));
+        int w = Math.Max(1, (int)Math.Round(fullW * scale)), h = Math.Max(1, (int)Math.Round(fullH * scale));
+        var color = new float[w * h * 3];
+        var opaque = new bool[w * h];
+        Surface small = scale < 1 ? source.Resized(w, h) : source;
+        try { ReadPixels(small, color, opaque); }
+        finally { if (!ReferenceEquals(small, source)) small.Dispose(); }
+        return AnalyseBorders(color, w, h, options, out _, out _, out _);
     }
 
     /// <summary>Applies a mask to a selection: replaces it with the subject coverage.</summary>
@@ -229,8 +261,8 @@ public static class SubjectSegmentation
 
     // ---------------------------------------------------------------------------------------
 
-    private static SubjectMask Empty(int fullW, int fullH, int w, int h)
-        => new(fullW, fullH, new byte[fullW * fullH], w, h, new int[w * h], []);
+    private static SubjectMask Empty(int fullW, int fullH, int w, int h, Backdrop backdrop)
+        => new(fullW, fullH, new byte[fullW * fullH], w, h, new int[w * h], [], backdrop);
 
     private static bool HasBoth(bool[] labels, bool[] opaque)
     {
@@ -277,21 +309,44 @@ public static class SubjectSegmentation
         }
     }
 
-    private static void SeedFromBorders(float[] color, int w, int h, byte[] trimap)
+    /// <summary>
+    /// Works out the backdrop from the outermost ring of pixels: its typical colours, which ring
+    /// pixels show it, and how noisy it is. With colours from the user, those are the backdrop.
+    /// </summary>
+    private static Backdrop AnalyseBorders(float[] color, int w, int h, SubjectOptions options,
+        out bool[] ringBackdrop, out double[][] backdropCenters, out double threshold)
     {
-        Array.Fill(trimap, (byte)2);
-        var ring = new List<int>();
-        for (int y = 0; y < h; y++)
-            for (int x = 0; x < w; x++)
-                if (x == 0 || y == 0 || x == w - 1 || y == h - 1) ring.Add(y * w + x);
-        if (w < 3 || h < 3) { foreach (int i in ring) trimap[i] = 0; return; }
+        var ring = RingPixels(w, h);
+        ringBackdrop = new bool[ring.Count];
+        if (options.BackdropColors.Count > 0)
+        {
+            backdropCenters = options.BackdropColors.Select(c => new double[] { c.R, c.G, c.B }).ToArray();
+            double t = Math.Clamp(options.BackdropTolerance ?? Backdrop.DefaultUserTolerance, 1, 255);
+            threshold = t * t;
+            bool anyRing = false;
+            for (int r = 0; r < ring.Count; r++)
+                anyRing |= ringBackdrop[r] = NearestDistance2(color, ring[r], backdropCenters) <= threshold;
+            // Picked colours that show nowhere on the borders still guide the clean-up; seeding
+            // then falls back to the whole ring, as when nothing on it stands out.
+            if (!anyRing) Array.Fill(ringBackdrop, true);
+            return new Backdrop(options.BackdropColors.ToArray(), t, Flat: true, UserChosen: true);
+        }
+
+        if (w < 3 || h < 3)
+        {
+            Array.Fill(ringBackdrop, true);
+            backdropCenters = [];
+            threshold = 0;
+            return Backdrop.None;
+        }
 
         // The frame's typical colours, grouped so that one backdrop split by noise or a gradient
         // into several clusters counts as one colour.
         var centers = KMeans(color, ring, Math.Min(Components, ring.Count), 8);
         double spread = 0;
         foreach (int i in ring) spread += NearestDistance2(color, i, centers);
-        double threshold = Math.Clamp(spread / ring.Count * 4, 15 * 15, 40 * 40);
+        threshold = Math.Clamp(spread / ring.Count * 4, 15 * 15, 40 * 40);
+        if (options.BackdropTolerance is { } given) threshold = Math.Clamp(given, 1, 255) * Math.Clamp(given, 1, 255);
         double groupThreshold = Math.Max(4 * threshold, 40 * 40);
         var group = new int[centers.Length];
         for (int c = 0; c < centers.Length; c++) group[c] = c;
@@ -333,16 +388,73 @@ public static class SubjectSegmentation
             any |= isBackdrop[g];
         }
 
+        var list = new List<double[]>();
+        for (int c = 0; c < centers.Length; c++) if (!any || isBackdrop[Root(c)]) list.Add(centers[c]);
+        backdropCenters = list.ToArray();
+        int shown = 0;
+        for (int r = 0; r < ring.Count; r++)
+        {
+            ringBackdrop[r] = !any || ringGroup[r] >= 0 && isBackdrop[ringGroup[r]];
+            if (any && ringBackdrop[r]) shown++;
+        }
+        if (!any) return Backdrop.None;
+
+        // Flat: a plain colour, or a few (a fake-transparency checkerboard), with little noise,
+        // covering most of the frame. Only such a backdrop is safe to clear from inside the
+        // subject; a photo's backdrop shares too many colours with the subject.
+        double inner = 0; int count = 0;
+        for (int r = 0; r < ring.Count; r++)
+            if (ringBackdrop[r]) { inner += NearestDistance2(color, ring[r], backdropCenters); count++; }
+        double noise = count == 0 ? 0 : Math.Sqrt(inner / count);
+        var colors = Distinct(backdropCenters, 4);
+        int groups = 0;
+        for (int g = 0; g < centers.Length; g++) if (Root(g) == g && isBackdrop[g]) groups++;
+        bool flat = groups <= 3 && noise <= 10 && shown >= 0.5 * ring.Count;
+        return new Backdrop(colors, Math.Sqrt(threshold), flat, UserChosen: false);
+    }
+
+    /// <summary>The centres as colours, merging those closer than <paramref name="within"/>.</summary>
+    private static ColorBgra[] Distinct(double[][] centers, double within)
+    {
+        var result = new List<double[]>();
+        foreach (var c in centers)
+        {
+            bool merged = false;
+            foreach (var r in result)
+            {
+                double dr = c[0] - r[0], dg = c[1] - r[1], db = c[2] - r[2];
+                if (dr * dr + dg * dg + db * db <= within * within) { merged = true; break; }
+            }
+            if (!merged) result.Add(c);
+        }
+        return result.Select(c => ColorBgra.FromBgr(
+            (byte)Math.Clamp(Math.Round(c[2]), 0, 255), (byte)Math.Clamp(Math.Round(c[1]), 0, 255),
+            (byte)Math.Clamp(Math.Round(c[0]), 0, 255))).ToArray();
+    }
+
+    private static List<int> RingPixels(int w, int h)
+    {
+        var ring = new List<int>();
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                if (x == 0 || y == 0 || x == w - 1 || y == h - 1) ring.Add(y * w + x);
+        return ring;
+    }
+
+    private static void SeedFromBorders(float[] color, int w, int h, byte[] trimap,
+        bool[] ringBackdrop, double[][] backdrop, double threshold)
+    {
+        Array.Fill(trimap, (byte)2);
+        var ring = RingPixels(w, h);
+        if (w < 3 || h < 3) { foreach (int i in ring) trimap[i] = 0; return; }
+
         var queue = new Queue<int>();
         var seen = new bool[w * h];
-        var backdropCenters = new List<double[]>();
-        for (int c = 0; c < centers.Length; c++) if (!any || isBackdrop[Root(c)]) backdropCenters.Add(centers[c]);
-        var backdrop = backdropCenters.ToArray();
         for (int r = 0; r < ring.Count; r++)
         {
             int i = ring[r];
             seen[i] = true;
-            if (any && (ringGroup[r] < 0 || !isBackdrop[ringGroup[r]])) continue;
+            if (!ringBackdrop[r]) continue;
             trimap[i] = 0;
             queue.Enqueue(i);
         }
@@ -360,7 +472,7 @@ public static class SubjectSegmentation
                 int j = ny * w + nx;
                 if (seen[j]) continue;
                 seen[j] = true;
-                if (NearestDistance2(color, j, backdrop) > threshold) continue;
+                if (backdrop.Length == 0 || NearestDistance2(color, j, backdrop) > threshold) continue;
                 trimap[j] = 1;
                 queue.Enqueue(j);
             }

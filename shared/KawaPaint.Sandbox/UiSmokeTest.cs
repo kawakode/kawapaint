@@ -1339,8 +1339,9 @@ internal static class UiSmokeTest
 
     private static void SubjectCommands()
     {
-        WithView(1100, 760, (view, _) =>
+        WithView(1100, 760, (view, window) =>
         {
+            view.PreferInlineDialogs = true;
             var canvas = view.FindControl<SurfaceView>("Canvas")!;
             var document = canvas.Document!;
             var layer = canvas.ActiveLayer!;
@@ -1369,6 +1370,38 @@ internal static class UiSmokeTest
             Assert(canvas.History.Count == steps + 1, $"remove background made {canvas.History.Count - steps} steps, expected 1");
             canvas.Undo();
             Assert(layer.Surface[3, 3].A == 255, "undo did not bring the background back");
+
+            // The dialog: previewed on the canvas, Cancel puts it back, the eyedropper and
+            // Defaults change the settings, OK is one undo step.
+            RemoveBackgroundDialog Dialog() => view.GetVisualDescendants().OfType<RemoveBackgroundDialog>().Single();
+            void Click(RemoveBackgroundDialog dialog, string label) =>
+                dialog.GetVisualDescendants().OfType<Button>().First(b => b.Content as string == label)
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+            int beforeDialog = canvas.History.Count;
+            var cancelled = (Task)Invoke(view, "RemoveBackgroundWithDialogAsync")!;
+            WaitFor(() => view.GetVisualDescendants().OfType<RemoveBackgroundDialog>().Any(), "the Remove Background dialog did not open");
+            WaitFor(() => layer.Surface[3, 3].A == 0, "the background removal was not previewed");
+            Assert(layer.Surface[cx, cy].A == 255, "the preview removed the subject too: " + layer.Surface[cx, cy]);
+            Screenshot(window, "remove-background-dialog");
+            Click(Dialog(), "Cancel");
+            Wait(cancelled);
+            Assert(layer.Surface[3, 3].A == 255 && canvas.History.Count == beforeDialog, "cancel left the preview behind");
+
+            var applied = (Task)Invoke(view, "RemoveBackgroundWithDialogAsync")!;
+            WaitFor(() => view.GetVisualDescendants().OfType<RemoveBackgroundDialog>().Any(), "the Remove Background dialog did not open again");
+            var dialog = Dialog();
+            dialog.AddColor(ColorBgra.FromBgr(235, 240, 240));
+            Assert(dialog.Result.Colors.Count == 1, "the picked color was not taken");
+            dialog.ResetToDefaults();
+            Assert(dialog.Result.Colors.Count == 0 && dialog.Result.Tolerance is null && dialog.Result.RemoveEnclosed,
+                "Defaults did not reset the settings");
+            Click(dialog, "OK");
+            Wait(applied);
+            Assert(layer.Surface[3, 3].A == 0 && layer.Surface[cx, cy].A == 255, "the dialog did not remove the background");
+            Assert(canvas.History.Position == canvas.History.Count && canvas.History.Steps()[^1].Name == "Remove Background", "the dialog did not make a Remove Background step");
+            canvas.Undo();
+            Assert(layer.Surface[3, 3].A == 255, "undo did not bring the background back after the dialog");
         });
     }
 

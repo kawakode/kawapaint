@@ -1,11 +1,17 @@
 // KawaPaint - Select Subject, Remove Background and Isolate Subjects to Layers.
 //
-// All three run SubjectSegmentation (GrabCut, no trained model) on the active layer. An active
-// selection is used as the hint: only what it covers can be a subject, so a rough lasso around
-// the subject steers the result when the automatic guess picks the wrong thing.
+// All three run BackgroundRemoval (GrabCut with no trained model, then a full-size clean-up of
+// the background colours left inside the subject and along its edges) on the active layer. An
+// active selection is used as the hint: only what it covers can be a subject, so a rough lasso
+// around the subject steers the result when the automatic guess picks the wrong thing.
+//
+// Remove Background opens a dialog first (eyedropper for the background colours, tolerance,
+// enclosed areas, edges), previewed live on the canvas; RemoveBackgroundAsync applies the
+// defaults straight away, as the script step does.
 
 using System;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using KawaPaint.Engine;
 
@@ -20,13 +26,16 @@ public partial class MainView
 
     private void OnSelectSubject(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => _ = SelectSubjectAsync();
 
-    private void OnRemoveBackground(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => _ = RemoveBackgroundAsync();
+    private void OnRemoveBackground(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => _ = RemoveBackgroundWithDialogAsync();
 
     private void OnIsolateSubjects(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => _ = IsolateSubjectsAsync();
 
-    /// <summary>Runs the segmentation off the UI thread on a copy of the active layer. Null when
-    /// there is nothing to work on, another run is going, or the document changed meanwhile.</summary>
-    private async Task<(Document Doc, Layer Layer, SubjectMask Mask)?> FindSubjectAsync(string name)
+    private SubjectOptions SubjectSearchOptions() => new() { WorkingSize = OperatingSystem.IsBrowser() ? 384 : 512 };
+
+    /// <summary>Runs the search off the UI thread on a copy of the active layer, with the default
+    /// settings. Null when there is nothing to work on, another run is going, or the document
+    /// changed meanwhile.</summary>
+    private async Task<(Document Doc, Layer Layer, BackgroundCut Cut)?> FindSubjectAsync(string name)
     {
         var doc = Canvas.Document;
         var layer = Canvas.ActiveLayer;
@@ -35,14 +44,14 @@ public partial class MainView
         bool hinted = Canvas.Selection is { IsActive: true };
         byte[]? hint = hinted ? Canvas.Selection!.Mask.ToArray() : null;
         var pixels = layer.Surface.Clone();
-        var options = new SubjectOptions { WorkingSize = OperatingSystem.IsBrowser() ? 384 : 512 };
+        var options = SubjectSearchOptions();
 
         _findingSubject = true;
         StatusText.Text = name + ": looking for the subject…";
-        SubjectMask mask;
+        BackgroundCut cut;
         try
         {
-            mask = await Task.Run(() => SubjectSegmentation.Find(pixels, hint, options));
+            cut = await Task.Run(() => BackgroundRemoval.Compute(pixels, BackgroundOptions.Default, hint, options));
         }
         catch (Exception ex)
         {
@@ -56,32 +65,34 @@ public partial class MainView
         }
 
         if (!ReferenceEquals(Canvas.Document, doc) || doc.IndexOf(layer) < 0
-            || mask.Width != doc.Width || mask.Height != doc.Height)
+            || cut.Width != doc.Width || cut.Height != doc.Height)
         {
             StatusText.Text = name + ": the image changed while looking, so nothing was applied";
             return null;
         }
-        if (mask.IsEmpty)
+        if (cut.Subject is { IsEmpty: true } || cut.IsEmpty)
         {
-            StatusText.Text = hinted
-                ? name + ": no subject stands out inside the selection"
-                : name + ": no subject stands out - select roughly around it and try again";
+            StatusText.Text = NoSubjectMessage(name, hinted);
             return null;
         }
-        return (doc, layer, mask);
+        return (doc, layer, cut);
     }
+
+    private static string NoSubjectMessage(string name, bool hinted) => hinted
+        ? name + ": no subject stands out inside the selection"
+        : name + ": no subject stands out - select roughly around it and try again";
 
     private async Task SelectSubjectAsync()
     {
         RecordSkipped("Select Subject");
         if (await FindSubjectAsync("Select Subject") is not { } found) return;
         if (Canvas.Selection is not { } selection) return;
-        Canvas.ChangeSelection("Select Subject", () => SubjectSegmentation.ApplyTo(selection, found.Mask.Coverage));
-        StatusText.Text = found.Mask.SubjectCount == 1
-            ? "Subject selected"
-            : $"{found.Mask.SubjectCount} subjects selected";
+        Canvas.ChangeSelection("Select Subject", () => SubjectSegmentation.ApplyTo(selection, found.Cut.Coverage));
+        int count = found.Cut.Subject?.SubjectCount ?? 1;
+        StatusText.Text = count == 1 ? "Subject selected" : $"{count} subjects selected";
     }
 
+    /// <summary>Remove Background with the default settings, no dialog.</summary>
     private async Task RemoveBackgroundAsync()
     {
         // Scripts replay it on whole images (batch background removal); demos skip it, since the
@@ -89,28 +100,183 @@ public partial class MainView
         _scriptRecorder.NoteAction("image.removeBackground");
         RecordSkipped("Remove Background");
         if (await FindSubjectAsync("Remove Background") is not { } found) return;
-        var (_, layer, mask) = found;
+        var (_, layer, cut) = found;
 
         var snapshot = layer.Surface.Clone();
-        SubjectSegmentation.ApplyAsAlpha(layer.Surface, mask.Coverage);
+        cut.ApplyTo(layer.Surface);
         Canvas.History.Push(TileDeltaMemento.Consume(layer, snapshot, "Remove Background"));
         RefreshDocument();
         StatusText.Text = $"Background removed from {layer.Name}";
     }
 
+    private async Task RemoveBackgroundWithDialogAsync()
+    {
+        var doc = Canvas.Document;
+        var layer = Canvas.ActiveLayer;
+        if (doc is null || layer is null || _findingSubject) return;
+        _scriptRecorder.NoteAction("image.removeBackground");
+        RecordSkipped("Remove Background");
+
+        bool hinted = Canvas.Selection is { IsActive: true };
+        byte[]? hint = hinted ? Canvas.Selection!.Mask.ToArray() : null;
+        var snapshot = layer.Surface.Clone();     // the source of every preview, read-only until the end
+        var searchOptions = SubjectSearchOptions();
+
+        // Previews run one at a time; a newer one makes an older result stale. The subject search
+        // (the slow part) is redone only when the method or the background colours change.
+        var gate = new SemaphoreSlim(1, 1);
+        int version = 0;
+        bool closed = false;
+        SubjectMask? subject = null;
+        string? subjectKey = null;
+        BackgroundCut? shown = null;
+        BackgroundOptions? shownOptions = null;
+        RemoveBackgroundDialog? dialog = null;
+
+        static string KeyOf(BackgroundOptions o)
+            => o.Mode + ":" + string.Join(",", o.Colors.Select(c => c.Bgra.ToString("X8")));
+
+        BackgroundCut Compute(BackgroundOptions o)
+        {
+            if (o.Mode == BackgroundMode.ColorsOnly) return BackgroundRemoval.Compute(snapshot, o, hint, searchOptions);
+            string key = KeyOf(o);
+            if (subject is null || subjectKey != key)
+            {
+                var seeded = new SubjectOptions { WorkingSize = searchOptions.WorkingSize, BackdropColors = o.Colors };
+                subject = SubjectSegmentation.Find(snapshot, hint, seeded);
+                subjectKey = key;
+            }
+            return BackgroundRemoval.Refine(snapshot, subject, o, hint);
+        }
+
+        void Show(BackgroundCut cut)
+        {
+            layer.Surface.CopyFrom(snapshot);
+            cut.ApplyTo(layer.Surface);
+            Canvas.RenderComposite();
+            Canvas.InvalidateVisual();
+        }
+
+        string Describe(BackgroundCut cut, BackgroundOptions o)
+        {
+            if (cut.Subject is { IsEmpty: true } || cut.IsEmpty)
+                return o.Mode == BackgroundMode.ColorsOnly
+                    ? "Nothing would be left - lower the tolerance or pick other colors"
+                    : hinted
+                        ? "No subject stands out inside the selection - pick the background color, or try Background colors only"
+                        : "No subject stands out - pick the background color, or select roughly around the subject first";
+            if (!cut.Backdrop.Usable)
+                return "The background is not a plain color, so only the subject search applies. "
+                    + "Pick its color to also clear what is left of it.";
+            string colors = cut.Backdrop.UserChosen ? "picked" : "found on the borders";
+            return $"Background colors {colors}: {cut.Backdrop.Colors.Length}.";
+        }
+
+        async void Preview(BackgroundOptions o)
+        {
+            int mine = ++version;
+            dialog?.SetStatus(o.Mode == BackgroundMode.Subject && (subject is null || subjectKey != KeyOf(o))
+                ? "Looking for the subject…" : "Updating…");
+            await gate.WaitAsync();
+            try
+            {
+                if (mine != version || closed) return;
+                var cut = await Task.Run(() => Compute(o));
+                if (mine != version || closed) return;
+                shown = cut; shownOptions = o;
+                Show(cut);
+                dialog?.SetAutoTolerance(BackgroundRemoval.AutoTolerance(cut.Backdrop));
+                dialog?.SetStatus(Describe(cut, o));
+            }
+            catch (Exception ex)
+            {
+                if (!closed) dialog?.SetStatus("Preview failed: " + ex.Message);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }
+
+        _findingSubject = true;
+        bool ok;
+        BackgroundOptions final;
+        try
+        {
+            var backdrop = await Task.Run(() => SubjectSegmentation.FindBackdrop(snapshot, searchOptions));
+            string description = hinted
+                ? "Keeps the subject inside the selection and makes the rest transparent."
+                : $"Keeps the subject of {layer.Name} and makes the background transparent.";
+            dialog = new RemoveBackgroundDialog(description, snapshot, BackgroundRemoval.AutoTolerance(backdrop), Preview);
+            ok = await ShowDialogAsync<bool>(dialog);
+            final = dialog.Result;
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Remove Background failed: " + ex.Message;
+            ok = false;
+            final = BackgroundOptions.Default;
+        }
+
+        // Let a preview that is running finish, then take over.
+        version++;
+        await gate.WaitAsync();
+        closed = true;
+        try
+        {
+            BackgroundCut? cut = null;
+            if (ok)
+            {
+                try
+                {
+                    cut = shown is not null && shownOptions is not null && SameSettings(shownOptions, final)
+                        ? shown
+                        : await Task.Run(() => Compute(final));
+                }
+                catch (Exception ex)
+                {
+                    StatusText.Text = "Remove Background failed: " + ex.Message;
+                }
+            }
+
+            if (cut is null || cut.Subject is { IsEmpty: true } || cut.IsEmpty)
+            {
+                layer.Surface.CopyFrom(snapshot);
+                snapshot.Dispose();
+                RefreshDocument();
+                if (ok && cut is not null) StatusText.Text = NoSubjectMessage("Remove Background", hinted);
+                return;
+            }
+
+            Show(cut);
+            Canvas.History.Push(TileDeltaMemento.Consume(layer, snapshot, "Remove Background"));
+            RefreshDocument();
+            StatusText.Text = $"Background removed from {layer.Name}";
+        }
+        finally
+        {
+            _findingSubject = false;
+            gate.Release();
+        }
+    }
+
+    private static bool SameSettings(BackgroundOptions a, BackgroundOptions b)
+        => a with { Colors = [] } == b with { Colors = [] } && a.Colors.SequenceEqual(b.Colors);
+
     private async Task IsolateSubjectsAsync()
     {
         RecordSkipped("Isolate Subjects to Layers");
         if (await FindSubjectAsync("Isolate Subjects") is not { } found) return;
-        var (doc, source, mask) = found;
+        var (doc, source, cut) = found;
+        if (cut.Subject is not { } mask) return;
 
         int count = Math.Min(mask.SubjectCount, MaxIsolatedSubjects);
         var layers = new Layer[count];
         for (int k = 0; k < count; k++)
         {
-            var (coverage, _, _, _, _) = mask.SubjectCoverage(k);
+            var coverage = cut.SubjectCoverage(k);
             var surface = source.Surface.Clone();
-            SubjectSegmentation.ApplyAsAlpha(surface, coverage);
+            cut.ApplyTo(surface, coverage);
             layers[k] = new Layer(surface, count == 1 ? "Subject" : $"Subject {k + 1}")
             {
                 BlendMode = source.BlendMode,

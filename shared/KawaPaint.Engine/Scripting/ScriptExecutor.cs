@@ -103,9 +103,9 @@ public static class ScriptExecutor
             {
                 if (!InRange(currentLayer, doc)) return Skip("no current layer");
                 var surface = doc.Layers[currentLayer].Surface;
-                var mask = SubjectSegmentation.Find(surface);
-                if (mask.IsEmpty) return Skip("no subject stands out");
-                SubjectSegmentation.ApplyAsAlpha(surface, mask.Coverage);
+                var cut = BackgroundRemoval.Compute(surface);
+                if (cut.IsEmpty) return Skip("no subject stands out");
+                cut.ApplyTo(surface);
                 doc.Layers[currentLayer].LiveModel = null;
                 return Ok();
             }

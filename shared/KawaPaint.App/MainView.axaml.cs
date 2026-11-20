@@ -1686,6 +1686,7 @@ public partial class MainView : UserControl
         Add("select.none", "Deselect", "Select", () => OnSelectNone(this, empty), Ctrl(Key.D));
         Add("select.invert", "Invert Selection", "Select", () => OnInvertSelection(this, empty), Ctrl(Key.I));
         Add("select.fill", "Fill Selection", "Select", () => OnFillSelection(this, empty), Ctrl(Key.F));
+        Add("select.stroke", "Stroke…", "Select", () => OnStroke(this, empty), icon: "Stroke");
         Add("select.erase", "Erase Selection", "Select", () => OnEraseSelection(this, empty), Bare(Key.Delete), suppressInTextInput: true);
 
         // View

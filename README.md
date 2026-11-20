@@ -161,6 +161,15 @@ and in the browser. It assumes the background reaches the image's edges; when th
 draw a rough selection around the subject first and only that area is searched. Several separate
 subjects each get their own layer. Remove Background is also a batch script step.
 
+## Stroke (contours)
+
+**Select > Stroke…** draws a contour around the selection or, with nothing selected, around the
+opaque pixels of the active layer (a cut-out subject, text, a sticker). Choose its width (1 to 500
+px), whether it sits outside, centred on or inside the edge, a solid colour or a two-colour
+gradient (left to right, top to bottom, diagonal, from the centre, or from the inner to the outer
+edge of the contour) and its opacity. The canvas previews every change; OK is one undo step, on the
+active layer or on a new layer just above it. Colours start from the primary and secondary colours.
+
 ### Mail merge from CSV
 
 Use the **Dynamic Text / CSV Zone** tool to place a non-destructive text area on a template. Its

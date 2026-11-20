@@ -147,6 +147,8 @@
                 <MenuItem Header="Discard Pen Pat_h" Click="OnCancelPenPath" InputGesture="Escape" />
                 <Separator />
                 <MenuItem Header="_Fill Selection" Click="OnFillSelection" InputGesture="Ctrl+F" Icon="{app:Icon Fill}" />
+                <MenuItem Header="St_roke…" Click="OnStroke" Icon="{app:Icon Stroke}"
+                          ToolTip.Tip="Draw a contour in a color or a gradient around the selection, or around the active layer's opaque pixels" />
                 <MenuItem Header="_Erase Selection" Click="OnEraseSelection" InputGesture="Delete" Icon="{app:Icon Trash}" />
             </MenuItem>
             <MenuItem Header="_View" Classes="topbar">

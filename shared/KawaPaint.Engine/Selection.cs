@@ -843,7 +843,7 @@ public sealed class Selection
 
     /// <summary>One line of the Felzenszwalb-Huttenlocher squared Euclidean distance transform,
     /// in place over <paramref name="count"/> values spaced <paramref name="step"/> apart.</summary>
-    private static void SquaredDistanceLine(float[] data, int start, int step, int count, float[] f, int[] hull, float[] cuts)
+    internal static void SquaredDistanceLine(float[] data, int start, int step, int count, float[] f, int[] hull, float[] cuts)
     {
         for (int i = 0; i < count; i++) f[i] = data[start + i * step];
         int k = 0;

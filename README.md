@@ -161,6 +161,16 @@ and in the browser. It assumes the background reaches the image's edges; when th
 draw a rough selection around the subject first and only that area is searched. Several separate
 subjects each get their own layer. Remove Background is also a batch script step.
 
+When the background is a plain colour (a white page, a studio backdrop, even the grey-and-white
+checkerboard of a fake "transparent" PNG), what GrabCut leaves of it is cleared too: the inside of
+letters, the gap between two lines, specks of paper showing through a worn stamp. Edges get their
+opacity from the colours themselves, and the background's colour is taken out of them, so no pale
+fringe is left. **Remove Background…** opens its settings, previewed live on the canvas: click the
+picture to pick the background colour(s) yourself (eyedropper), set the tolerance, choose between
+finding the subject and removing the background colours everywhere (a global magic eraser),
+keep or clear enclosed areas, clean the edge colours, shrink or feather the edge. **Defaults** goes
+back to the automatic settings, which are also what the script step and Isolate Subjects use.
+
 ## Stroke (contours)
 
 **Image > Stroke…** draws a contour around the selection or, with nothing selected, around the
